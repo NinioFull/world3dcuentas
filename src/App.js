@@ -76,6 +76,18 @@ const MATERIALS = ["PLA","PLA+","PETG","ABS","ASA","TPU","Nylon","Resina","Resin
 const fmtTime = (m) => { if (!m || m <= 0) return "—"; const h = Math.floor(m/60), r = m%60; return h===0?`${r}min`:r===0?`${h}h`:`${h}h ${r}m`; };
 const fmtDate = (ts) => { if (!ts) return ""; return new Date(ts).toLocaleDateString("es-ES",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}); };
 const fmtDateShort = (ts) => { if (!ts) return ""; return new Date(ts).toLocaleDateString("es-ES",{day:"2-digit",month:"short",year:"2-digit"}); };
+// ── Tiempo de un trabajo ──
+// "duration" es por unidad; "remaining" guarda lo que falta para TODAS las unidades (desde esta versión).
+const unidades = (j) => Math.max(1, Number(j?.quantity) || 1);
+const minutosTotales = (j) => (Number(j?.duration) || 0) * unidades(j);
+const avanceJob = (j) => { const t = minutosTotales(j); return t > 0 ? Math.max(0, Math.min(100, Math.round((1 - (Number(j.remaining) || 0) / t) * 100))) : 0; };
+// ── Entregas ──
+// Atrasado = la fecha acordada ya pasó y el trabajo todavía no está hecho (en cola, imprimiendo o en pausa).
+// Lo que ya está listo o para envío no se cuenta como atrasado: solo falta entregarlo.
+const EN_PRODUCCION = ["pending", "printing", "paused"];
+const finDelDia = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); };
+const esAtrasado = (j) => EN_PRODUCCION.includes(j.status) && !!j.deliveryAt && Number(j.deliveryAt) < Date.now();
+const esParaHoy = (j) => j.status !== "shipped" && !!j.deliveryAt && Number(j.deliveryAt) >= Date.now() && Number(j.deliveryAt) <= finDelDia();
 const fmtMoney = (n) => `Bs. ${Number(n||0).toFixed(2)}`;
 const startOfDay = (d=new Date()) => { const x=new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
 const startOfMonth = (d=new Date()) => new Date(d.getFullYear(),d.getMonth(),1).getTime();
@@ -179,6 +191,13 @@ const WheelColumn = ({ items, selected, onChange, width=80 }) => {
   );
 };
 
+// Fecha que se propone al tocar "Poner fecha de entrega": mañana a esta hora, redondeada a 5 minutos
+const fechaPropuesta = () => { const d = new Date(Date.now() + 86400000); d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0); return d.getTime(); };
+const BotonPonerFecha = ({ onClick }) => (
+  <button type="button" onClick={onClick} style={{ width:"100%", minHeight:48, borderRadius:C.rMd, border:`1.5px dashed ${C.bg5}`, background:"transparent", color:C.t2, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+    + Poner fecha de entrega
+  </button>
+);
 const DateTimePicker = ({ value, onChange }) => {
   const MONTHS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
   const WEEKDAYS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
@@ -190,7 +209,9 @@ const DateTimePicker = ({ value, onChange }) => {
   const [dayIdx,setDayIdx] = useState(inits[0]);
   const [hourIdx,setHourIdx] = useState(inits[1]);
   const [minIdx,setMinIdx] = useState(inits[2]);
-  useEffect(() => { const base=new Date(todayMidnight()+dayIdx*86400000); base.setHours(parseInt(hours[hourIdx]),parseInt(minutes[minIdx]),0,0); onChange(base.getTime()); }, [dayIdx,hourIdx,minIdx]);
+  // Solo avisa cuando la persona mueve una rueda: abrir el formulario (o editar un trabajo viejo) no cambia la fecha
+  const primeraVez = useRef(true);
+  useEffect(() => { if (primeraVez.current) { primeraVez.current = false; return; } const base=new Date(todayMidnight()+dayIdx*86400000); base.setHours(parseInt(hours[hourIdx]),parseInt(minutes[minIdx]),0,0); onChange(base.getTime()); }, [dayIdx,hourIdx,minIdx]);
   return (
     <div style={{ background:C.bg2, borderRadius:C.rMd, border:`1.5px solid ${C.bg5}`, overflow:"hidden" }}>
       <div style={{ display:"flex", borderBottom:`1px solid ${C.bg4}`, padding:"8px 0 6px" }}>
@@ -242,7 +263,7 @@ export default function App() {
   const [ahora, setAhora] = useState(Date.now());
   const jobs = useMemo(() => jobsDb.map(j => {
     if (j.status !== "printing" || !j.runStart) return j;
-    const pasados = Math.floor((ahora - j.runStart) / 60000);
+    const pasados = Math.floor(Math.max(0, ahora - j.runStart) / 60000);  // el reloj de la pantalla puede ir unos segundos atrás
     return { ...j, remaining: Math.max(0, (Number(j.remaining) || 0) - pasados) };
   }), [jobsDb, ahora]);
   const [kioskMode, setKioskMode] = useState(false);
@@ -396,7 +417,7 @@ export default function App() {
         return addDoc(collection(db, "jobs"), {
           fileName: nombre, printer: pid, jobType: "print",
           material: prod?.material || "", color: COLORS.includes(color) ? color : (color || prod?.color || ""),
-          weight: Number(prod?.weight) || 0, duration: dur, remaining: dur,
+          weight: Number(prod?.weight) || 0, duration: dur, remaining: dur * cant,
           price: unit * cant, unitPrice: unit, quantity: cant, deposit: unit * cant,
           notes: [notaBase, it.det].filter(Boolean).join("\n"),
           status: "pending", clientName: p.cliente_nombre || "", clientPhone: p.cliente_telefono || "",
@@ -529,10 +550,10 @@ export default function App() {
   const cerrando = useRef(new Set());
   useEffect(() => {
     jobsDb.forEach(j => {
-      if (j.status !== "printing" || cerrando.current.has(j.id)) return;
+      if (j.status !== "printing" || j.jobType === "design" || cerrando.current.has(j.id)) return;
       // Trabajos que ya imprimían con la versión anterior: arrancan a contar desde ahora con lo que les quedaba
       if (!j.runStart) { cerrando.current.add(j.id); updateDoc(doc(db,"jobs",j.id),{runStart:Date.now()}).finally(()=>cerrando.current.delete(j.id)); return; }
-      const dur = Number(j.duration) || 0, falta = (Number(j.remaining) || 0) - Math.floor((ahora - j.runStart) / 60000);
+      const dur = Number(j.duration) || 0, falta = (Number(j.remaining) || 0) - Math.floor(Math.max(0, ahora - j.runStart) / 60000);
       if (dur > 0 && falta <= 0) {
         cerrando.current.add(j.id);
         updateDoc(doc(db,"jobs",j.id),{status:"done",endedAt:Date.now(),remaining:0,runStart:null}).finally(()=>cerrando.current.delete(j.id));
@@ -603,8 +624,10 @@ export default function App() {
   const quickAddFromStock = async (prodId) => {
     const prod = products.find(p=>p.id===prodId);
     if(!prod) return;
-    await quickAddProduct(prod);
-    // Stock stays — item is now in queue, will be tracked there
+    // La pieza ya está impresa: entra como "Listo" (no se vuelve a imprimir) y sale del stock
+    await addDoc(collection(db,"jobs"),{ fileName:prod.name, printer:"", material:prod.material||"", color:prod.color||"", weight:Number(prod.weight)||0, duration:Number(prod.duration)||0, remaining:0, price:prod.price||"", unitPrice:prod.price||"", quantity:1, deposit:"", notes:"Desde stock", status:"done", clientName:"", clientPhone:"", deliveryAt:null, createdAt:Date.now(), startedAt:null, endedAt:Date.now(), shippedAt:null, priority:Date.now() });
+    await removeFromStock(prodId, stock[prodId]?.qty||1);
+    toast_(prod.name + " (de stock) listo para entregar");
   };
 
   const sellFromStock = async (prodId) => {
@@ -614,7 +637,7 @@ export default function App() {
     // Register as a completed sold job so it shows in revenue/stats
     await addDoc(collection(db,"jobs"),{
       fileName: prod.name,
-      printer: printers[0]?.id??"",
+      printer: "",   // venta de stock: no se imprimió ahora, no cuenta para ninguna máquina
       material: prod.material||"",
       color: prod.color||"",
       weight: Number(prod.weight)||0,
@@ -694,7 +717,7 @@ export default function App() {
         color: item.color||"",
         weight: Number(item.weight)||0,
         duration: Number(item.duration)||0,
-        remaining: Number(item.duration)||0,
+        remaining: (Number(item.duration)||0) * (Number(item.quantity)||1),
         price: item.unitPrice?String(Number(item.unitPrice)*(Number(item.quantity)||1)):"",
         unitPrice: item.unitPrice||"",
         quantity: Number(item.quantity)||1,
@@ -742,10 +765,17 @@ export default function App() {
     const pid = form.printer||(printers[0]?.id??"");
     const data = {...form, printer:form.jobType==="design"?"":pid, duration:Number(form.duration), weight:Number(form.weight), quantity:Number(form.quantity)||1};
     if(editJob) {
-      await updateDoc(doc(db,"jobs",editJob.id),{...data,...(editJob.status==="printing"&&data.status==="printing"?{remaining:editJob.remaining,runStart:Date.now()}:{remaining:Number(form.duration),runStart:data.status==="printing"?Date.now():null})});
+      await updateDoc(doc(db,"jobs",editJob.id),{...data,
+        // Si sigue en marcha o en pausa, se conserva lo que falta; si no, se recalcula para todas las unidades
+        ...(["printing","paused"].includes(editJob.status)&&data.status===editJob.status
+            ? {remaining:editJob.remaining, runStart:data.status==="printing"?Date.now():null}
+            : {remaining:data.status==="done"||data.status==="shipping"||data.status==="shipped"?0:minutosTotales(data), runStart:data.status==="printing"?Date.now():null}),
+        // Al cambiar el estado desde el formulario también se registran las fechas
+        ...(data.status!==editJob.status&&["done","shipping","shipped"].includes(data.status)&&!editJob.endedAt?{endedAt:Date.now()}:{}),
+        ...(data.status==="shipped"&&editJob.status!=="shipped"?{shippedAt:Date.now()}:{})});
       toast_("Trabajo actualizado");
     } else {
-      await addDoc(collection(db,"jobs"),{...data,remaining:Number(form.duration),createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,priority:Date.now()});
+      await addDoc(collection(db,"jobs"),{...data,remaining:minutosTotales(data),createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,priority:Date.now()});
       // Auto-add to catalog if product doesn't exist yet
       const nameKey = form.fileName.trim().toLowerCase();
       const alreadyExists = products.some(p=>p.name.toLowerCase()===nameKey);
@@ -774,7 +804,7 @@ export default function App() {
     setPForm(P0); setShowPForm(false); setEditP(null);
   });
 
-  const startJ  = (j)  => { const t=Date.now(); updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:t,runStart:t,remaining:Number(j.duration)||0}); toast_("Impresión iniciada"); };
+  const startJ  = (j)  => { const t=Date.now(); updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:t,runStart:t,remaining:minutosTotales(j)}); toast_("Impresión iniciada"); };
   // Al pausar se congela lo que falta; al reanudar arranca un tramo nuevo
   const pauseJ  = (id) => { const j=jobs.find(x=>x.id===id); updateDoc(doc(db,"jobs",id),{status:"paused",remaining:j?Number(j.remaining)||0:0,runStart:null}); toast_("Trabajo pausado"); };
   const resumeJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"printing",runStart:Date.now()}); toast_("Impresión reanudada"); };
@@ -791,7 +821,7 @@ export default function App() {
   const deleteP = (id) => borrarConDeshacer("printers", id, printers.find(x=>x.id===id), "Impresora eliminada");
   const duplicateJ = async (job) => {
     const {id,...rest} = job;
-    await addDoc(collection(db,"jobs"),{...rest,fileName:job.fileName+" (copia)",createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,status:"pending",remaining:job.duration,runStart:null,webPedido:null,webItem:null,priority:Date.now()});
+    await addDoc(collection(db,"jobs"),{...rest,fileName:job.fileName+" (copia)",createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,status:"pending",remaining:minutosTotales(job),runStart:null,webPedido:null,webItem:null,priority:Date.now()});
     toast_("Trabajo duplicado");
   };
   const openEJ = (job) => {
@@ -808,6 +838,11 @@ export default function App() {
   const done     = jobs.filter(j=>j.status==="done");
   const shipping = jobs.filter(j=>j.status==="shipping");
   const shipped  = jobs.filter(j=>j.status==="shipped");
+  // Para Inicio: lo de impresión (los diseños tienen su propio filtro)
+  const enMarcha = [...printing, ...paused].filter(j=>j.jobType!=="design");
+  const enCola   = pending.filter(j=>j.jobType!=="design");
+  // Abre la Cola mostrando exactamente lo que cuenta la tarjeta tocada (sin filtros viejos de impresora o búsqueda)
+  const abrirCola = (filtro) => { setFStatus(filtro); setFPrinter("all"); setQueueSearch(""); setQueueViewMode("detail"); setQueueSort(filtro==="hoy"||filtro==="atrasados"?"delivery":"priority"); setSortMode(false); setView("queue"); };
   const finished = jobs.filter(j=>["done","shipping","shipped"].includes(j.status));
   const revenue  = jobs.filter(j=>j.price).reduce((s,j)=>s+Number(j.price),0);
   const filtered = jobs.filter(j=>(fPrinter==="all"||j.printer===fPrinter)&&(fStatus==="all"||(fStatus==="design"?j.jobType==="design":j.status===fStatus))).sort((a,b)=>a.status==="pending"&&b.status==="pending"?(a.priority??a.createdAt??0)-(b.priority??b.createdAt??0):0);
@@ -815,13 +850,13 @@ export default function App() {
   const pPend    = (pid) => jobs.filter(j=>j.printer===pid&&j.status==="pending").length;
   const todayRev  = jobs.filter(j=>j.price&&j.createdAt>=startOfDay()).reduce((s,j)=>s+Number(j.price),0);
   const monthRev  = jobs.filter(j=>j.price&&j.createdAt>=startOfMonth()).reduce((s,j)=>s+Number(j.price),0);
-  const last6 = Array.from({length:6},(_,i)=>{ const d=new Date(); d.setMonth(d.getMonth()-i); const ms=startOfMonth(d),me=startOfMonth(new Date(d.getFullYear(),d.getMonth()+1,1)),mj=jobs.filter(j=>j.price&&(j.createdAt||0)>=ms&&(j.createdAt||0)<me); return {label:monthLabel(d),jobs:mj.length,rev:mj.reduce((s,j)=>s+Number(j.price),0)}; }).reverse();
+  const last6 = Array.from({length:6},(_,i)=>{ const hoy=new Date(); const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1); const ms=startOfMonth(d),me=startOfMonth(new Date(d.getFullYear(),d.getMonth()+1,1)),mj=jobs.filter(j=>j.price&&(j.createdAt||0)>=ms&&(j.createdAt||0)<me); return {label:monthLabel(d),jobs:mj.length,rev:mj.reduce((s,j)=>s+Number(j.price),0)}; }).reverse();
   const maxRev = Math.max(...last6.map(m=>m.rev),1);
 
   const getPeriodStart = (period) => {
     const now=new Date();
     if(period==="day") return startOfDay(now);
-    if(period==="week") { const d=new Date(now); d.setDate(d.getDate()-d.getDay()); d.setHours(0,0,0,0); return d.getTime(); }
+    if(period==="week") { const d=new Date(now); d.setDate(d.getDate()-((d.getDay()+6)%7)); d.setHours(0,0,0,0); return d.getTime(); }  // desde el lunes
     if(period==="month") return startOfMonth(now);
     if(period==="year") return new Date(now.getFullYear(),0,1).getTime();
     return 0;
@@ -841,14 +876,14 @@ export default function App() {
 
   const todayDeliveries = (() => { const dayStart=startOfDay(); return jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=dayStart&&j.deliveryAt<dayStart+86400000&&j.status!=="shipped").sort((a,b)=>a.deliveryAt-b.deliveryAt); })();
   const upcomingDeliveries = (() => { const dayEnd=startOfDay()+86400000; return jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=dayEnd&&j.deliveryAt<startOfDay()+7*86400000&&j.status!=="shipped").sort((a,b)=>a.deliveryAt-b.deliveryAt); })();
-  const overdueDeliveries = jobs.filter(j=>j.deliveryAt&&j.deliveryAt<Date.now()&&j.status!=="shipped");
+  const overdueDeliveries = jobs.filter(esAtrasado);
   const needs_attention = [...printing,...paused,...shipping].length;
 
   const getPrinterQueueInfo = (pid) => {
     const activeJob=jobs.find(j=>j.printer===pid&&j.status==="printing");
     const activeMins=activeJob?Number(activeJob.remaining)||0:0;
     const queuedJobs=jobs.filter(j=>j.printer===pid&&j.status==="pending").sort((a,b)=>(a.priority??a.createdAt??0)-(b.priority??b.createdAt??0));
-    const queuedMins=queuedJobs.reduce((s,j)=>s+(Number(j.duration)||0),0);
+    const queuedMins=queuedJobs.reduce((s,j)=>s+minutosTotales(j),0);
     return {activeMins,queuedMins,queueCount:queuedJobs.length,totalWait:activeMins+queuedMins,activeJob};
   };
   const getEstimatedReady = (pid,dur) => { const {totalWait}=getPrinterQueueInfo(pid); return Date.now()+(totalWait+Number(dur||0))*60000; };
@@ -858,7 +893,7 @@ export default function App() {
   // ─── JOB CARD ─────────────────────────────────────────────────────────────
   const JobCard = ({ job, compact=false, showPriority=false, idx=0, total=0 }) => {
     const printer = printers.find(x=>x.id===job.printer);
-    const pct = job.duration>0 ? Math.round((1-job.remaining/job.duration)*100) : 0;
+    const pct = avanceJob(job);
     const qty = Number(job.quantity)||1;
     const wa = waUrl(job);
     const st = STATUS[job.status]||STATUS.pending;
@@ -921,7 +956,7 @@ export default function App() {
               <div style={{ marginBottom:12 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5 }}>
                   <span style={{ color:C.green, fontWeight:800 }}>{pct}% completado</span>
-                  <span style={{ color:C.t2 }}><Icono e="⏳" /><strong style={{ color:C.t1 }}>{fmtTime(job.remaining * (qty>1?qty:1))}</strong> restante</span>
+                  <span style={{ color:C.t2 }}><Icono e="⏳" /><strong style={{ color:C.t1 }}>{fmtTime(job.remaining)}</strong> restante</span>
                 </div>
                 <div style={{ height:7, background:C.bg4, borderRadius:7 }}>
                   <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#F1841B)`, borderRadius:7, transition:"width 1s" }} />
@@ -984,15 +1019,16 @@ export default function App() {
             {/* Delivery date */}
             {job.deliveryAt&&job.status!=="shipped"&&(()=>{
               const diff=job.deliveryAt-Date.now(); const diffH=Math.floor(diff/3600000); const diffD=Math.floor(diff/86400000);
-              const isLate=diff<0; const dDel=new Date(job.deliveryAt); const dNow=new Date();
-              const isToday=dDel.getDate()===dNow.getDate()&&dDel.getMonth()===dNow.getMonth();
+              const isLate=esAtrasado(job); const dDel=new Date(job.deliveryAt); const dNow=new Date();
+              const isToday=dDel.toDateString()===dNow.toDateString();
               const dTom=new Date(dNow); dTom.setDate(dTom.getDate()+1);
-              const isTomorrow=dDel.getDate()===dTom.getDate()&&dDel.getMonth()===dTom.getMonth();
+              const isTomorrow=dDel.toDateString()===dTom.toDateString();
               const dotColor=isLate?"#E53212":isToday?"#FFF0DE":isTomorrow?"#FFF0DE":"#F1841B";
               const bgColor=isLate?C.redBg:isToday?C.yellowBg:isTomorrow?C.purpleBg:C.blueBg;
               const bdColor=isLate?"#4A1A10":isToday?"#4A3F36":isTomorrow?"#6B2812":"#372F2C";
-              const title=isLate?"Entrega vencida":isToday?"Entrega HOY":isTomorrow?"Mañana":"Entrega acordada";
-              const timeLeft=isLate?`hace ${Math.abs(diffD)>0?`${Math.abs(diffD)}d`:`${Math.abs(diffH)}h`}`:diffH<1?"en menos de 1h":isToday?`en ${diffH}h`:isTomorrow?`en ${diffH}h`:`en ${diffD}d`;
+              const pasada=diff<0; // ya pasó la fecha (si está listo, solo falta entregarlo: no es "vencida")
+              const title=isLate?"Entrega vencida":pasada?"Listo · fecha acordada":isToday?"Entrega HOY":isTomorrow?"Mañana":"Entrega acordada";
+              const timeLeft=pasada?`hace ${Math.abs(diffD)>0?`${Math.abs(diffD)}d`:`${Math.abs(diffH)}h`}`:diffH<1?"en menos de 1h":isToday?`en ${diffH}h`:isTomorrow?`en ${diffH}h`:`en ${diffD}d`;
               const fmtDel=new Date(job.deliveryAt).toLocaleDateString("es-ES",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
               return (
                 <div style={{ background:bgColor, border:`1px solid ${bdColor}`, borderRadius:C.rSm, padding:"9px 13px", marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
@@ -1056,7 +1092,7 @@ export default function App() {
   // ─── PRINTER CARD ─────────────────────────────────────────────────────────
   const PrinterCard = ({ p, showActions=false }) => {
     const active = pActive(p.id);
-    const pct = active&&active.duration>0 ? Math.round((1-active.remaining/active.duration)*100) : 0;
+    const pct = active ? avanceJob(active) : 0;
     return (
       <div style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${active?STATUS.printing.border:C.bg4}`, display:"flex", alignItems:"center", gap:14 }}>
         <div style={{ width:56, height:56, borderRadius:14, background:p.imgBg||C.bg3, border:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>
@@ -1110,10 +1146,10 @@ export default function App() {
       <div>
         <div className="stats-row" style={{ marginBottom:8 }}>
           {[
-            { status:"printing", Icon:Printer,   label:"Imprimiendo", count:printing.length, sub:printing[0]&&`${printing[0].fileName} · quedan ${fmtTime(printing[0].remaining*Math.max(1,Number(printing[0].quantity)||1))}`, color:C.green },
-            { status:"pending",  Icon:Hourglass, label:"En cola",     count:pending.length,  sub:pending[0]&&`Sigue: ${pending[0].fileName}`, color:C.yellow },
+            { status:"printing", Icon:Printer,   label:"Imprimiendo", count:enMarcha.length, sub:enMarcha[0]&&`${enMarcha[0].fileName} · ${enMarcha[0].status==="paused"?"en pausa":`quedan ${fmtTime(enMarcha[0].remaining)}`}`, color:C.green },
+            { status:"pending",  Icon:Hourglass, label:"En cola",     count:enCola.length,   sub:enCola[0]&&`Sigue: ${enCola[0].fileName}`, color:C.yellow },
           ].map(({ status, Icon, label, count, sub, color }) => (
-            <button key={status} onClick={()=>{setView("queue");setFStatus(status);}} style={{ textAlign:"left", background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"16px", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
+            <button key={status} onClick={()=>abrirCola(status)} style={{ textAlign:"left", background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"16px", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
               <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:10 }}><Icon size={16} aria-hidden="true" />{label}<ChevronRight size={16} style={{ marginLeft:"auto", opacity:.7 }} aria-hidden="true" /></div>
               <div style={{ fontSize:36, fontWeight:900, color:C.t1, lineHeight:1 }}>{count}</div>
               {sub && <div style={{ fontSize:13, color, marginTop:8, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sub}</div>}
@@ -1123,14 +1159,12 @@ export default function App() {
         {/* Lo de hoy: lo que pide una acción, no totales históricos */}
         <div className="stats-row-sm" style={{ marginBottom:16 }}>
           {(() => {
-            const fin = new Date(); fin.setHours(23,59,59,999);
-            const abiertos = jobs.filter(j=>j.status!=="shipped" && j.deliveryAt);
-            const atrasados = abiertos.filter(j=>Number(j.deliveryAt) < Date.now());
-            const hoy = abiertos.filter(j=>Number(j.deliveryAt) >= Date.now() && Number(j.deliveryAt) <= fin.getTime());
+            const hoy = jobs.filter(esParaHoy);
+            const atrasados = jobs.filter(esAtrasado);
             const listos = done.length + shipping.length;
             return [
-              { key:"hoy",   Icon:CalendarClock, n:hoy.length,       label:"Entregar hoy",   color:C.yellow, bg:C.yellowBg, borde:"#4A3F36", ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
-              { key:"atr",   Icon:AlertTriangle, n:atrasados.length, label:"Atrasados",      color:atrasados.length?"#E53212":C.t3, bg:atrasados.length?C.redBg:C.bg2, borde:atrasados.length?"#5C1F14":C.bg4, ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
+              { key:"hoy",   Icon:CalendarClock, n:hoy.length,       label:"Entregar hoy",   color:C.yellow, bg:C.yellowBg, borde:"#4A3F36", ir:()=>abrirCola("hoy") },
+              { key:"atr",   Icon:AlertTriangle, n:atrasados.length, label:"Atrasados",      color:atrasados.length?"#E53212":C.t3, bg:atrasados.length?C.redBg:C.bg2, borde:atrasados.length?"#5C1F14":C.bg4, ir:()=>abrirCola("atrasados") },
               { key:"web",   Icon:Globe,         n:webAtencion,      label:"Web por atender",color:webAtencion?C.orange:C.t3, bg:webAtencion?C.orangeBg:C.bg2, borde:webAtencion?`${C.orange}55`:C.bg4, ir:()=>setView("web") },
               { key:"listo", Icon:PackageCheck,  n:listos,           label:"Listos p/ entregar", color:C.purple, bg:C.purpleBg, borde:"#4A3F36", ir:()=>setView("shipping_view") },
             ].map(({ key, Icon, n, label, color, bg, borde, ir }) => (
@@ -1153,7 +1187,7 @@ export default function App() {
           <div style={{ filter:showRevenue?"none":"blur(10px)", userSelect:showRevenue?"auto":"none", transition:"filter .25s", pointerEvents:showRevenue?"auto":"none" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
               <div>
-                <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}><Wallet size={16} aria-hidden="true" />Ingresos totales</div>
+                <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}><Wallet size={16} aria-hidden="true" />Vendido en total</div>
                 <div style={{ fontSize:32, fontWeight:900, color:C.t1, letterSpacing:-1 }}>Bs. {revenue.toFixed(2)}</div>
               </div>
               <div style={{ textAlign:"right", paddingRight:40 }}>
@@ -1235,9 +1269,13 @@ export default function App() {
 
     const designJobs = jobs.filter(j=>j.jobType==="design");
     const printJobs  = jobs.filter(j=>j.jobType!=="design");
+    // Cada chip cuenta exactamente lo que muestra su lista (misma regla en enFiltro)
+    const atrasadosQ = jobs.filter(esAtrasado), hoyQ = jobs.filter(esParaHoy);
     const filters = [
+      ...(atrasadosQ.length||fStatus==="atrasados" ? [{key:"atrasados", label:"Atrasados", count:atrasadosQ.length, alerta:true}] : []),
+      ...(hoyQ.length||fStatus==="hoy" ? [{key:"hoy", label:"Entregar hoy", count:hoyQ.length}] : []),
       {key:"all",      label:"Impresión", count:printJobs.filter(j=>j.status!=="shipped").length},
-      {key:"design",   label:"Diseño",   count:designJobs.length, purple:true},
+      {key:"design",   label:"Diseño",   count:designJobs.filter(j=>j.status!=="shipped").length, purple:true},
       {key:"pending",  label:"Cola",      count:pending.filter(j=>j.jobType!=="design").length},
       {key:"printing", label:"Activos",   count:[...printing,...paused].filter(j=>j.jobType!=="design").length},
       {key:"done",     label:"Listos",    count:done.filter(j=>j.jobType!=="design").length},
@@ -1260,13 +1298,16 @@ export default function App() {
       return list; // priority — already sorted
     };
 
+    const enFiltro = (j) =>
+      fStatus==="atrasados" ? esAtrasado(j)                                   // incluye diseños: también se atrasan
+      : fStatus==="hoy"     ? esParaHoy(j)
+      : fStatus==="design"  ? j.jobType==="design" && j.status!=="shipped"    // los entregados están en "Entregados"
+      : fStatus==="all"     ? j.jobType!=="design" && j.status!=="shipped"
+      : fStatus==="printing"? j.jobType!=="design" && (j.status==="printing"||j.status==="paused")
+      : j.status===fStatus && j.jobType!=="design";
     const baseFiltered = jobs.filter(j=>
       (fPrinter==="all"||j.printer===fPrinter) &&
-      (fStatus==="design"
-        ? j.jobType==="design"
-        : fStatus==="all"
-          ? j.jobType!=="design"
-          : j.status===fStatus && j.jobType!=="design") &&
+      enFiltro(j) &&
       (!queueSearch||j.fileName?.toLowerCase().includes(queueSearch.toLowerCase())||j.clientName?.toLowerCase().includes(queueSearch.toLowerCase()))
     ).sort((a,b)=>a.status==="pending"&&b.status==="pending"?(a.priority??a.createdAt??0)-(b.priority??b.createdAt??0):0);
 
@@ -1336,7 +1377,7 @@ export default function App() {
         {/* ── STATUS FILTERS ── */}
         <div style={{ display:"flex", gap:6, marginBottom:8, overflowX:"auto", paddingBottom:4 }}>
           {filters.map(f=>(
-            <button key={f.key} onClick={()=>{setFStatus(f.key);setSortMode(false);}} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", background:fStatus===f.key?(f.purple?"#6B2812":C.orange):C.bg3, color:fStatus===f.key?"#fff":C.t3, boxShadow:fStatus===f.key?`0 3px 12px rgba(${f.purple?"107,33,168":"255,87,34"},.35)`:undefined }}>
+            <button key={f.key} onClick={()=>{setFStatus(f.key);setSortMode(false);}} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", background:fStatus===f.key?(f.alerta?C.red:f.purple?"#6B2812":C.orange):(f.alerta?C.redBg:C.bg3), color:fStatus===f.key?"#fff":C.t3, boxShadow:fStatus===f.key?`0 3px 12px rgba(${f.purple?"107,33,168":"255,87,34"},.35)`:undefined }}>
               {f.label}{f.count>0?` ${f.count}`:""}
             </button>
           ))}
@@ -1411,7 +1452,7 @@ export default function App() {
           // Summary counts for the week
           const weekJobs = jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=weekStart&&j.deliveryAt<=weekEnd);
           const weekRevenue = weekJobs.filter(j=>j.price).reduce((s,j)=>s+Number(j.price),0);
-          const overdueCount = jobs.filter(j=>j.deliveryAt&&j.deliveryAt<Date.now()&&j.status!=="shipped").length;
+          const overdueCount = jobs.filter(esAtrasado).length;
 
           return (
             <div>
@@ -1517,7 +1558,7 @@ export default function App() {
                     <span style={{ fontSize:12, fontWeight:800, color:C.red, textTransform:"uppercase", letterSpacing:.7 }}>Entregas vencidas</span>
                     <span style={{ fontSize:12, color:C.red, fontWeight:700 }}>{overdueCount}</span>
                   </div>
-                  {jobs.filter(j=>j.deliveryAt&&j.deliveryAt<Date.now()&&j.status!=="shipped").map((job,i,arr)=>{
+                  {jobs.filter(esAtrasado).map((job,i,arr)=>{
                     const diff=Date.now()-job.deliveryAt;
                     const days=Math.floor(diff/86400000);
                     const hours=Math.floor(diff/3600000);
@@ -1558,7 +1599,7 @@ export default function App() {
                   const qty = Number(job.quantity)||1;
                   const action = quickAction(job);
                   const waitingStr = group.key==="pending" ? fmtWaiting(job.createdAt) : null;
-                  const isLateDelivery = job.deliveryAt && job.deliveryAt<Date.now() && job.status!=="shipped";
+                  const isLateDelivery = esAtrasado(job);
                   return (
                     <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 16px", borderBottom:i<group.jobs.length-1?`1px solid ${C.bg4}`:"none" }}>
                       <div style={{ flex:1, minWidth:0 }}>
@@ -1641,7 +1682,8 @@ export default function App() {
     };
 
     // Sort both lists by date desc
-    const pendingSorted = applySearch([...shipping].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
+    // Por entregar = listos en el taller + marcados para envío (lo mismo que cuenta la tarjeta de Inicio)
+    const pendingSorted = applySearch([...shipping, ...done].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
     const deliveredSorted = applySearch([...shipped].sort((a,b)=>(b.shippedAt||b.createdAt||0)-(a.shippedAt||a.createdAt||0)));
 
     // Group delivered by date
@@ -1662,8 +1704,8 @@ export default function App() {
         {/* Stats cards */}
         <div style={{ display:"grid", gridTemplateColumns: isDesktop?"1fr 1fr 1fr":"1fr 1fr", gap:10, marginBottom:14 }}>
           <div onClick={()=>setShipFilter("pending")} style={{ background:STATUS.shipping.bg, border:`2px solid ${shipFilter==="pending"?C.purple:STATUS.shipping.border}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
-            <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{shipping.length}</div>
-            <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:5 }}>Pendientes de envío</div>
+            <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{shipping.length+done.length}</div>
+            <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:5 }}>Por entregar</div>
             {shipFilter==="pending" && <div style={{ width:28, height:3, background:C.purple, borderRadius:3, marginTop:8 }} />}
           </div>
           <div onClick={()=>setShipFilter("shipped")} style={{ background:STATUS.shipped.bg, border:`2px solid ${shipFilter==="shipped"?C.teal:STATUS.shipped.border}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
@@ -1732,8 +1774,7 @@ export default function App() {
       if (!c) return null;
       const wa = c.phone ? `https://wa.me/${c.phone.replace(/\D/g,"")}` : null;
       const totalDeposits = c.jobs.filter(j=>j.deposit).reduce((s,j)=>s+Number(j.deposit),0);
-      const collectedShipped = c.jobs.filter(j=>j.status==="shipped"&&j.price).reduce((s,j)=>s+Number(j.price),0);
-      const totalPending = Math.max(0,c.totalRevenue-totalDeposits-collectedShipped);
+      const totalPending = c.jobs.filter(j=>j.status!=="shipped").reduce((s,j)=>s+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0);
       return (
         <div className="view-pad" style={{ maxWidth:isDesktop?1000:isTablet?700:"100%", margin:"0 auto" }}>
           <button onClick={()=>setSelectedClient(null)} style={{ background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:16 }}>← Volver</button>
@@ -1770,7 +1811,7 @@ export default function App() {
           </div>
           <div style={{ background:"linear-gradient(135deg,#221D1B,#221D1B)", border:"1px solid #372F2C", borderRadius:C.r, padding:"18px" }}>
             <div style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{fmtMoney(revenue)}</div>
-            <div style={{ fontSize:12, color:"#F1841B", marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Total ingresos</div>
+            <div style={{ fontSize:12, color:"#F1841B", marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Total vendido</div>
           </div>
         </div>
         {clients.length===0 ? (
@@ -1794,8 +1835,7 @@ export default function App() {
             if(filtered.length===0) return <Empty icon="🔍" title="Sin resultados" sub={`No hay clientes que coincidan con "${clientSearch}"`} />;
             return filtered.map(c => {
               const dep = c.jobs.filter(j=>j.deposit).reduce((s,j)=>s+Number(j.deposit),0);
-              const collFromShipped = c.jobs.filter(j=>j.status==="shipped"&&j.price).reduce((s,j)=>s+Number(j.price),0);
-              const pend = c.totalRevenue-dep-collFromShipped;
+              const pend = c.jobs.filter(j=>j.status!=="shipped").reduce((s,j)=>s+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0);
               return (
                 <div key={c.name} onClick={()=>setSelectedClient(c.name.toLowerCase())} style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${C.bg4}`, cursor:"pointer" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -1840,12 +1880,12 @@ export default function App() {
         ))}
       </div>
       <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
-        <div style={{ fontSize:12, color:"#F1841B", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Ingresos — {periodLabels[statPeriod]}</div>
+        <div style={{ fontSize:12, color:"#F1841B", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Vendido — {periodLabels[statPeriod]}</div>
         <div style={{ fontSize:38, fontWeight:900, color:C.t1, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(periodRev)}</div>
         <div style={{ fontSize:13, color:C.t3, marginTop:9 }}>{periodJobs.length} trabajo{periodJobs.length!==1?"s":""} completado{periodJobs.length!==1?"s":""}</div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:16 }}>
-        {[["Trabajos",periodJobs.length,"completados"],["Entregas",shipped.filter(j=>(j.createdAt||0)>=periodStart).length,"entregados"]].map(([l,v,s])=>(
+        {[["Pedidos",periodJobs.length,"tomados"],["Entregas",shipped.filter(j=>(j.shippedAt||j.createdAt||0)>=periodStart).length,"entregados"]].map(([l,v,s])=>(
           <div key={l} style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"16px" }}>
             <div style={{ fontSize:12, color:C.t3, fontWeight:700, marginBottom:7 }}>{l}</div>
             <div style={{ fontSize:28, fontWeight:900, color:C.t1 }}>{v}</div>
@@ -1975,7 +2015,7 @@ export default function App() {
     const jobsWithCost = jobs.map(job => {
       const costPerKg = matCosts[job.material]||0;
       const grams = Number(job.weight)||0;
-      const matCost = costPerKg>0&&grams>0 ? (grams/1000)*costPerKg : 0;
+      const matCost = costPerKg>0&&grams>0 ? (grams/1000)*costPerKg*unidades(job) : 0;  // el peso es por unidad
       const rev = Number(job.price)||0;
       const profit = rev-matCost;
       const margin = rev>0?(profit/rev)*100:0;
@@ -2292,7 +2332,7 @@ export default function App() {
               const despues = actual ? cola.slice(0,3) : cola.slice(1,4);
               const imprimiendo = actual?.status==="printing", pausado = actual?.status==="paused";
               const qty = Number(actual?.quantity)||1;
-              const pct = actual && actual.duration>0 ? Math.max(0,Math.min(100,Math.round((1-actual.remaining/actual.duration)*100))) : 0;
+              const pct = actual ? avanceJob(actual) : 0;
               const estado = imprimiendo ? { t:"Imprimiendo", c:C.green } : pausado ? { t:"Pausada", c:"#E53212" } : { t:"Libre", c:C.t3 };
               return (
                 <section key={col.id} aria-label={col.nombre} style={{ background:C.bg2, border:`1.5px solid ${imprimiendo?STATUS.printing.border:pausado?STATUS.paused.border:C.bg4}`, borderRadius:C.r, overflow:"hidden" }}>
@@ -2315,7 +2355,7 @@ export default function App() {
                       {/* Avance en grande, legible a un metro */}
                       <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:18 }}>
                         <span style={{ fontSize:56, fontWeight:900, color:imprimiendo?C.green:"#E53212", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pct}%</span>
-                        <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:22, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={20} aria-hidden="true" />{fmtTime(actual.remaining*(qty>1?qty:1))}</span>
+                        <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:22, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={20} aria-hidden="true" />{fmtTime(actual.remaining)}</span>
                       </div>
                       <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${actual.fileName}`} style={{ height:14, background:C.bg4, borderRadius:10, marginTop:10, overflow:"hidden" }}>
                         <div style={{ height:"100%", width:`${pct}%`, background:imprimiendo?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:10, transition:"width 1s" }} />
@@ -2490,7 +2530,7 @@ export default function App() {
                 <span>WORLD<span style={{ color:C.orange }}>3D</span></span>
                 {needs_attention>0 && <div style={{ width:8, height:8, borderRadius:"50%", background:C.green, boxShadow:`0 0 8px ${C.green}` }} />}
               </div>
-              <div style={{ fontSize:12, color:C.t3, marginTop:1 }}>{jobs.length} trabajos · {clients.length} clientes · {shipping.length} p/enviar</div>
+              <div style={{ fontSize:12, color:C.t3, marginTop:1 }}>{jobs.length} trabajos · {clients.length} clientes · {shipping.length+done.length} por entregar</div>
             </div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
@@ -2781,8 +2821,10 @@ export default function App() {
             </FormField>
 
             <FormDivider label="Fecha y hora de entrega" />
-            <FormField label="¿Cuándo se lo entregas?" hint="Desliza para seleccionar el día y la hora acordada con el cliente">
-              <DateTimePicker value={form.deliveryAt} onChange={v=>setForm(f=>({...f,deliveryAt:v}))} />
+            <FormField label="¿Cuándo se lo entregas?" hint="Opcional. Ponela solo si acordaste un día con el cliente: así Inicio te avisa lo que vence hoy y lo atrasado.">
+              {form.deliveryAt
+                ? <DateTimePicker value={form.deliveryAt} onChange={v=>setForm(f=>({...f,deliveryAt:v}))} />
+                : <BotonPonerFecha onClick={()=>setForm(f=>({...f,deliveryAt:fechaPropuesta()}))} />}
               {form.deliveryAt && (
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
                   <div style={{ fontSize:12, color:"#F1841B", fontWeight:700 }}>{new Date(form.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
@@ -2871,7 +2913,9 @@ export default function App() {
 
             <FormDivider label="Fecha de entrega" />
             <FormField label="¿Cuándo se lo entregas?" hint="Se aplica a todos los productos del pedido">
-              <DateTimePicker value={orderClient.deliveryAt} onChange={v=>setOrderClient(c=>({...c,deliveryAt:v}))} />
+              {orderClient.deliveryAt
+                ? <DateTimePicker value={orderClient.deliveryAt} onChange={v=>setOrderClient(c=>({...c,deliveryAt:v}))} />
+                : <BotonPonerFecha onClick={()=>setOrderClient(c=>({...c,deliveryAt:fechaPropuesta()}))} />}
               {orderClient.deliveryAt && (
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
                   <div style={{ fontSize:12, color:"#F1841B", fontWeight:700 }}>{new Date(orderClient.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
