@@ -21,8 +21,8 @@ export const C = {
   bg5: "#473D39",
   t1: "#FFF7F3",
   t2: "#D9CCC4",
-  t3: "#9A8B82",
-  t4: "#6E6058",
+  t3: "#B3A59C",   // texto secundario: 6.3:1 sobre las tarjetas
+  t4: "#9C8E85",   // texto apagado: 4.7:1 sobre las tarjetas (antes 3:1)
   orange: "#F1841B",
   orangeD: "#E9521E",
   orangeBg: "#2B1607",
