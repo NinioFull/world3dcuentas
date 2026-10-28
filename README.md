@@ -24,13 +24,25 @@ Se entra solo con Google, con la cuenta admin de WORLD3D (la que está en la tab
 
 Abrir el Manager en Safari > Compartir > *Agregar a pantalla de inicio*. Queda con el ícono de WORLD3D y sin la barra del navegador.
 
+## Aviso de pedido nuevo
+
+Con el Manager abierto (por ejemplo en el iPad, en modo kiosco), cuando entra un pedido o un pago nuevo en la web suena una campanita, aparece un cartel arriba y el ícono muestra cuántos pedidos esperan algo de vos. Los pedidos se revisan cada 30 segundos. En iPad hay que tocar la pantalla una vez después de abrir la app para que el sonido quede habilitado (regla de iOS).
+
+Con la pantalla apagada o la app cerrada, el aviso que llega es el de **Telegram** (el bot del sitio): instalá Telegram en el iPad con la misma cuenta.
+
+## Contador de impresión
+
+Cada trabajo guarda cuándo arrancó el tramo actual (`runStart`) y cuánto faltaba en ese momento (`remaining`). Cada pantalla calcula lo que falta con el reloj, sin escribir en la base, así tener varias pantallas abiertas ya no acelera el contador. Al pausar se congela lo que falta.
+
+## Seguridad
+
+La cola en Firebase solo la puede leer y escribir la cuenta admin (`firestore.rules`). El Manager entra a Firebase con la misma cuenta de Google que a Supabase, usando el token que trae la sesión justo después de entrar. Si un dispositivo pierde la conexión con Firebase, aparece "Conectar con Google" una vez.
+
+Requisitos en Firebase: Authentication > Sign-in method > **Google** activado, y las reglas de `firestore.rules` publicadas en Firestore Database > Reglas.
+
 ## Modo demo
 
-`REACT_APP_DEMO=1 npm run build` (o `npm start`) entra sin cuenta y muestra pedidos web de ejemplo, para probar la pestaña Web sin tocar la base. La cola sigue siendo la real de Firebase.
-
-## Pendiente de seguridad
-
-El login protege la pantalla, pero la base de Firebase (cola, clientes, productos) sigue con reglas abiertas: cualquiera con el ID del proyecto puede leerla y escribirla. Próximo paso: reglas de Firestore que solo acepten la cuenta admin.
+`REACT_APP_DEMO=1 npm start` muestra pedidos web de ejemplo (sin tocar Supabase). Ojo: la cola de Firebase sigue siendo la real y con las reglas puestas no se puede leer sin cuenta.
 
 ## Desarrollo
 
