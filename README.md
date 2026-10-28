@@ -42,7 +42,7 @@ Requisitos en Firebase: Authentication > Sign-in method > **Google** activado, y
 
 ## Modo demo
 
-`REACT_APP_DEMO=1 npm start` muestra pedidos web de ejemplo (sin tocar Supabase). Ojo: la cola de Firebase sigue siendo la real y con las reglas puestas no se puede leer sin cuenta.
+`REACT_APP_DEMO=1 npm start` entra sin cuenta con datos de ejemplo: pedidos web y una cola de prueba en memoria (`src/datos.js`). No lee ni escribe tu cola real, así que se puede probar todo (borrar, iniciar, pasar a la cola) sin riesgo.
 
 ## Desarrollo
 

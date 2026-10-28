@@ -3,13 +3,14 @@ import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, onSnapshot, addDoc, updateDoc,
   deleteDoc, doc, setDoc,
-} from "firebase/firestore";
+} from "./datos";
 import { getAuth, onAuthStateChanged, signInWithCredential, GoogleAuthProvider, signOut } from "firebase/auth";
 import * as XLSX from "xlsx";
 import { C, STATUS, COLORS, ISOTIPO, FUENTES_URL, FUENTE_TEXTO, etiquetaColor } from "./tema";
 import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedidos, cambiarEstadoPedido, numPedido, partirNombre } from "./web";
 import WebView from "./WebView";
 import LoginView from "./LoginView";
+import { Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, Wallet } from "lucide-react";
 import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
 const firebaseConfig = {
@@ -117,7 +118,7 @@ const inputSt = {
   padding: "13px 16px",
   borderRadius: C.rMd,
   border: `1.5px solid ${C.bg5}`,
-  fontSize: 15,
+  fontSize: 16,
   color: C.t1,
   background: C.bg3,
   boxSizing: "border-box",
@@ -137,7 +138,7 @@ const FormField = ({ label, hint, children }) => (
 const FormDivider = ({ label }) => (
   <div style={{ display:"flex", alignItems:"center", gap:10, margin:"4px 0 20px" }}>
     <div style={{ flex:1, height:1, background:C.bg4 }} />
-    <span style={{ fontSize:11, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:1, whiteSpace:"nowrap" }}>{label}</span>
+    <span style={{ fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:1, whiteSpace:"nowrap" }}>{label}</span>
     <div style={{ flex:1, height:1, background:C.bg4 }} />
   </div>
 );
@@ -193,7 +194,7 @@ const DateTimePicker = ({ value, onChange }) => {
     <div style={{ background:C.bg2, borderRadius:C.rMd, border:`1.5px solid ${C.bg5}`, overflow:"hidden" }}>
       <div style={{ display:"flex", borderBottom:`1px solid ${C.bg4}`, padding:"8px 0 6px" }}>
         {[{w:140,l:"Día"},{w:54,l:"Hora"},{w:54,l:"Min"}].map(({w,l},i) => (
-          <div key={l} style={{ width:w+(i===0?0:10), textAlign:"center", fontSize:10, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:0.8, ...(i>0?{marginLeft:i>0?10:0}:{}) }}>{l}</div>
+          <div key={l} style={{ width:w+(i===0?0:10), textAlign:"center", fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:0.8, ...(i>0?{marginLeft:i>0?10:0}:{}) }}>{l}</div>
         ))}
       </div>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -213,20 +214,28 @@ const StatusBadge = ({ status, pulse=false }) => {
   return (
     <div style={{ display:"flex", alignItems:"center", gap:5, background:st.bg, border:`1px solid ${st.border}`, borderRadius:C.rPill, padding:"4px 11px", flexShrink:0 }}>
       <div style={{ width:6, height:6, borderRadius:"50%", background:st.dot, boxShadow: pulse?`0 0 8px ${st.dot}`:undefined }} />
-      <span style={{ fontSize:11, fontWeight:800, color:st.color, letterSpacing:0.2 }}>{st.label}</span>
+      <span style={{ fontSize:12, fontWeight:800, color:st.color, letterSpacing:0.2 }}>{st.label}</span>
     </div>
   );
 };
 
 // ─── CHIP ─────────────────────────────────────────────────────────────────────
 const Chip = ({ children, color=C.t3, bg=C.bg4 }) => (
-  <span style={{ fontSize:11, background:bg, color, borderRadius:C.rPill, padding:"3px 10px", fontWeight:600, flexShrink:0, whiteSpace:"nowrap" }}>{children}</span>
+  <span style={{ fontSize:12, background:bg, color, borderRadius:C.rPill, padding:"3px 10px", fontWeight:600, flexShrink:0, whiteSpace:"nowrap" }}>{children}</span>
 );
 
 // ─── APP ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const { w, isMobile, isTablet, isDesktop } = useBreakpoint();
   const [view, setView] = useState("dashboard");
+  const [showMas, setShowMas] = useState(false);
+  // Alto real del encabezado: la barra lateral se pega justo debajo
+  const cabRef = useRef(null);
+  useEffect(() => {
+    const el = cabRef.current; if (!el || !window.ResizeObserver) return;
+    const ro = new ResizeObserver(() => document.documentElement.style.setProperty("--w3d-cab", el.offsetHeight + "px"));
+    ro.observe(el); return () => ro.disconnect();
+  });
   // jobsDb: tal cual vienen de Firebase. jobs: con el tiempo restante calculado al momento (ver más abajo)
   const [jobsDb, setJobs] = useState([]);
   const [ahora, setAhora] = useState(Date.now());
@@ -236,6 +245,8 @@ export default function App() {
     return { ...j, remaining: Math.max(0, (Number(j.remaining) || 0) - pasados) };
   }), [jobsDb, ahora]);
   const [kioskMode, setKioskMode] = useState(false);
+  // Al cambiar de sección o entrar/salir del kiosco se empieza desde arriba
+  useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view, kioskMode]);
   const [kioskPinInput, setKioskPinInput] = useState("");
   const [showKioskExit, setShowKioskExit] = useState(false);
   const KIOSK_PIN = "1234";
@@ -371,6 +382,7 @@ export default function App() {
 
   // Un pedido web pagado entra a la cola: un trabajo por ítem, con el pago ya registrado como adelanto
   const pasarACola = async (p) => {
+    if (jobs.some(j => j.webPedido === p.id)) { toast_(`${numPedido(p)} ya está en la cola`); return; }
     const pid = printers[0]?.id ?? "";
     const notaBase = [`Pedido web ${numPedido(p)}`, p.recepcion, p.nota].filter(Boolean).join(" · ");
     const items = p.items.filter(it => !/^vale:/.test(it.id || ""));
@@ -436,18 +448,25 @@ export default function App() {
       * { font-family: 'Outfit', system-ui, sans-serif !important; box-sizing:border-box; }
       .w3d-titulo { font-family: 'Rubik', 'Outfit', system-ui, sans-serif !important; text-transform: uppercase; }
       select option { background: #221D1B; color: #FFF7F3; }
+      /* Foco visible al navegar con teclado (iPad con teclado, compu) */
+      button:focus-visible, a:focus-visible, select:focus-visible, [role="button"]:focus-visible { outline: 2px solid #F1841B !important; outline-offset: 2px; }
+      input:focus, textarea:focus, select:focus { border-color: #F1841B !important; }
+      button:active:not(:disabled) { transform: scale(.97); }
+      @keyframes w3dGira { to { transform: rotate(360deg); } }
+      /* En pantallas táctiles (iPad, celu) todo botón mide al menos 44px: se toca con el dedo sin errar */
+      @media (pointer: coarse) { button { min-height: 44px; min-width: 44px; } }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
       body { margin:0; }
       /* Job card grid */
       .cards-grid { display:flex; flex-direction:column; gap:10px; }
-      @media(min-width:1024px){ .cards-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; } }
-      @media(min-width:1400px){ .cards-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; } }
+      @media(min-width:1024px){ .cards-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; } }
+      @media(min-width:1400px){ .cards-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; } }
       /* Dashboard 2-col */
       .dash-layout { display:flex; flex-direction:column; gap:0; }
       @media(min-width:1024px){ .dash-layout { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:0; align-items:start; } }
       @media(min-width:1300px){ .dash-layout { grid-template-columns:minmax(0,1fr) 380px; } }
       /* Stats grid */
       .stats-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-      @media(min-width:1024px){ .stats-row { grid-template-columns:repeat(4,1fr); } }
       .stats-row-sm { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
       /* View padding */
       .view-pad { padding:16px; }
@@ -520,7 +539,28 @@ export default function App() {
     });
   }, [jobsDb, ahora]);
 
-  const toast_ = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
+  // Botones de guardar: un solo envío a la vez (un doble toque ya no crea el trabajo dos veces)
+  const [guardando, setGuardando] = useState(false);
+  const guardandoRef = useRef(false);
+  const conGuardado = (fn) => async (...a) => {
+    if (guardandoRef.current) return;
+    guardandoRef.current = true; setGuardando(true);
+    try { await fn(...a); } finally { guardandoRef.current = false; setGuardando(false); }
+  };
+  // Avisos cortos abajo. Con "deshacer" quedan 5 s y muestran el botón Deshacer.
+  const toastTimer = useRef(null);
+  const toast_ = (msg,type="ok",deshacer=null) => {
+    clearTimeout(toastTimer.current);
+    setToast({msg,type,deshacer,id:Date.now()});
+    toastTimer.current = setTimeout(()=>setToast(null), deshacer?5000:3000);
+  };
+  // Borrar con red de seguridad: se guarda una copia y Deshacer la vuelve a escribir con el mismo id
+  const borrarConDeshacer = (col, id, datos, msg) => {
+    if (!datos) return;
+    const { id: _x, ...copia } = datos;
+    deleteDoc(doc(db,col,id));
+    toast_(msg, "err", () => { setDoc(doc(db,col,id), copia); toast_("Recuperado"); });
+  };
 
   const movePriority = async (jobId,dir) => {
     const sorted=[...pending]; const idx=sorted.findIndex(j=>j.id===jobId); const ni=idx+dir;
@@ -532,7 +572,7 @@ export default function App() {
   const PROD0 = { name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"", category:"" };
   const [prodForm, setProdForm] = useState({ name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"", category:"" });
 
-  const submitProduct = async () => {
+  const submitProduct = conGuardado(async () => {
     if(!prodForm.name.trim()) return;
     if(editProduct) {
       await updateDoc(doc(db,"products",editProduct.id), prodForm);
@@ -543,9 +583,9 @@ export default function App() {
     }
     setProdForm({ name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"" });
     setShowProductForm(false); setEditProduct(null);
-  };
+  });
 
-  const deleteProduct = (id) => { deleteDoc(doc(db,"products",id)); toast_("Producto eliminado","err"); };
+  const deleteProduct = (id) => borrarConDeshacer("products", id, products.find(x=>x.id===id), "Producto eliminado");
 
   const addToStock = async (prod) => {
     const existing = stock[prod.id];
@@ -640,7 +680,7 @@ export default function App() {
     setShowForm(true);
   };
 
-  const submitOrder = async () => {
+  const submitOrder = conGuardado(async () => {
     const validItems = orderItems.filter(x=>x.fileName.trim());
     if(validItems.length===0) return;
     const orderId = 'order_'+Date.now();
@@ -694,9 +734,9 @@ export default function App() {
     setShowForm(false);
     setMultiMode(false);
     setOrderItems([]);
-  };
+  });
 
-  const submitJob = async () => {
+  const submitJob = conGuardado(async () => {
     if(!form.fileName.trim()) return;
     const pid = form.printer||(printers[0]?.id??"");
     const data = {...form, printer:form.jobType==="design"?"":pid, duration:Number(form.duration), weight:Number(form.weight), quantity:Number(form.quantity)||1};
@@ -724,14 +764,14 @@ export default function App() {
       toast_("✅ Agregado a la cola");
     }
     setForm(J0); setShowForm(false); setEditJob(null);
-  };
+  });
 
-  const submitP = async () => {
+  const submitP = conGuardado(async () => {
     if(!pForm.name.trim()) return;
     if(editP) { await updateDoc(doc(db,"printers",editP.id),pForm); toast_("✅ Impresora actualizada"); }
     else { await addDoc(collection(db,"printers"),pForm); toast_("✅ Impresora agregada"); }
     setPForm(P0); setShowPForm(false); setEditP(null);
-  };
+  });
 
   const startJ  = (j)  => { const t=Date.now(); updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:t,runStart:t,remaining:Number(j.duration)||0}); toast_("🖨 Impresión iniciada"); };
   // Al pausar se congela lo que falta; al reanudar arranca un tramo nuevo
@@ -745,8 +785,9 @@ export default function App() {
     if(dep>0&&pend>0) toast_(`🚚 Entregado! Cobrar ${fmtMoney(pend)}`);
     else toast_("🚚 Entregado! ✅");
   };
-  const deleteJ = (id) => { deleteDoc(doc(db,"jobs",id)); toast_("Trabajo eliminado","err"); setConfirmDel(null); };
-  const deleteP = (id) => { deleteDoc(doc(db,"printers",id)); toast_("Impresora eliminada","err"); };
+  // jobsDb guarda los datos tal cual (sin el tiempo restante recalculado)
+  const deleteJ = (id) => { borrarConDeshacer("jobs", id, jobsDb.find(x=>x.id===id), "Trabajo eliminado"); setConfirmDel(null); };
+  const deleteP = (id) => borrarConDeshacer("printers", id, printers.find(x=>x.id===id), "Impresora eliminada");
   const duplicateJ = async (job) => {
     const {id,...rest} = job;
     await addDoc(collection(db,"jobs"),{...rest,fileName:job.fileName+" (copia)",createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,status:"pending",remaining:job.duration,runStart:null,webPedido:null,webItem:null,priority:Date.now()});
@@ -840,7 +881,7 @@ export default function App() {
       <div style={{ display:"flex", gap:0, marginBottom:10 }}>
         {showPriority && (
           <div style={{ width:42, flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6, background:C.bg2, borderRadius:`${C.r}px 0 0 ${C.r}px`, border:`1px solid ${C.bg5}`, borderRight:"none", paddingBlock:10 }}>
-            <div style={{ fontSize:10, fontWeight:900, color:C.orange, lineHeight:1 }}>#{idx+1}</div>
+            <div style={{ fontSize:12, fontWeight:900, color:C.orange, lineHeight:1 }}>#{idx+1}</div>
             <button onClick={()=>movePriority(job.id,-1)} disabled={idx===0} style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===0?"not-allowed":"pointer", fontSize:12, color:idx===0?C.bg5:C.t2, opacity:idx===0?.3:1 }}>▲</button>
             <button onClick={()=>movePriority(job.id,+1)} disabled={idx===total-1} style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===total-1?"not-allowed":"pointer", fontSize:12, color:idx===total-1?C.bg5:C.t2, opacity:idx===total-1?.3:1 }}>▼</button>
           </div>
@@ -854,11 +895,11 @@ export default function App() {
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:8 }}>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
-                  {isDesign && <span style={{ fontSize:10, background:"#2e1065", color:"#c084fc", border:"1px solid #6b21a8", borderRadius:C.rPill, padding:"2px 8px", fontWeight:800, flexShrink:0 }}>🎨 Diseño 3D</span>}
+                  {isDesign && <span style={{ fontSize:12, background:"#2e1065", color:"#c084fc", border:"1px solid #6b21a8", borderRadius:C.rPill, padding:"2px 8px", fontWeight:800, flexShrink:0 }}>🎨 Diseño 3D</span>}
                   <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", letterSpacing:-.2 }}>{job.fileName}</div>
                 </div>
-                {printer && !isDesign && <div style={{ fontSize:11, color:C.t3, marginTop:2, display:"flex", alignItems:"center", gap:4 }}><span>🖨</span>{printer.name}</div>}
-                {isDesign && job.quantity>1 && <div style={{ fontSize:11, color:"#c084fc", marginTop:2 }}>✏️ {job.quantity} piezas</div>}
+                {printer && !isDesign && <div style={{ fontSize:12, color:C.t3, marginTop:2, display:"flex", alignItems:"center", gap:4 }}><span>🖨</span>{printer.name}</div>}
+                {isDesign && job.quantity>1 && <div style={{ fontSize:12, color:"#c084fc", marginTop:2 }}>✏️ {job.quantity} piezas</div>}
               </div>
               <StatusBadge status={job.status} pulse={isPrinting} />
             </div>
@@ -886,33 +927,33 @@ export default function App() {
             )}
 
             {/* Status messages */}
-            {job.status==="shipping"&&job.endedAt && <div style={{ fontSize:11, color:C.purple, marginBottom:8 }}>📦 Impreso el {fmtDate(job.endedAt)} — esperando envío</div>}
-            {job.status==="shipped"&&job.shippedAt && <div style={{ fontSize:11, color:C.teal, marginBottom:8 }}>🚚 Entregado el {fmtDate(job.shippedAt)}</div>}
-            {job.status==="done"&&job.endedAt && <div style={{ fontSize:11, color:C.t3, marginBottom:8 }}>✅ Terminado el {fmtDate(job.endedAt)}</div>}
-            {isPaused && <div style={{ fontSize:11, color:STATUS.paused.color, marginBottom:8 }}>⏸ En pausa — toca Reanudar para continuar</div>}
+            {job.status==="shipping"&&job.endedAt && <div style={{ fontSize:12, color:C.purple, marginBottom:8 }}>📦 Impreso el {fmtDate(job.endedAt)} — esperando envío</div>}
+            {job.status==="shipped"&&job.shippedAt && <div style={{ fontSize:12, color:C.teal, marginBottom:8 }}>🚚 Entregado el {fmtDate(job.shippedAt)}</div>}
+            {job.status==="done"&&job.endedAt && <div style={{ fontSize:12, color:C.t3, marginBottom:8 }}>✅ Terminado el {fmtDate(job.endedAt)}</div>}
+            {isPaused && <div style={{ fontSize:12, color:STATUS.paused.color, marginBottom:8 }}>⏸ En pausa — toca Reanudar para continuar</div>}
 
             {/* Client + price */}
             {!compact&&(job.clientName||job.price) && (
               <div style={{ background:C.bg3, borderRadius:C.rSm, padding:"11px 14px", marginBottom:12, border:`1px solid ${C.bg5}`, display:"flex", gap:14, flexWrap:"wrap", alignItems:"center" }}>
                 {job.clientName && (
                   <div>
-                    <div style={{ fontSize:10, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:2 }}>Cliente</div>
+                    <div style={{ fontSize:12, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:2 }}>Cliente</div>
                     <div style={{ fontSize:14, color:C.t1, fontWeight:700 }}>{job.clientName}</div>
-                    {job.clientPhone && <div style={{ fontSize:11, color:C.t3 }}>{job.clientPhone}</div>}
+                    {job.clientPhone && <div style={{ fontSize:12, color:C.t3 }}>{job.clientPhone}</div>}
                   </div>
                 )}
                 {job.price&&(()=>{
                   const total=Number(job.price)||0, dep=Number(job.deposit)||0, pend=job.status==="shipped"?0:total-dep;
                   return (
                     <div style={{ marginLeft:"auto", textAlign:"right" }}>
-                      <div style={{ fontSize:10, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:3 }}>{qty>1?`×${qty} unidades`:"Total"}</div>
+                      <div style={{ fontSize:12, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:3 }}>{qty>1?`×${qty} unidades`:"Total"}</div>
                       <div style={{ fontSize:20, color:C.green, fontWeight:900, letterSpacing:-.5 }}>{fmtMoney(total)}</div>
-                      {qty>1&&job.unitPrice && <div style={{ fontSize:11, color:C.t3 }}>{fmtMoney(job.unitPrice)} c/u</div>}
-                      {job.status==="shipped" ? <div style={{ fontSize:11, color:C.green, fontWeight:700, marginTop:3 }}>✅ Cobrado</div>
+                      {qty>1&&job.unitPrice && <div style={{ fontSize:12, color:C.t3 }}>{fmtMoney(job.unitPrice)} c/u</div>}
+                      {job.status==="shipped" ? <div style={{ fontSize:12, color:C.green, fontWeight:700, marginTop:3 }}>✅ Cobrado</div>
                         : dep>0 ? <div style={{ marginTop:4 }}>
-                            <div style={{ fontSize:11, color:"#4ade80" }}>✅ Adelanto: {fmtMoney(dep)}</div>
+                            <div style={{ fontSize:12, color:"#4ade80" }}>✅ Adelanto: {fmtMoney(dep)}</div>
                             {pend>0 && <div style={{ fontSize:12, color:C.yellow, fontWeight:800 }}>💵 Cobrar: {fmtMoney(pend)}</div>}
-                            {pend<=0 && <div style={{ fontSize:11, color:C.green, fontWeight:700 }}>✅ Pagado completo</div>}
+                            {pend<=0 && <div style={{ fontSize:12, color:C.green, fontWeight:700 }}>✅ Pagado completo</div>}
                           </div>
                         : <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:3 }}>💵 Cobrar: {fmtMoney(total)}</div>}
                     </div>
@@ -925,15 +966,15 @@ export default function App() {
               return (
                 <div style={{ marginBottom:8 }}>
                   <span style={{ fontSize:14,color:C.green,fontWeight:800 }}>{fmtMoney(total)}{qty>1?` (×${qty})`:""}</span>
-                  {job.status==="shipped"?<span style={{ fontSize:11,color:C.green,fontWeight:700,marginLeft:8 }}>✅ Cobrado</span>
-                    :pend>0?<span style={{ fontSize:11,color:C.yellow,fontWeight:700,marginLeft:8 }}>💵 Cobrar: {fmtMoney(pend)}</span>
-                    :total>0&&!dep?<span style={{ fontSize:11,color:C.yellow,fontWeight:700,marginLeft:8 }}>💵 Cobrar: {fmtMoney(total)}</span>:null}
+                  {job.status==="shipped"?<span style={{ fontSize:12,color:C.green,fontWeight:700,marginLeft:8 }}>✅ Cobrado</span>
+                    :pend>0?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>💵 Cobrar: {fmtMoney(pend)}</span>
+                    :total>0&&!dep?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>💵 Cobrar: {fmtMoney(total)}</span>:null}
                 </div>
               );
             })()}
 
             {/* Pedido web */}
-            {job.webPedido && <button onClick={()=>setView("web")} style={{ fontSize:11, fontWeight:800, color:C.orange, background:C.orangeBg, border:`1px solid ${C.orange}44`, borderRadius:C.rPill, padding:"3px 10px", marginBottom:10, cursor:"pointer" }}>🌐 Pedido web #{String(job.webPedido).padStart(5,"0")}</button>}
+            {job.webPedido && <button onClick={()=>setView("web")} style={{ fontSize:12, fontWeight:800, color:C.orange, background:C.orangeBg, border:`1px solid ${C.orange}44`, borderRadius:C.rPill, padding:"3px 10px", marginBottom:10, cursor:"pointer" }}>🌐 Pedido web #{String(job.webPedido).padStart(5,"0")}</button>}
             {/* Notes */}
             {job.notes && <div style={{ fontSize:12, color:C.t2, background:C.bg3, borderRadius:C.rSm, padding:"8px 12px", marginBottom:12, borderLeft:`3px solid ${C.orange}`, whiteSpace:"pre-wrap" }}>📝 {job.notes}</div>}
 
@@ -953,7 +994,7 @@ export default function App() {
               return (
                 <div style={{ background:bgColor, border:`1px solid ${bdColor}`, borderRadius:C.rSm, padding:"9px 13px", marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
                   <div>
-                    <div style={{ fontSize:11, fontWeight:800, color:dotColor }}>{title}</div>
+                    <div style={{ fontSize:12, fontWeight:800, color:dotColor }}>{title}</div>
                     <div style={{ fontSize:12, color:C.t2, marginTop:1 }}>{fmtDel} · <span style={{ color:dotColor, fontWeight:700 }}>{timeLeft}</span></div>
                   </div>
                 </div>
@@ -962,18 +1003,18 @@ export default function App() {
 
             {/* Flow tracker */}
             {!compact && (
-              <div style={{ display:"flex", alignItems:"center", marginBottom:14, overflowX:"auto", paddingBottom:2 }}>
-                {(isDesign?FLOW_DESIGN:FLOW).map((step,i) => {
+              <div role="list" aria-label="Etapas del trabajo" style={{ display:"flex", alignItems:"flex-start", marginBottom:14, paddingBottom:2 }}>
+                {(isDesign?FLOW_DESIGN:FLOW).map((step,i,arr) => {
                   const isActive=i===flowStep, isDone=i<flowStep;
                   return (
-                    <div key={step.key} style={{ display:"flex", alignItems:"center", flexShrink:0 }}>
-                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                    <div key={step.key} role="listitem" aria-current={isActive?"step":undefined} title={step.label} style={{ display:"flex", alignItems:"center", flex: i<arr.length-1 ? 1 : "0 0 auto", minWidth:0 }}>
+                      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, flexShrink:0, position:"relative" }}>
                         <div style={{ width:28, height:28, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, background:isActive?st.dot:isDone?C.bg4:C.bg3, border:`2px solid ${isActive?st.dot:isDone?C.bg5:C.bg4}`, boxShadow:isActive?`0 0 10px ${st.dot}44`:undefined, opacity:isDone?.4:1 }}>
                           {isDone?"✓":step.icon}
                         </div>
-                        <div style={{ fontSize:9, color:isActive?C.t1:C.t4, fontWeight:isActive?800:400, textAlign:"center", maxWidth:44, lineHeight:1.2 }}>{step.label}</div>
+                        <div style={ isActive ? { fontSize:12, color:C.t1, fontWeight:800, textAlign:"center", lineHeight:1.2, whiteSpace:"nowrap" } : { position:"absolute", width:1, height:1, overflow:"hidden", clip:"rect(0 0 0 0)" } }>{step.label}</div>
                       </div>
-                      {i<FLOW.length-1 && <div style={{ width:18, height:2, background:i<flowStep?`linear-gradient(90deg,${C.t4},${C.bg5})`:C.bg4, margin:"0 2px 14px", flexShrink:0, borderRadius:2 }} />}
+                      {i<arr.length-1 && <div style={{ flex:1, minWidth:8, height:2, background:i<flowStep?C.t4:C.bg4, margin:"13px 4px 0", borderRadius:2 }} />}
                     </div>
                   );
                 })}
@@ -1022,16 +1063,16 @@ export default function App() {
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
             <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{p.name}</div>
             <div style={{ width:7, height:7, borderRadius:"50%", background:p.connected?C.green:C.bg5, boxShadow:p.connected?`0 0 6px ${C.green}`:undefined }} />
-            <span style={{ fontSize:10, color:p.connected?C.green:C.t4, fontWeight:700 }}>{p.connected?"En línea":"Offline"}</span>
+            <span style={{ fontSize:12, color:p.connected?C.green:C.t4, fontWeight:700 }}>{p.connected?"En línea":"Offline"}</span>
           </div>
-          <div style={{ fontSize:11, color:C.t3, marginBottom:active?6:0 }}>{p.brand} · {p.type}</div>
+          <div style={{ fontSize:12, color:C.t3, marginBottom:active?6:0 }}>{p.brand} · {p.type}</div>
           {active ? (
             <>
-              <div style={{ fontSize:11, color:C.green, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:4 }}>🖨 {active.fileName} — quedan {fmtTime(active.remaining)}</div>
+              <div style={{ fontSize:12, color:C.green, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:4 }}>🖨 {active.fileName} — quedan {fmtTime(active.remaining)}</div>
               <div style={{ height:4, background:C.bg4, borderRadius:4 }}><div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#86efac)`, borderRadius:4 }} /></div>
             </>
           ) : (
-            <div style={{ fontSize:11, color:C.t4 }}>{pPend(p.id)>0?`${pPend(p.id)} trabajo${pPend(p.id)>1?"s":""} esperando`:"Sin trabajos pendientes"}</div>
+            <div style={{ fontSize:12, color:C.t4 }}>{pPend(p.id)>0?`${pPend(p.id)} trabajo${pPend(p.id)>1?"s":""} esperando`:"Sin trabajos pendientes"}</div>
           )}
         </div>
         {showActions && (
@@ -1054,7 +1095,7 @@ export default function App() {
 
   // ─── SECTION HEADER ───────────────────────────────────────────────────────
   const SectionLabel = ({ children, color=C.t3, dot }) => (
-    <div style={{ fontSize:11, fontWeight:800, color, textTransform:"uppercase", letterSpacing:.9, margin:"20px 0 10px", display:"flex", alignItems:"center", gap:6 }}>
+    <div style={{ fontSize:12, fontWeight:800, color, textTransform:"uppercase", letterSpacing:.9, margin:"20px 0 10px", display:"flex", alignItems:"center", gap:6 }}>
       {dot && <div style={{ width:7, height:7, borderRadius:"50%", background:dot, boxShadow:`0 0 6px ${dot}` }} />}
       {children}
     </div>
@@ -1066,38 +1107,41 @@ export default function App() {
       <div>
         <div className="stats-row" style={{ marginBottom:8 }}>
           {[
-            { status:"printing", icon:"🖨", label:"Imprimiendo", count:printing.length, sub:printing[0]?.fileName, color:C.green },
-            { status:"pending",  icon:"⏳", label:"En cola",     count:pending.length,  sub:pending[0]&&`Sig: ${pending[0].fileName}`, color:C.yellow },
-          ].map(({ status, icon, label, count, sub, color }) => (
-            <div key={status} onClick={()=>{setView("queue");setFStatus(status);}} style={{ background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"16px", cursor:"pointer" }}>
-              <div style={{ fontSize:11, color, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:10 }}>{icon} {label}</div>
+            { status:"printing", Icon:Printer,   label:"Imprimiendo", count:printing.length, sub:printing[0]&&`${printing[0].fileName} · quedan ${fmtTime(printing[0].remaining)}`, color:C.green },
+            { status:"pending",  Icon:Hourglass, label:"En cola",     count:pending.length,  sub:pending[0]&&`Sigue: ${pending[0].fileName}`, color:C.yellow },
+          ].map(({ status, Icon, label, count, sub, color }) => (
+            <button key={status} onClick={()=>{setView("queue");setFStatus(status);}} style={{ textAlign:"left", background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"16px", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:10 }}><Icon size={16} aria-hidden="true" />{label}<ChevronRight size={16} style={{ marginLeft:"auto", opacity:.7 }} aria-hidden="true" /></div>
               <div style={{ fontSize:36, fontWeight:900, color:C.t1, lineHeight:1 }}>{count}</div>
-              {sub && <div style={{ fontSize:11, color, marginTop:7, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sub}</div>}
-              <div style={{ fontSize:9, color:C.t4, marginTop:6 }}>Toca para ver →</div>
-            </div>
+              {sub && <div style={{ fontSize:13, color, marginTop:8, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sub}</div>}
+            </button>
           ))}
         </div>
+        {/* Lo de hoy: lo que pide una acción, no totales históricos */}
         <div className="stats-row-sm" style={{ marginBottom:16 }}>
-          {[
-            { status:"shipping", icon:"📦", count:shipping.length, label:"Para envío",  color:C.purple, dest:"shipping_view" },
-            { status:"done",     icon:"✅", count:done.length,     label:"En taller",   color:C.t3,     dest:"queue", fs:"done" },
-            { status:"shipped",  icon:"🚚", count:shipped.length,  label:"Entregados",  color:C.teal,   dest:"shipping_view" },
-          ].map(({ status, icon, count, label, color, dest, fs }) => (
-            <div key={status} onClick={()=>{setView(dest);if(fs)setFStatus(fs);}} style={{ background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"11px 10px", textAlign:"center", cursor:"pointer" }}>
-              <div style={{ fontSize:20, marginBottom:3 }}>{icon}</div>
-              <div style={{ fontSize:22, fontWeight:900, color:C.t1 }}>{count}</div>
-              <div style={{ fontSize:9, color, fontWeight:700, marginTop:2 }}>{label}</div>
-            </div>
-          ))}
-          <div onClick={()=>{setView("queue");setFStatus("design");}} style={{ background:"#1a0533", border:"1px solid #6b21a8", borderRadius:C.r, padding:"11px 10px", textAlign:"center", cursor:"pointer" }}>
-            <div style={{ fontSize:20, marginBottom:3 }}>🎨</div>
-            <div style={{ fontSize:22, fontWeight:900, color:C.t1 }}>{jobs.filter(j=>j.jobType==="design"&&j.status!=="shipped").length}</div>
-            <div style={{ fontSize:9, color:"#c084fc", fontWeight:700, marginTop:2 }}>Diseño</div>
-          </div>
+          {(() => {
+            const fin = new Date(); fin.setHours(23,59,59,999);
+            const abiertos = jobs.filter(j=>j.status!=="shipped" && j.deliveryAt);
+            const atrasados = abiertos.filter(j=>Number(j.deliveryAt) < Date.now());
+            const hoy = abiertos.filter(j=>Number(j.deliveryAt) >= Date.now() && Number(j.deliveryAt) <= fin.getTime());
+            const listos = done.length + shipping.length;
+            return [
+              { key:"hoy",   Icon:CalendarClock, n:hoy.length,       label:"Entregar hoy",   color:C.yellow, bg:C.yellowBg, borde:"#5C4610", ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
+              { key:"atr",   Icon:AlertTriangle, n:atrasados.length, label:"Atrasados",      color:atrasados.length?"#FF6A4D":C.t3, bg:atrasados.length?C.redBg:C.bg2, borde:atrasados.length?"#5C1F14":C.bg4, ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
+              { key:"web",   Icon:Globe,         n:webAtencion,      label:"Web por atender",color:webAtencion?C.orange:C.t3, bg:webAtencion?C.orangeBg:C.bg2, borde:webAtencion?`${C.orange}55`:C.bg4, ir:()=>setView("web") },
+              { key:"listo", Icon:PackageCheck,  n:listos,           label:"Listos p/ entregar", color:C.purple, bg:C.purpleBg, borde:"#3B2560", ir:()=>setView("shipping_view") },
+            ].map(({ key, Icon, n, label, color, bg, borde, ir }) => (
+              <button key={key} onClick={ir} style={{ background:bg, border:`1px solid ${borde}`, borderRadius:C.r, padding:"12px 8px", textAlign:"center", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
+                <Icon size={20} color={color} aria-hidden="true" style={{ marginBottom:4 }} />
+                <div style={{ fontSize:24, fontWeight:900, color:C.t1, lineHeight:1.1 }}>{n}</div>
+                <div style={{ fontSize:12, color, fontWeight:700, marginTop:3, lineHeight:1.2 }}>{label}</div>
+              </button>
+            ));
+          })()}
         </div>
-        <div style={{ background:`linear-gradient(135deg,#060b1a,#0a1e35)`, borderRadius:C.r, padding:"18px 20px", marginBottom:16, border:"1px solid #1e3a5f", position:"relative" }}>
+        <div style={{ background:C.bg2, borderRadius:C.r, padding:"18px 20px", marginBottom:16, border:`1px solid ${C.bg4}`, position:"relative" }}>
           {/* Eye toggle */}
-          <button onClick={()=>setShowRevenue(v=>!v)} style={{ position:"absolute", top:14, right:14, background:"rgba(255,255,255,.07)", border:"1px solid rgba(255,255,255,.12)", borderRadius:C.rSm, width:32, height:32, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", zIndex:2 }} title={showRevenue?"Ocultar":"Mostrar"}>
+          <button onClick={()=>setShowRevenue(v=>!v)} style={{ position:"absolute", top:14, right:14, background:"rgba(255,255,255,.07)", border:"1px solid rgba(255,255,255,.12)", borderRadius:C.rSm, width:32, height:32, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", zIndex:2 }} aria-label={showRevenue?"Ocultar ingresos":"Mostrar ingresos"} title={showRevenue?"Ocultar":"Mostrar"}>
             {showRevenue
               ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="2" x2="22" y2="22"></line><path d="M6.71 6.71A10 10 0 0 0 1 12s4 8 11 8a9.9 9.9 0 0 0 5.29-1.51"/><path d="M17.94 17.94A10 10 0 0 0 23 12s-4-8-11-8a9.9 9.9 0 0 0-5.29 1.51"/><circle cx="12" cy="12" r="3"/></svg>
@@ -1106,28 +1150,28 @@ export default function App() {
           <div style={{ filter:showRevenue?"none":"blur(10px)", userSelect:showRevenue?"auto":"none", transition:"filter .25s", pointerEvents:showRevenue?"auto":"none" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
               <div>
-                <div style={{ fontSize:11, color:"#60a5fa", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>💰 Ingresos totales</div>
+                <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}><Wallet size={16} aria-hidden="true" />Ingresos totales</div>
                 <div style={{ fontSize:32, fontWeight:900, color:C.t1, letterSpacing:-1 }}>Bs. {revenue.toFixed(2)}</div>
               </div>
               <div style={{ textAlign:"right", paddingRight:40 }}>
-                <div style={{ fontSize:11, color:C.t3, marginBottom:4 }}>Hoy</div>
+                <div style={{ fontSize:12, color:C.t3, marginBottom:4 }}>Hoy</div>
                 <div style={{ fontSize:18, fontWeight:900, color:C.green }}>{fmtMoney(todayRev)}</div>
               </div>
             </div>
-            <div style={{ height:1, background:"#1e3a5f", margin:"13px 0" }} />
+            <div style={{ height:1, background:C.bg4, margin:"13px 0" }} />
             <div style={{ display:"flex", gap:20 }}>
               {[["Este mes",fmtMoney(monthRev)],["Clientes",clients.length],["Trabajos",jobs.length]].map(([l,v])=>(
-                <div key={l}><div style={{ fontSize:10, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{v}</div></div>
+                <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{v}</div></div>
               ))}
             </div>
           </div>
         </div>
         {printing.length>0 && (<>
-          <SectionLabel color={C.green} dot={C.green}>🖨 Imprimiendo ahora</SectionLabel>
+          <SectionLabel color={C.green} dot={C.green}>Imprimiendo ahora</SectionLabel>
           <div className="cards-grid">{printing.map(j=><JobCard key={j.id} job={j} />)}</div>
         </>)}
         {shipping.length>0 && (<>
-          <SectionLabel color={C.purple} dot={C.purple}>📦 Listos para enviar</SectionLabel>
+          <SectionLabel color={C.purple} dot={C.purple}>Listos para enviar</SectionLabel>
           <div className="cards-grid">{shipping.map(j=><JobCard key={j.id} job={j} />)}</div>
         </>)}
         {jobs.length===0 && (
@@ -1153,12 +1197,12 @@ export default function App() {
               <div style={{ width:7, height:7, borderRadius:"50%", background:C.yellow, flexShrink:0 }} />
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}</div>
-                <div style={{ fontSize:11, color:C.t3 }}>{j.clientName||"Sin cliente"}{j.deliveryAt?` · ${new Date(j.deliveryAt).toLocaleDateString("es-ES",{day:"2-digit",month:"short"})}`:""}</div>
+                <div style={{ fontSize:12, color:C.t3 }}>{j.clientName||"Sin cliente"}{j.deliveryAt?` · ${new Date(j.deliveryAt).toLocaleDateString("es-ES",{day:"2-digit",month:"short"})}`:""}</div>
               </div>
               {j.price&&<span style={{ fontSize:12, color:C.green, fontWeight:800, flexShrink:0 }}>Bs.{Number(j.price).toFixed(0)}</span>}
             </div>
           ))}
-          {pending.length>8&&<div style={{ fontSize:11, color:C.t4, textAlign:"center", padding:"6px 0", cursor:"pointer" }} onClick={()=>setView("queue")}>+{pending.length-8} más →</div>}
+          {pending.length>8&&<div style={{ fontSize:12, color:C.t4, textAlign:"center", padding:"6px 0", cursor:"pointer" }} onClick={()=>setView("queue")}>+{pending.length-8} más →</div>}
         </>)}
       </div>
     );
@@ -1260,12 +1304,12 @@ export default function App() {
               <span style={{ fontSize:22 }}>🎨</span>
               <div>
                 <div style={{ fontSize:14, fontWeight:900, color:"#c084fc" }}>Modo Diseño 3D</div>
-                <div style={{ fontSize:11, color:"#9333ea", marginTop:1 }}>
+                <div style={{ fontSize:12, color:"#9333ea", marginTop:1 }}>
                   {designJobs.filter(j=>j.status==="pending").length} pendientes · {designJobs.filter(j=>j.status==="printing").length} en diseño · {designJobs.filter(j=>j.status==="done").length} listos · {designJobs.filter(j=>j.status==="shipped").length} entregados
                 </div>
               </div>
             </div>
-            <button onClick={()=>setFStatus("all")} style={{ fontSize:11, color:"#9333ea", background:"none", border:"1px solid #6b21a8", borderRadius:C.rSm, padding:"6px 12px", cursor:"pointer", fontWeight:700 }}>
+            <button onClick={()=>setFStatus("all")} style={{ fontSize:12, color:"#9333ea", background:"none", border:"1px solid #6b21a8", borderRadius:C.rSm, padding:"6px 12px", cursor:"pointer", fontWeight:700 }}>
               ← Ver impresión
             </button>
           </div>
@@ -1298,13 +1342,13 @@ export default function App() {
         {/* ── PRINTER + SORT FILTERS ── */}
         <div style={{ display:"flex", gap:6, marginBottom:12, overflowX:"auto", paddingBottom:2 }}>
           {[{id:"all",name:"Todas"},...printers].map(p=>(
-            <button key={p.id} onClick={()=>setFPrinter(p.id)} style={{ padding:"6px 12px", borderRadius:C.rPill, border:`1.5px solid ${fPrinter===p.id?C.orange:C.bg5}`, cursor:"pointer", fontSize:11, fontWeight:700, background:fPrinter===p.id?C.orangeBg:C.bg3, color:fPrinter===p.id?C.orange:C.t3, whiteSpace:"nowrap", flexShrink:0 }}>
+            <button key={p.id} onClick={()=>setFPrinter(p.id)} style={{ padding:"6px 12px", borderRadius:C.rPill, border:`1.5px solid ${fPrinter===p.id?C.orange:C.bg5}`, cursor:"pointer", fontSize:12, fontWeight:700, background:fPrinter===p.id?C.orangeBg:C.bg3, color:fPrinter===p.id?C.orange:C.t3, whiteSpace:"nowrap", flexShrink:0 }}>
               {p.name}
             </button>
           ))}
           <div style={{ width:1, background:C.bg5, flexShrink:0, margin:"2px 2px" }} />
           {SORT_OPTIONS.map(s=>(
-            <button key={s.key} onClick={()=>setQueueSort(s.key)} style={{ padding:"6px 12px", borderRadius:C.rPill, border:`1.5px solid ${queueSort===s.key?C.blue:C.bg5}`, cursor:"pointer", fontSize:11, fontWeight:700, background:queueSort===s.key?C.blueBg:C.bg3, color:queueSort===s.key?C.blue:C.t3, whiteSpace:"nowrap", flexShrink:0 }}>
+            <button key={s.key} onClick={()=>setQueueSort(s.key)} style={{ padding:"6px 12px", borderRadius:C.rPill, border:`1.5px solid ${queueSort===s.key?C.blue:C.bg5}`, cursor:"pointer", fontSize:12, fontWeight:700, background:queueSort===s.key?C.blueBg:C.bg3, color:queueSort===s.key?C.blue:C.t3, whiteSpace:"nowrap", flexShrink:0 }}>
               {s.label}
             </button>
           ))}
@@ -1374,8 +1418,8 @@ export default function App() {
                   <button onClick={()=>setQueueWeekOffset(v=>v-1)} style={{ width:36, height:36, borderRadius:10, background:C.bg3, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>‹</button>
                   <div style={{ textAlign:"center" }}>
                     <div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{weekLabel}</div>
-                    {queueWeekOffset===0 && <div style={{ fontSize:10, color:C.orange, fontWeight:800, marginTop:2 }}>SEMANA ACTUAL</div>}
-                    {queueWeekOffset!==0 && <button onClick={()=>setQueueWeekOffset(0)} style={{ fontSize:10, color:C.blue, background:"none", border:"none", cursor:"pointer", fontWeight:700, marginTop:2 }}>Volver a hoy</button>}
+                    {queueWeekOffset===0 && <div style={{ fontSize:12, color:C.orange, fontWeight:800, marginTop:2 }}>SEMANA ACTUAL</div>}
+                    {queueWeekOffset!==0 && <button onClick={()=>setQueueWeekOffset(0)} style={{ fontSize:12, color:C.blue, background:"none", border:"none", cursor:"pointer", fontWeight:700, marginTop:2 }}>Volver a hoy</button>}
                   </div>
                   <button onClick={()=>setQueueWeekOffset(v=>v+1)} style={{ width:36, height:36, borderRadius:10, background:C.bg3, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>›</button>
                 </div>
@@ -1383,18 +1427,18 @@ export default function App() {
                 <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
                   <div style={{ textAlign:"center" }}>
                     <div style={{ fontSize:16, fontWeight:900, color:C.t1 }}>{weekJobs.length}</div>
-                    <div style={{ fontSize:10, color:C.t3, fontWeight:700 }}>entregas</div>
+                    <div style={{ fontSize:12, color:C.t3, fontWeight:700 }}>entregas</div>
                   </div>
                   <div style={{ width:1, background:C.bg5 }} />
                   <div style={{ textAlign:"center" }}>
                     <div style={{ fontSize:16, fontWeight:900, color:C.green }}>{weekRevenue>0?`Bs.${weekRevenue.toFixed(0)}`:"-"}</div>
-                    <div style={{ fontSize:10, color:C.t3, fontWeight:700 }}>esperado</div>
+                    <div style={{ fontSize:12, color:C.t3, fontWeight:700 }}>esperado</div>
                   </div>
                   {overdueCount>0 && <>
                     <div style={{ width:1, background:C.bg5 }} />
                     <div style={{ textAlign:"center" }}>
                       <div style={{ fontSize:16, fontWeight:900, color:C.red }}>{overdueCount}</div>
-                      <div style={{ fontSize:10, color:C.red, fontWeight:700 }}>vencidos</div>
+                      <div style={{ fontSize:12, color:C.red, fontWeight:700 }}>vencidos</div>
                     </div>
                   </>}
                 </div>
@@ -1410,9 +1454,9 @@ export default function App() {
                     <div key={di} style={{ background:today?`${C.orange}11`:C.bg2, borderRadius:C.rSm, border:`1.5px solid ${today?C.orange:C.bg4}`, overflow:"hidden", minHeight:80 }}>
                       {/* Day header */}
                       <div style={{ padding:"6px 4px", textAlign:"center", borderBottom:`1px solid ${today?C.orange+"33":C.bg4}`, background:today?`${C.orange}22`:C.bg3 }}>
-                        <div style={{ fontSize:9, fontWeight:700, color:today?C.orange:isPast?C.t4:C.t3, textTransform:"uppercase", letterSpacing:.5 }}>{DAYS_ES[d.getDay()]}</div>
+                        <div style={{ fontSize:12, fontWeight:700, color:today?C.orange:isPast?C.t4:C.t3, textTransform:"uppercase", letterSpacing:.5 }}>{DAYS_ES[d.getDay()]}</div>
                         <div style={{ fontSize:15, fontWeight:900, color:today?C.orange:isPast?C.t4:C.t1, marginTop:1 }}>{d.getDate()}</div>
-                        {dayJobs.length>0 && <div style={{ fontSize:9, color:today?C.orange:C.t4, fontWeight:700, marginTop:1 }}>{dayJobs.length} pedido{dayJobs.length!==1?"s":""}</div>}
+                        {dayJobs.length>0 && <div style={{ fontSize:12, color:today?C.orange:C.t4, fontWeight:700, marginTop:1 }}>{dayJobs.length} pedido{dayJobs.length!==1?"s":""}</div>}
                       </div>
                       {/* Jobs in day */}
                       <div style={{ padding:"4px 3px", display:"flex", flexDirection:"column", gap:3 }}>
@@ -1422,7 +1466,7 @@ export default function App() {
                           const action=quickAction(job);
                           return (
                             <div key={job.id} onClick={()=>{ setQueueViewMode("detail"); goToJob(job.id); }} style={{ background:st.bg, border:`1px solid ${st.border}`, borderRadius:5, padding:"4px 5px", cursor:"pointer" }}>
-                              <div style={{ fontSize:9, fontWeight:800, color:st.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
+                              <div style={{ fontSize:12, fontWeight:800, color:st.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                               {job.clientName && <div style={{ fontSize:8, color:C.t4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.clientName}</div>}
                               {job.price && <div style={{ fontSize:8, color:C.green, fontWeight:800 }}>Bs.{Number(job.price).toFixed(0)}</div>}
                               <div style={{ display:"flex", alignItems:"center", gap:3, marginTop:2 }}>
@@ -1443,8 +1487,8 @@ export default function App() {
               {unscheduled.length>0 && (
                 <div style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, overflow:"hidden", marginBottom:12 }}>
                   <div style={{ padding:"10px 14px", background:C.bg3, borderBottom:`1px solid ${C.bg4}`, display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontSize:11, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.7 }}>📋 Sin fecha de entrega esta semana</span>
-                    <span style={{ fontSize:11, color:C.t4, fontWeight:700 }}>{unscheduled.length}</span>
+                    <span style={{ fontSize:12, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.7 }}>📋 Sin fecha de entrega esta semana</span>
+                    <span style={{ fontSize:12, color:C.t4, fontWeight:700 }}>{unscheduled.length}</span>
                   </div>
                   {unscheduled.slice(0,5).map((job,i)=>{
                     const st=STATUS[job.status]||STATUS.pending;
@@ -1454,9 +1498,9 @@ export default function App() {
                         <div style={{ width:7, height:7, borderRadius:"50%", background:st.dot, flexShrink:0 }} />
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
-                          <div style={{ fontSize:11, color:C.t3 }}>{job.clientName||"Sin cliente"} · {st.label}</div>
+                          <div style={{ fontSize:12, color:C.t3 }}>{job.clientName||"Sin cliente"} · {st.label}</div>
                         </div>
-                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:action.bg, color:action.color, border:"none", borderRadius:C.rSm, fontSize:11, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
+                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:action.bg, color:action.color, border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
                       </div>
                     );
                   })}
@@ -1467,8 +1511,8 @@ export default function App() {
               {overdueCount>0 && (
                 <div style={{ background:C.redBg, borderRadius:C.r, border:"1px solid #3d0018", overflow:"hidden", marginBottom:12 }}>
                   <div style={{ padding:"10px 14px", borderBottom:"1px solid #3d0018", display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontSize:11, fontWeight:800, color:C.red, textTransform:"uppercase", letterSpacing:.7 }}>⚠️ Entregas vencidas</span>
-                    <span style={{ fontSize:11, color:C.red, fontWeight:700 }}>{overdueCount}</span>
+                    <span style={{ fontSize:12, fontWeight:800, color:C.red, textTransform:"uppercase", letterSpacing:.7 }}>⚠️ Entregas vencidas</span>
+                    <span style={{ fontSize:12, color:C.red, fontWeight:700 }}>{overdueCount}</span>
                   </div>
                   {jobs.filter(j=>j.deliveryAt&&j.deliveryAt<Date.now()&&j.status!=="shipped").map((job,i,arr)=>{
                     const diff=Date.now()-job.deliveryAt;
@@ -1479,9 +1523,9 @@ export default function App() {
                       <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderBottom:i<arr.length-1?"1px solid #3d0018":"none" }}>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
-                          <div style={{ fontSize:11, color:"#ff9e9e" }}>{job.clientName||"Sin cliente"} · hace {days>0?`${days}d`:`${hours}h`}</div>
+                          <div style={{ fontSize:12, color:"#ff9e9e" }}>{job.clientName||"Sin cliente"} · hace {days>0?`${days}d`:`${hours}h`}</div>
                         </div>
-                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:11, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
+                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
                       </div>
                     );
                   })}
@@ -1503,7 +1547,7 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 16px", borderBottom:`1px solid ${C.bg4}`, background:C.bg3 }}>
                   <div style={{ width:8, height:8, borderRadius:"50%", background:group.dot, flexShrink:0 }} />
                   <span style={{ fontSize:12, fontWeight:900, color:group.color, textTransform:"uppercase", letterSpacing:.7 }}>{group.label}</span>
-                  <span style={{ fontSize:11, color:C.t4, fontWeight:700, marginLeft:"auto" }}>{group.jobs.length} trabajo{group.jobs.length!==1?"s":""}</span>
+                  <span style={{ fontSize:12, color:C.t4, fontWeight:700, marginLeft:"auto" }}>{group.jobs.length} trabajo{group.jobs.length!==1?"s":""}</span>
                 </div>
                 {/* Compact job rows */}
                 {group.jobs.map((job,i)=>{
@@ -1516,15 +1560,15 @@ export default function App() {
                     <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 16px", borderBottom:i<group.jobs.length-1?`1px solid ${C.bg4}`:"none" }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
-                          {isLateDelivery && <span style={{ fontSize:10, color:C.red }}>⚠️</span>}
+                          {isLateDelivery && <span style={{ fontSize:12, color:C.red }}>⚠️</span>}
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
-                          {qty>1 && <span style={{ fontSize:10, color:C.purple, fontWeight:800, flexShrink:0 }}>×{qty}</span>}
+                          {qty>1 && <span style={{ fontSize:12, color:C.purple, fontWeight:800, flexShrink:0 }}>×{qty}</span>}
                         </div>
                         <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                          {job.clientName && <span style={{ fontSize:11, color:C.t3 }}>{job.clientName}</span>}
-                          {printer && <span style={{ fontSize:10, color:C.t4 }}>· {printer.name.replace("Creality ","")}</span>}
-                          {waitingStr && <span style={{ fontSize:10, color:C.yellow, fontWeight:700 }}>· {waitingStr}</span>}
-                          {job.price && <span style={{ fontSize:11, color:C.green, fontWeight:800, marginLeft:"auto" }}>Bs.{Number(job.price).toFixed(0)}</span>}
+                          {job.clientName && <span style={{ fontSize:12, color:C.t3 }}>{job.clientName}</span>}
+                          {printer && <span style={{ fontSize:12, color:C.t4 }}>· {printer.name.replace("Creality ","")}</span>}
+                          {waitingStr && <span style={{ fontSize:12, color:C.yellow, fontWeight:700 }}>· {waitingStr}</span>}
+                          {job.price && <span style={{ fontSize:12, color:C.green, fontWeight:800, marginLeft:"auto" }}>Bs.{Number(job.price).toFixed(0)}</span>}
                         </div>
                       </div>
                       {action && (
@@ -1548,7 +1592,7 @@ export default function App() {
             <div className="cards-grid">{pending.map((j,i)=>(
               <div key={j.id}>
                 {queueSort==="waiting" && j.createdAt && (
-                  <div style={{ fontSize:11, color:C.yellow, fontWeight:700, marginBottom:4, marginLeft:48 }}>⏳ {fmtWaiting(j.createdAt)}</div>
+                  <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, marginLeft:48 }}>⏳ {fmtWaiting(j.createdAt)}</div>
                 )}
                 <JobCard job={j} showPriority idx={i} total={pending.length} />
               </div>
@@ -1567,7 +1611,7 @@ export default function App() {
               return (
                 <div key={j.id}>
                   {j.status==="pending"&&queueSort==="waiting"&&j.createdAt&&(
-                    <div style={{ fontSize:11, color:C.yellow, fontWeight:700, marginBottom:4, paddingLeft:4 }}>⏳ {fmtWaiting(j.createdAt)}</div>
+                    <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, paddingLeft:4 }}>⏳ {fmtWaiting(j.createdAt)}</div>
                   )}
                   <JobCard job={j} />
                 </div>
@@ -1665,7 +1709,7 @@ export default function App() {
                     <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
                       <div style={{ fontSize:12, fontWeight:800, color:C.teal, textTransform:"capitalize" }}>📅 {dateLabel}</div>
                       <div style={{ flex:1, height:1, background:C.bg4 }} />
-                      <div style={{ fontSize:11, color:C.t4, fontWeight:700 }}>
+                      <div style={{ fontSize:12, color:C.t4, fontWeight:700 }}>
                         {dayJobs.length} entrega{dayJobs.length!==1?"s":""} · Bs. {dayJobs.reduce((s,j)=>s+Number(j.price||0),0).toFixed(0)}
                       </div>
                     </div>
@@ -1703,7 +1747,7 @@ export default function App() {
               {[["Pedidos",c.totalJobs],["Adelantos",totalDeposits>0?`Bs.${totalDeposits.toFixed(0)}`:"—"],["Por cobrar",totalPending>0?`Bs.${totalPending.toFixed(0)}`:"✅ 0"]].map(([l,v])=>(
                 <div key={l} style={{ background:C.bg3, borderRadius:C.rSm, padding:"13px 8px", textAlign:"center" }}>
                   <div style={{ fontSize:20, fontWeight:900, color:C.t1 }}>{v}</div>
-                  <div style={{ fontSize:10, color:C.t3, marginTop:3, fontWeight:700 }}>{l}</div>
+                  <div style={{ fontSize:12, color:C.t3, marginTop:3, fontWeight:700 }}>{l}</div>
                 </div>
               ))}
             </div>
@@ -1719,11 +1763,11 @@ export default function App() {
         <div style={{ display:"grid", gridTemplateColumns: isDesktop?"1fr 1fr 1fr":"1fr 1fr", gap:10, marginBottom:16 }}>
           <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"18px" }}>
             <div style={{ fontSize:30, fontWeight:900, color:C.t1 }}>{clients.length}</div>
-            <div style={{ fontSize:11, color:C.t3, marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>👥 Clientes</div>
+            <div style={{ fontSize:12, color:C.t3, marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>👥 Clientes</div>
           </div>
           <div style={{ background:"linear-gradient(135deg,#060b1a,#0a1e35)", border:"1px solid #1e3a5f", borderRadius:C.r, padding:"18px" }}>
             <div style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{fmtMoney(revenue)}</div>
-            <div style={{ fontSize:11, color:"#60a5fa", marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>💰 Total ingresos</div>
+            <div style={{ fontSize:12, color:"#60a5fa", marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>💰 Total ingresos</div>
           </div>
         </div>
         {clients.length===0 ? (
@@ -1755,14 +1799,14 @@ export default function App() {
                     <div style={{ width:48, height:48, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange}88,${C.orangeD}88)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:900, color:"#fff", flexShrink:0 }}>{initials(c.name)}</div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{c.name}</div>
-                      <div style={{ fontSize:11, color:C.t3, marginTop:2 }}>{c.phone||"Sin teléfono"} · {c.totalJobs} pedido{c.totalJobs!==1?"s":""}</div>
+                      <div style={{ fontSize:12, color:C.t3, marginTop:2 }}>{c.phone||"Sin teléfono"} · {c.totalJobs} pedido{c.totalJobs!==1?"s":""}</div>
                     </div>
                     <div style={{ textAlign:"right" }}>
                       <div style={{ fontSize:15, fontWeight:900, color:C.green }}>{c.totalRevenue>0?fmtMoney(c.totalRevenue):"—"}</div>
-                      {pend>0 ? <div style={{ fontSize:11, color:C.yellow, fontWeight:800, marginTop:2 }}>💵 {fmtMoney(pend)}</div>
-                        : c.totalRevenue>0 ? <div style={{ fontSize:11, color:C.green, marginTop:2 }}>✅ Pagado</div>
+                      {pend>0 ? <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:2 }}>💵 {fmtMoney(pend)}</div>
+                        : c.totalRevenue>0 ? <div style={{ fontSize:12, color:C.green, marginTop:2 }}>✅ Pagado</div>
                         : null}
-                      <div style={{ fontSize:10, color:C.t3, marginTop:2 }}>{fmtDateShort(c.lastJob)}</div>
+                      <div style={{ fontSize:12, color:C.t3, marginTop:2 }}>{fmtDateShort(c.lastJob)}</div>
                     </div>
                   </div>
                 </div>
@@ -1793,16 +1837,16 @@ export default function App() {
         ))}
       </div>
       <div style={{ background:"linear-gradient(135deg,#060b1a,#0a2535)", border:"1px solid #1e3a5f", borderRadius:C.r, padding:"20px", marginBottom:12 }}>
-        <div style={{ fontSize:11, color:"#60a5fa", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>💰 Ingresos — {periodLabels[statPeriod]}</div>
+        <div style={{ fontSize:12, color:"#60a5fa", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>💰 Ingresos — {periodLabels[statPeriod]}</div>
         <div style={{ fontSize:38, fontWeight:900, color:C.t1, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(periodRev)}</div>
         <div style={{ fontSize:13, color:C.t3, marginTop:9 }}>{periodJobs.length} trabajo{periodJobs.length!==1?"s":""} completado{periodJobs.length!==1?"s":""}</div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:16 }}>
         {[["📋 Trabajos",periodJobs.length,"completados"],["🚚 Entregas",shipped.filter(j=>(j.createdAt||0)>=periodStart).length,"entregados"]].map(([l,v,s])=>(
           <div key={l} style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"16px" }}>
-            <div style={{ fontSize:11, color:C.t3, fontWeight:700, marginBottom:7 }}>{l}</div>
+            <div style={{ fontSize:12, color:C.t3, fontWeight:700, marginBottom:7 }}>{l}</div>
             <div style={{ fontSize:28, fontWeight:900, color:C.t1 }}>{v}</div>
-            <div style={{ fontSize:11, color:C.t3, marginTop:4 }}>{s}</div>
+            <div style={{ fontSize:12, color:C.t3, marginTop:4 }}>{s}</div>
           </div>
         ))}
       </div>
@@ -1812,7 +1856,7 @@ export default function App() {
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
             {periodByPrinter.map((p,i)=>(
               <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:i<periodByPrinter.length-1?`1px solid ${C.bg4}`:"none" }}>
-                <div><div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{p.name}</div><div style={{ fontSize:11, color:C.t3 }}>{p.total} trabajo{p.total!==1?"s":""}</div></div>
+                <div><div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{p.name}</div><div style={{ fontSize:12, color:C.t3 }}>{p.total} trabajo{p.total!==1?"s":""}</div></div>
                 <div style={{ fontSize:14, fontWeight:800, color:C.green }}>{p.rev>0?fmtMoney(p.rev):"—"}</div>
               </div>
             ))}
@@ -1855,9 +1899,9 @@ export default function App() {
         <div style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, marginBottom:16, overflow:"hidden" }}>
           {/* Header */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto", gap:8, padding:"9px 14px", background:C.bg3, borderBottom:`1px solid ${C.bg4}` }}>
-            <span style={{ fontSize:10, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7 }}>Producto / Cliente</span>
-            <span style={{ fontSize:10, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7, textAlign:"right" }}>Cant.</span>
-            <span style={{ fontSize:10, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7, textAlign:"right", minWidth:80 }}>Total</span>
+            <span style={{ fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7 }}>Producto / Cliente</span>
+            <span style={{ fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7, textAlign:"right" }}>Cant.</span>
+            <span style={{ fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7, textAlign:"right", minWidth:80 }}>Total</span>
           </div>
           {[...periodJobs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map((job,i)=>{
             const qty = Number(job.quantity)||1;
@@ -1872,15 +1916,15 @@ export default function App() {
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <div style={{ minWidth:0 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:2 }}>
-                    {isDesign && <span style={{ fontSize:9, background:"#2e1065", color:"#c084fc", border:"1px solid #6b21a8", borderRadius:C.rPill, padding:"1px 5px", fontWeight:800, flexShrink:0 }}>Diseño</span>}
+                    {isDesign && <span style={{ fontSize:12, background:"#2e1065", color:"#c084fc", border:"1px solid #6b21a8", borderRadius:C.rPill, padding:"1px 5px", fontWeight:800, flexShrink:0 }}>Diseño</span>}
                     <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                   </div>
                   <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                    <span style={{ fontSize:11, color:C.t3 }}>{job.clientName||"Sin cliente"}</span>
-                    <span style={{ fontSize:10, background:STATUS[job.status]?.bg, color:STATUS[job.status]?.color, borderRadius:C.rPill, padding:"1px 6px", fontWeight:700, flexShrink:0 }}>{STATUS[job.status]?.label}</span>
+                    <span style={{ fontSize:12, color:C.t3 }}>{job.clientName||"Sin cliente"}</span>
+                    <span style={{ fontSize:12, background:STATUS[job.status]?.bg, color:STATUS[job.status]?.color, borderRadius:C.rPill, padding:"1px 6px", fontWeight:700, flexShrink:0 }}>{STATUS[job.status]?.label}</span>
                   </div>
                   {dep>0 && job.status!=="shipped" && (
-                    <div style={{ fontSize:10, marginTop:2 }}>
+                    <div style={{ fontSize:12, marginTop:2 }}>
                       <span style={{ color:"#4ade80" }}>✅ adelanto Bs.{dep.toFixed(2)}</span>
                       {pending>0 && <span style={{ color:C.yellow, marginLeft:6 }}>💵 cobrar Bs.{pending.toFixed(2)}</span>}
                     </div>
@@ -1891,7 +1935,7 @@ export default function App() {
                 </div>
                 <div style={{ textAlign:"right", flexShrink:0, minWidth:80 }}>
                   <div style={{ fontSize:14, fontWeight:900, color:job.status==="shipped"?C.green:C.t1 }}>Bs.{total.toFixed(2)}</div>
-                  {qty>1&&job.unitPrice&&<div style={{ fontSize:10, color:C.t3 }}>Bs.{Number(job.unitPrice).toFixed(2)} c/u</div>}
+                  {qty>1&&job.unitPrice&&<div style={{ fontSize:12, color:C.t3 }}>Bs.{Number(job.unitPrice).toFixed(2)} c/u</div>}
                 </div>
               </div>
             );
@@ -1908,9 +1952,9 @@ export default function App() {
         <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:110 }}>
           {last6.map((m,i)=>(
             <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-              <div style={{ fontSize:9, color:C.t3, fontWeight:600 }}>{m.rev>0?m.rev.toFixed(0):""}</div>
+              <div style={{ fontSize:12, color:C.t3, fontWeight:600 }}>{m.rev>0?m.rev.toFixed(0):""}</div>
               <div style={{ width:"100%", background:`linear-gradient(180deg,${C.orange},${C.orangeD})`, borderRadius:"5px 5px 0 0", height:`${Math.max(4,(m.rev/maxRev)*88)}px`, opacity:i===5?1:0.2+i*.15 }} />
-              <div style={{ fontSize:9, color:i===5?C.t1:C.t3, fontWeight:i===5?800:400 }}>{m.label}</div>
+              <div style={{ fontSize:12, color:i===5?C.t1:C.t3, fontWeight:i===5?800:400 }}>{m.label}</div>
             </div>
           ))}
         </div>
@@ -1954,17 +1998,17 @@ export default function App() {
           ))}
         </div>
         <div style={{ background:"linear-gradient(135deg,#060e06,#0a1f0a)", border:"1px solid #1a4a1a", borderRadius:C.r, padding:"20px", marginBottom:12 }}>
-          <div style={{ fontSize:11, color:C.green, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>💵 Utilidad neta — {periodLabels[statPeriod]}</div>
+          <div style={{ fontSize:12, color:C.green, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>💵 Utilidad neta — {periodLabels[statPeriod]}</div>
           <div style={{ fontSize:38, fontWeight:900, color:pProfit>=0?C.green:C.red, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(pProfit)}</div>
           <div style={{ display:"flex", gap:16, marginTop:11 }}>
             {[["Vendido",fmtMoney(pRevenue),C.t1],["Costo mat.",`- ${fmtMoney(pMatCost)}`,C.red],["Margen",`${pMargin.toFixed(0)}%`,pMargin>=50?C.green:pMargin>=25?C.yellow:C.red]].map(([l,v,c])=>(
-              <div key={l}><div style={{ fontSize:10, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:800, color:c }}>{v}</div></div>
+              <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:800, color:c }}>{v}</div></div>
             ))}
           </div>
         </div>
         {pRevenue>0 && (
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
-            <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, color:C.t3, marginBottom:6 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, color:C.t3, marginBottom:6 }}>
               <span>Costo ({pRevenue>0?((pMatCost/pRevenue)*100).toFixed(0):0}%)</span>
               <span>Ganancia ({pMargin.toFixed(0)}%)</span>
             </div>
@@ -1980,8 +2024,8 @@ export default function App() {
             <div key={mat} style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 0", borderBottom:i<allMaterials.length-1?`1px solid ${C.bg4}`:"none" }}>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{mat}</div>
-                {matCosts[mat] ? <div style={{ fontSize:11, color:C.t3 }}>Bs. {matCosts[mat]} / kg · Bs. {(matCosts[mat]/1000).toFixed(3)} / g</div>
-                  : <div style={{ fontSize:11, color:C.yellow }}>⚠️ Sin configurar</div>}
+                {matCosts[mat] ? <div style={{ fontSize:12, color:C.t3 }}>Bs. {matCosts[mat]} / kg · Bs. {(matCosts[mat]/1000).toFixed(3)} / g</div>
+                  : <div style={{ fontSize:12, color:C.yellow }}>⚠️ Sin configurar</div>}
               </div>
               {editingCost===mat ? (
                 <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -2035,11 +2079,11 @@ export default function App() {
         {/* Sub-tab switcher */}
         <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
           <button onClick={()=>setProdTab("catalogo")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="catalogo"?C.orange:"transparent", color:prodTab==="catalogo"?"#fff":C.t3, boxShadow:prodTab==="catalogo"?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
-            📦 Catálogo{products.length>0 && <span style={{ marginLeft:6, fontSize:11, opacity:.85 }}>{products.length}</span>}
+            📦 Catálogo{products.length>0 && <span style={{ marginLeft:6, fontSize:12, opacity:.85 }}>{products.length}</span>}
           </button>
           <button onClick={()=>setProdTab("stock")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="stock"?C.orange:"transparent", color:prodTab==="stock"?"#fff":C.t3, boxShadow:prodTab==="stock"?"0 3px 12px rgba(241,132,27,.35)":undefined, position:"relative" }}>
             🗃 Stock
-            {totalStock>0 && <span style={{ marginLeft:6, background:prodTab==="stock"?"rgba(255,255,255,.25)":C.orange, color:"#fff", borderRadius:C.rPill, padding:"1px 7px", fontSize:11, fontWeight:900 }}>{totalStock}</span>}
+            {totalStock>0 && <span style={{ marginLeft:6, background:prodTab==="stock"?"rgba(255,255,255,.25)":C.orange, color:"#fff", borderRadius:C.rPill, padding:"1px 7px", fontSize:12, fontWeight:900 }}>{totalStock}</span>}
           </button>
         </div>
 
@@ -2064,7 +2108,7 @@ export default function App() {
                 {cats.map(cat=>(
                   <button key={cat} onClick={()=>setProdCatFilter(cat)} style={{ padding:"7px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", flexShrink:0, background:prodCatFilter===cat?C.orange:C.bg3, color:prodCatFilter===cat?"#fff":C.t3, boxShadow:prodCatFilter===cat?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
                     {cat==="all"?"Todos":cat}
-                    {cat!=="all" && <span style={{ marginLeft:5, fontSize:10, opacity:.8 }}>{products.filter(p=>p.category===cat).length}</span>}
+                    {cat!=="all" && <span style={{ marginLeft:5, fontSize:12, opacity:.8 }}>{products.filter(p=>p.category===cat).length}</span>}
                   </button>
                 ))}
               </div>
@@ -2087,15 +2131,15 @@ export default function App() {
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{prod.name}</div>
                             <div style={{ display:"flex", gap:5, marginTop:4, flexWrap:"wrap", alignItems:"center" }}>
-                              {prod.material && <span style={{ fontSize:10, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.material}</span>}
-                              {prod.color    && <span style={{ fontSize:10, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.color}</span>}
-                              {prod.duration>0 && <span style={{ fontSize:10, color:C.t4, fontWeight:600 }}>⏱{Number(prod.duration)>=60?`${Math.floor(Number(prod.duration)/60)}h${Number(prod.duration)%60>0?" "+Number(prod.duration)%60+"m":""}`:prod.duration+"min"}</span>}
-                              {prod.weight>0  && <span style={{ fontSize:10, color:C.t4, fontWeight:600 }}>⚖{prod.weight}g</span>}
+                              {prod.material && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.material}</span>}
+                              {prod.color    && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.color}</span>}
+                              {prod.duration>0 && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}>⏱{Number(prod.duration)>=60?`${Math.floor(Number(prod.duration)/60)}h${Number(prod.duration)%60>0?" "+Number(prod.duration)%60+"m":""}`:prod.duration+"min"}</span>}
+                              {prod.weight>0  && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}>⚖{prod.weight}g</span>}
                             </div>
                           </div>
                           <div style={{ textAlign:"right", flexShrink:0 }}>
                             {prod.price && <div style={{ fontSize:17, fontWeight:900, color:C.green }}>{Number(prod.price)>0?"Bs. "+Number(prod.price).toFixed(2):""}</div>}
-                            {stockQty>0 && <div style={{ fontSize:10, color:C.purple, fontWeight:800, marginTop:2 }}>🗃 {stockQty} en stock</div>}
+                            {stockQty>0 && <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:2 }}>🗃 {stockQty} en stock</div>}
                           </div>
                         </div>
                         {/* Action buttons */}
@@ -2123,9 +2167,9 @@ export default function App() {
           ) : (
             <>
               <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"14px 16px", marginBottom:16, display:"flex", gap:20 }}>
-                <div><div style={{ fontSize:10, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Productos</div><div style={{ fontSize:22, fontWeight:900, color:C.t1 }}>{stockItems.length}</div></div>
-                <div><div style={{ fontSize:10, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Unidades</div><div style={{ fontSize:22, fontWeight:900, color:C.purple }}>{totalStock}</div></div>
-                <div><div style={{ fontSize:10, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Valor aprox.</div><div style={{ fontSize:22, fontWeight:900, color:C.green }}>Bs.{stockItems.reduce((s,i)=>{ const p=products.find(x=>x.id===i.productId); return s+(p?Number(p.price||0)*i.qty:0); },0).toFixed(0)}</div></div>
+                <div><div style={{ fontSize:12, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Productos</div><div style={{ fontSize:22, fontWeight:900, color:C.t1 }}>{stockItems.length}</div></div>
+                <div><div style={{ fontSize:12, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Unidades</div><div style={{ fontSize:22, fontWeight:900, color:C.purple }}>{totalStock}</div></div>
+                <div><div style={{ fontSize:12, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Valor aprox.</div><div style={{ fontSize:22, fontWeight:900, color:C.green }}>Bs.{stockItems.reduce((s,i)=>{ const p=products.find(x=>x.id===i.productId); return s+(p?Number(p.price||0)*i.qty:0); },0).toFixed(0)}</div></div>
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
                 {stockItems.map(item => {
@@ -2137,9 +2181,9 @@ export default function App() {
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
                           <div style={{ display:"flex", gap:5, marginTop:4, flexWrap:"wrap" }}>
-                            {item.material && <span style={{ fontSize:10, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{item.material}</span>}
-                            {item.color    && <span style={{ fontSize:10, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{item.color}</span>}
-                            {prod?.price && <span style={{ fontSize:10, color:C.green, fontWeight:800 }}>Bs. {Number(prod.price).toFixed(2)}</span>}
+                            {item.material && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{item.material}</span>}
+                            {item.color    && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{item.color}</span>}
+                            {prod?.price && <span style={{ fontSize:12, color:C.green, fontWeight:800 }}>Bs. {Number(prod.price).toFixed(2)}</span>}
                           </div>
                         </div>
                         <div style={{ textAlign:"right", flexShrink:0 }}>
@@ -2180,7 +2224,7 @@ export default function App() {
           <div style={{ width:7, height:7, borderRadius:"50%", background:anyActive?C.green:allDone?C.teal:C.orange, boxShadow:anyActive?`0 0 6px ${C.green}`:undefined, flexShrink:0 }} />
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:13, fontWeight:900, color:C.t1 }}>📦 Pedido múltiple{clientName?` · ${clientName}`:""}</div>
-            <div style={{ fontSize:11, color:C.t3, marginTop:2, display:"flex", gap:8, flexWrap:"wrap" }}>
+            <div style={{ fontSize:12, color:C.t3, marginTop:2, display:"flex", gap:8, flexWrap:"wrap" }}>
               <span>{groupJobs.length} producto{groupJobs.length!==1?"s":""}</span>
               {Object.entries(statusCounts).map(([s,n])=>(
                 <span key={s} style={{ color:STATUS[s]?.color }}>{STATUS[s]?.label}: {n}</span>
@@ -2205,20 +2249,6 @@ export default function App() {
 
   // ─── KIOSK VIEW ──────────────────────────────────────────────────────────
   const KioskView = () => {
-    const activeJobs = [...printing, ...paused, ...pending, ...done, ...shipping];
-
-    const kioskAction = (job) => {
-      if(job.status==="pending")  return { label:"▶ Iniciar",    fn:()=>startJ(job),        bg:C.green,  color:"#000" };
-      if(job.status==="printing") return { label:"✅ Terminado",  fn:()=>completeJ(job.id),  bg:C.blue,   color:"#fff" };
-      if(job.status==="paused")   return { label:"▶ Reanudar",   fn:()=>resumeJ(job.id),    bg:C.green,  color:"#000" };
-      if(job.status==="done")     return { label:"📦 Para envío", fn:()=>toShipJ(job.id),    bg:C.purple, color:"#fff" };
-      if(job.status==="shipping") return { label:"🚚 Entregado",  fn:()=>shippedJ(job.id,job),bg:C.teal, color:"#000" };
-      return null;
-    };
-
-    const kioskPause = (job) => job.status==="printing"
-      ? { label:"⏸ Pausar", fn:()=>pauseJ(job.id) } : null;
-
     return (
       <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg0, minHeight:"100vh", color:C.t1 }}>
         {/* Kiosk Header */}
@@ -2236,117 +2266,111 @@ export default function App() {
             </div>
           </div>
           <button onClick={()=>setShowKioskExit(true)} style={{ background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"10px 18px", color:C.t3, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            🔒 Salir del modo kiosco
+            <Lock size={16} aria-hidden="true" style={{ verticalAlign:"-3px", marginRight:6 }} />Salir del kiosco
           </button>
         </div>
 
-        {/* Jobs grid */}
-        <div style={{ padding:"20px 16px", display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:14 }}>
-          {activeJobs.length===0 && (
-            <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"80px 20px" }}>
-              <div style={{ fontSize:72, marginBottom:20 }}>🎉</div>
-              <div style={{ fontSize:24, fontWeight:900, color:C.t1, marginBottom:8 }}>Cola vacía</div>
-              <div style={{ fontSize:16, color:C.t3 }}>No hay trabajos activos en este momento</div>
+        {/* Una columna por máquina: lo que imprime ahora en grande, lo que sigue abajo */}
+        {(() => {
+          const maquinas = printers.filter(p=>p.connected!==false || jobs.some(j=>j.printer===p.id && ["printing","paused","pending"].includes(j.status)));
+          const sinMaquina = jobs.filter(j=>["printing","paused","pending"].includes(j.status) && (j.jobType==="design" || !printers.some(p=>p.id===j.printer)));
+          const columnas = [...maquinas.map(p=>({ id:p.id, nombre:p.name, tipo:p.type, jobs:jobs.filter(j=>j.printer===p.id && j.jobType!=="design") })),
+                            ...(sinMaquina.length?[{ id:"__diseno", nombre:"Diseño / sin máquina", tipo:"", jobs:sinMaquina }]:[])];
+          const listos = [...done, ...shipping];
+          const BotonGrande = ({ onClick, children, bg, color="#fff" }) => (
+            <button onClick={onClick} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:10, minHeight:64, background:bg, color, border:"none", borderRadius:C.rMd, fontSize:20, fontWeight:900, cursor:"pointer" }}>{children}</button>
+          );
+          return (<>
+          <div style={{ padding:"20px 16px", display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:16, alignItems:"start" }}>
+            {columnas.map(col => {
+              const actual = col.jobs.find(j=>j.status==="printing") || col.jobs.find(j=>j.status==="paused");
+              const cola = col.jobs.filter(j=>j.status==="pending").sort((x,y)=>(x.priority??x.createdAt??0)-(y.priority??y.createdAt??0));
+              const siguiente = !actual ? cola[0] : null;
+              const despues = actual ? cola.slice(0,3) : cola.slice(1,4);
+              const imprimiendo = actual?.status==="printing", pausado = actual?.status==="paused";
+              const qty = Number(actual?.quantity)||1;
+              const pct = actual && actual.duration>0 ? Math.max(0,Math.min(100,Math.round((1-actual.remaining/actual.duration)*100))) : 0;
+              const estado = imprimiendo ? { t:"Imprimiendo", c:C.green } : pausado ? { t:"Pausada", c:"#FF6A4D" } : { t:"Libre", c:C.t3 };
+              return (
+                <section key={col.id} aria-label={col.nombre} style={{ background:C.bg2, border:`1.5px solid ${imprimiendo?STATUS.printing.border:pausado?STATUS.paused.border:C.bg4}`, borderRadius:C.r, overflow:"hidden" }}>
+                  {/* Máquina */}
+                  <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 18px", borderBottom:`1px solid ${C.bg4}`, background:C.bg1 }}>
+                    <Printer size={20} color={C.t2} aria-hidden="true" />
+                    <div style={{ flex:1, minWidth:0, fontSize:17, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{col.nombre}</div>
+                    <span style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, fontWeight:800, color:estado.c }}>
+                      <span style={{ width:10, height:10, borderRadius:"50%", background:estado.c, boxShadow:imprimiendo?`0 0 10px ${estado.c}`:undefined }} />{estado.t}
+                    </span>
+                  </div>
+
+                  <div style={{ padding:"18px" }}>
+                    {actual ? (<>
+                      <div style={{ fontSize:24, fontWeight:900, color:C.t1, lineHeight:1.2 }}>{actual.fileName}{qty>1 && <span style={{ color:C.purple }}> ×{qty}</span>}</div>
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:"4px 14px", fontSize:15, color:C.t2, marginTop:6 }}>
+                        {actual.clientName && <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><User size={15} aria-hidden="true" />{actual.clientName}</span>}
+                        {(actual.material||actual.color) && <span>{[actual.material, actual.color].filter(Boolean).join(" · ")}</span>}
+                      </div>
+                      {/* Avance en grande, legible a un metro */}
+                      <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:18 }}>
+                        <span style={{ fontSize:56, fontWeight:900, color:imprimiendo?C.green:"#FF6A4D", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pct}%</span>
+                        <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:22, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={20} aria-hidden="true" />{fmtTime(actual.remaining*(qty>1?qty:1))}</span>
+                      </div>
+                      <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${actual.fileName}`} style={{ height:14, background:C.bg4, borderRadius:10, marginTop:10, overflow:"hidden" }}>
+                        <div style={{ height:"100%", width:`${pct}%`, background:imprimiendo?`linear-gradient(90deg,${C.greenD},${C.green})`:"#FF6A4D", borderRadius:10, transition:"width 1s" }} />
+                      </div>
+                      <div style={{ display:"flex", gap:10, marginTop:18 }}>
+                        {imprimiendo
+                          ? <BotonGrande onClick={()=>completeJ(actual.id)} bg={C.blueD}><CheckCircle2 size={24} aria-hidden="true" />Terminado</BotonGrande>
+                          : <BotonGrande onClick={()=>resumeJ(actual.id)} bg={C.greenD}><Play size={24} aria-hidden="true" />Reanudar</BotonGrande>}
+                        {imprimiendo && <button onClick={()=>pauseJ(actual.id)} aria-label="Pausar" style={{ width:64, minHeight:64, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rMd, cursor:"pointer" }}><Pause size={24} aria-hidden="true" /></button>}
+                      </div>
+                    </>) : siguiente ? (<>
+                      <div style={{ fontSize:14, fontWeight:800, color:C.yellow, textTransform:"uppercase", letterSpacing:.8 }}>Sigue</div>
+                      <div style={{ fontSize:22, fontWeight:900, color:C.t1, lineHeight:1.2, marginTop:4 }}>{siguiente.fileName}{Number(siguiente.quantity)>1 && <span style={{ color:C.purple }}> ×{siguiente.quantity}</span>}</div>
+                      <div style={{ fontSize:15, color:C.t2, marginTop:4 }}>{[siguiente.clientName, siguiente.duration>0 && fmtTime(siguiente.duration*(Number(siguiente.quantity)>1?Number(siguiente.quantity):1))].filter(Boolean).join(" · ")}</div>
+                      <div style={{ display:"flex", marginTop:18 }}>
+                        <BotonGrande onClick={()=>startJ(siguiente)} bg={C.greenD}><Play size={24} aria-hidden="true" />{col.id==="__diseno"?"Empezar":"Iniciar impresión"}</BotonGrande>
+                      </div>
+                    </>) : (
+                      <div style={{ textAlign:"center", padding:"26px 0", color:C.t3, fontSize:16 }}>Sin trabajos en cola</div>
+                    )}
+
+                    {despues.length>0 && (
+                      <div style={{ marginTop:18, paddingTop:14, borderTop:`1px solid ${C.bg4}` }}>
+                        <div style={{ fontSize:13, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Después{cola.length>despues.length+(siguiente?1:0) ? ` · ${cola.length} en cola` : ""}</div>
+                        {despues.map((j,i)=>(
+                          <div key={j.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:i<despues.length-1?`1px solid ${C.bg3}`:"none" }}>
+                            <span style={{ width:24, height:24, flexShrink:0, borderRadius:12, background:C.bg4, color:C.t2, fontSize:13, fontWeight:900, display:"flex", alignItems:"center", justifyContent:"center" }}>{i+1}</span>
+                            <span style={{ flex:1, minWidth:0, fontSize:15, fontWeight:700, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}{Number(j.quantity)>1?` ×${j.quantity}`:""}</span>
+                            {j.duration>0 && <span style={{ fontSize:14, color:C.t3, flexShrink:0 }}>{fmtTime(j.duration*(Number(j.quantity)>1?Number(j.quantity):1))}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
+          {/* Listos para entregar: abajo, en fila */}
+          {listos.length>0 && (
+            <div style={{ padding:"0 16px 24px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:15, fontWeight:900, color:C.purple, marginBottom:10 }}><PackageOpen size={18} aria-hidden="true" />Listos para entregar · {listos.length}</div>
+              <div style={{ display:"flex", gap:12, overflowX:"auto", paddingBottom:6 }}>
+                {listos.map(j=>(
+                  <div key={j.id} style={{ flex:"0 0 260px", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.rMd, padding:14 }}>
+                    <div style={{ fontSize:16, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}</div>
+                    <div style={{ fontSize:14, color:C.t2, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.clientName||"Sin cliente"}</div>
+                    <button onClick={()=> j.status==="done" ? toShipJ(j.id) : shippedJ(j.id,j)} style={{ width:"100%", marginTop:10, minHeight:48, display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:j.status==="done"?C.purpleBg:C.tealBg, color:j.status==="done"?C.purple:C.teal, border:`1px solid ${j.status==="done"?"#3B2560":"#154D44"}`, borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:"pointer" }}>
+                      {j.status==="done" ? <><PackageOpen size={18} aria-hidden="true" />Para envío</> : <><Truck size={18} aria-hidden="true" />Entregado</>}
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-          {activeJobs.map(job => {
-            const st = STATUS[job.status]||STATUS.pending;
-            const printer = printers.find(x=>x.id===job.printer);
-            const pct = job.duration>0 ? Math.round((1-job.remaining/job.duration)*100) : 0;
-            const qty = Number(job.quantity)||1;
-            const isPrinting = job.status==="printing";
-            const isPaused = job.status==="paused";
-            const action = kioskAction(job);
-            const pauseAction = kioskPause(job);
-            const isDesign = job.jobType==="design";
-
-            return (
-              <div key={job.id} style={{ background:C.bg2, borderRadius:C.r, border:`1.5px solid ${isPrinting?STATUS.printing.border:isPaused?STATUS.paused.border:C.bg4}`, overflow:"hidden", display:"flex", flexDirection:"column" }}>
-                {/* Color bar */}
-                <div style={{ height:5, background:isDesign?"#9333ea":st.dot }} />
-
-                <div style={{ padding:"18px 20px", flex:1 }}>
-                  {/* Status + name */}
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:6, background:st.bg, border:`1px solid ${st.border}`, borderRadius:C.rPill, padding:"5px 13px", flexShrink:0 }}>
-                      <div style={{ width:8, height:8, borderRadius:"50%", background:st.dot, boxShadow:isPrinting?`0 0 8px ${st.dot}`:undefined }} />
-                      <span style={{ fontSize:13, fontWeight:800, color:st.color }}>{isPrinting&&isDesign?"En diseño":st.label}</span>
-                    </div>
-                    {isDesign && <span style={{ fontSize:11, background:"#2e1065", color:"#c084fc", border:"1px solid #6b21a8", borderRadius:C.rPill, padding:"3px 9px", fontWeight:800 }}>🎨 Diseño</span>}
-                  </div>
-
-                  <div style={{ fontSize:20, fontWeight:900, color:C.t1, marginBottom:6, lineHeight:1.2 }}>{job.fileName}</div>
-
-                  {/* Meta info */}
-                  <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:12 }}>
-                    {printer && !isDesign && <span style={{ fontSize:13, color:C.t3 }}>🖨 {printer.name}</span>}
-                    {job.material && !isDesign && <span style={{ fontSize:13, background:C.bg4, color:C.t2, borderRadius:C.rPill, padding:"3px 10px", fontWeight:600 }}>{job.material}</span>}
-                    {job.color && !isDesign && <span style={{ fontSize:13, background:C.bg4, color:C.t2, borderRadius:C.rPill, padding:"3px 10px", fontWeight:600 }}>{job.color}</span>}
-                    {qty>1 && <span style={{ fontSize:13, background:C.purpleBg, color:C.purple, borderRadius:C.rPill, padding:"3px 10px", fontWeight:800 }}>×{qty} {isDesign?"piezas":"uds."}</span>}
-                    {job.duration>0 && <span style={{ fontSize:13, color:C.t3 }}>⏱ {fmtTime(job.duration*(qty>1?qty:1))}</span>}
-                  </div>
-
-                  {/* Client */}
-                  {job.clientName && (
-                    <div style={{ background:C.bg3, borderRadius:C.rSm, padding:"10px 14px", marginBottom:12, border:`1px solid ${C.bg5}` }}>
-                      <div style={{ fontSize:11, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.6, marginBottom:3 }}>Cliente</div>
-                      <div style={{ fontSize:16, fontWeight:800, color:C.t1 }}>{job.clientName}</div>
-                    </div>
-                  )}
-
-                  {/* Progress bar */}
-                  {isPrinting && (
-                    <div style={{ marginBottom:14 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:6 }}>
-                        <span style={{ color:C.green, fontWeight:800 }}>{pct}% completado</span>
-                        <span style={{ color:C.t2 }}>⏳ {fmtTime(job.remaining*(qty>1?qty:1))} restante</span>
-                      </div>
-                      <div style={{ height:10, background:C.bg4, borderRadius:10 }}>
-                        <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#86efac)`, borderRadius:10, transition:"width 1s" }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Delivery date */}
-                  {job.deliveryAt && (()=>{
-                    const diff = job.deliveryAt-Date.now();
-                    const isLate = diff<0;
-                    const diffH = Math.floor(Math.abs(diff)/3600000);
-                    const diffD = Math.floor(Math.abs(diff)/86400000);
-                    const fmtDel = new Date(job.deliveryAt).toLocaleDateString("es-ES",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
-                    return (
-                      <div style={{ background:isLate?C.redBg:C.yellowBg, border:`1px solid ${isLate?"#3d0018":"#4a3500"}`, borderRadius:C.rSm, padding:"9px 12px", marginBottom:12 }}>
-                        <div style={{ fontSize:13, fontWeight:800, color:isLate?C.red:C.yellow }}>{isLate?"⚠️ Entrega vencida":"📅 Entrega"}: {fmtDel}</div>
-                        {!isLate && <div style={{ fontSize:12, color:C.t3 }}>en {diffD>0?`${diffD}d`:`${diffH}h`}</div>}
-                      </div>
-                    );
-                  })()}
-
-                  {/* Notes */}
-                  {job.notes && (
-                    <div style={{ fontSize:13, color:C.t2, background:C.bg3, borderRadius:C.rSm, padding:"9px 13px", marginBottom:12, borderLeft:`3px solid ${C.orange}` }}>
-                      📝 {job.notes}
-                    </div>
-                  )}
-                </div>
-
-                {/* Action buttons */}
-                <div style={{ padding:"0 20px 20px", display:"flex", flexDirection:"column", gap:8 }}>
-                  {action && (
-                    <button onClick={action.fn} style={{ width:"100%", padding:"16px", background:action.bg, color:action.color, border:"none", borderRadius:C.rSm, fontSize:17, fontWeight:900, cursor:"pointer", letterSpacing:.3 }}>
-                      {action.label}
-                    </button>
-                  )}
-                  {pauseAction && (
-                    <button onClick={pauseAction.fn} style={{ width:"100%", padding:"12px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:15, fontWeight:700, cursor:"pointer" }}>
-                      {pauseAction.label}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          </>);
+        })()}
 
         {/* Exit PIN modal */}
         {showKioskExit && (
@@ -2388,16 +2412,21 @@ export default function App() {
   // Pedidos web que necesitan una mano: confirmar pago o pasar a la cola
   const webAtencion = pedidos.filter(p => p.estado === "enviado" || p.estado === "pago confirmado").length;
 
+  // Navegación: 4 principales + "Más" en el celu (máx. 5 abajo); en iPad/compu la barra lateral muestra todas
   const TABS = [
-    { key:"dashboard",     icon:"🏠", label:"Inicio" },
-    { key:"queue",         icon:"📋", label:"Cola",    badge:pending.length+printing.length+paused.length||null },
-    { key:"shipping_view", icon:"📦", label:"Envíos",  badge:shipping.length||null },
-    { key:"web",           icon:"🌐", label:"Web",     badge:webAtencion||null },
-    { key:"clients",       icon:"👥", label:"Clientes" },
-    { key:"stats",         icon:"📊", label:"Stats" },
-    { key:"products",      icon:"📦", label:"Productos" },
-    { key:"printers",      icon:"🖨", label:"Máquinas" },
+    { key:"dashboard",     Icon:Home,        label:"Inicio" },
+    { key:"queue",         Icon:ListOrdered, label:"Cola",      badge:pending.length+printing.length+paused.length||null },
+    { key:"web",           Icon:Globe,       label:"Web",       badge:webAtencion||null, urgente:true },
+    { key:"shipping_view", Icon:Truck,       label:"Envíos",    badge:shipping.length||null },
+    { key:"clients",       Icon:Users,       label:"Clientes",  extra:true },
+    { key:"stats",         Icon:BarChart3,   label:"Stats",     extra:true },
+    { key:"products",      Icon:Package,     label:"Productos", extra:true },
+    { key:"printers",      Icon:Printer,     label:"Máquinas",  extra:true },
   ];
+  const irA = (key) => { setView(key); setShowMas(false); if(key!=="clients")setSelectedClient(null); if(key!=="queue")setSortMode(false); };
+  const Insignia = ({ n, urgente }) => !n ? null : (
+    <span aria-hidden="true" style={{ position:"absolute", top:-6, right:-10, background:urgente?C.red:C.orange, color:"#fff", fontSize:12, fontWeight:900, borderRadius:10, padding:"0 5px", minWidth:18, height:18, lineHeight:"18px", textAlign:"center", boxShadow:`0 0 0 2px ${C.bg0}` }}>{n}</span>
+  );
 
   const views = {
     web: <WebView pedidos={pedidos} cargando={pedidosCargando} error={pedidosError} recargar={recargarPedidos} jobs={jobs} printers={printers}
@@ -2446,7 +2475,7 @@ export default function App() {
     kioskMode ? <><KioskView /><CartelPedido /></> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
-      <div style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
+      <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", maxWidth: isDesktop?"100%":isTablet?"100%":430, margin:"0 auto", padding: isDesktop?"0 12px":isTablet?"0 8px":"0" }}>
           <div style={{ display:"flex", alignItems:"center", gap:11 }}>
             <div style={{ width:40, height:40, borderRadius:12, overflow:"hidden", border:`1px solid ${C.orange}44`, flexShrink:0 }}>
@@ -2457,12 +2486,10 @@ export default function App() {
                 <span>WORLD<span style={{ color:C.orange }}>3D</span></span>
                 {needs_attention>0 && <div style={{ width:8, height:8, borderRadius:"50%", background:C.green, boxShadow:`0 0 8px ${C.green}` }} />}
               </div>
-              <div style={{ fontSize:11, color:C.t3, marginTop:1 }}>{jobs.length} trabajos · {clients.length} clientes · {shipping.length} p/enviar</div>
+              <div style={{ fontSize:12, color:C.t3, marginTop:1 }}>{jobs.length} trabajos · {clients.length} clientes · {shipping.length} p/enviar</div>
             </div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
-            {isMobile && <button onClick={()=>exportExcel(jobs,printers)} style={{ background:C.greenBg, color:C.green, border:`1px solid ${C.greenD}33`, borderRadius:C.rSm, padding:"9px 13px", fontSize:13, fontWeight:800, cursor:"pointer" }}>📊</button>}
-            {isMobile && <button onClick={()=>setKioskMode(true)} title="Modo kiosco" style={{ background:C.bg3, color:C.t3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"9px 11px", fontSize:14, fontWeight:800, cursor:"pointer" }}>⊟</button>}
             <div style={{ display:"flex", borderRadius:C.rSm, overflow:"hidden", boxShadow:`0 3px 16px rgba(241,132,27,.4)` }}>
               <button onClick={()=>{setMultiMode(false);setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
               <div style={{ width:1, background:"rgba(0,0,0,.3)" }} />
@@ -2473,36 +2500,36 @@ export default function App() {
       </div>
 
       {/* ── BODY (sidebar + content) ── */}
-      <div style={{ display:"flex", flex:1, overflow:"hidden" }}>
+      <div style={{ display:"flex", flex:1 }}>
 
         {/* ── SIDEBAR NAV (tablet/desktop) ── */}
         {!isMobile && (
-          <div style={{ width: isDesktop?220:72, background:C.bg0, borderRight:`1px solid ${C.bg4}`, display:"flex", flexDirection:"column", position:"sticky", top:57, height:"calc(100vh - 57px)", overflowY:"auto", flexShrink:0, zIndex:9 }}>
+          <div style={{ width: isDesktop?220:72, background:C.bg0, borderRight:`1px solid ${C.bg4}`, display:"flex", flexDirection:"column", position:"sticky", top:"var(--w3d-cab, 68px)", height:"calc(100vh - var(--w3d-cab, 68px))", alignSelf:"flex-start", overflowY:"auto", flexShrink:0, zIndex:9 }}>
             <div style={{ padding: isDesktop?"12px 10px":"12px 6px", display:"flex", flexDirection:"column", gap:4, flex:1 }}>
-              {TABS.map(({ key, icon, label, badge }) => {
+              {TABS.map(({ key, Icon, label, badge, urgente }) => {
                 const isActive = view===key;
                 return (
-                  <button key={key} onClick={()=>{setView(key);if(key!=="clients")setSelectedClient(null);if(key!=="queue")setSortMode(false);}}
-                    style={{ display:"flex", alignItems:"center", gap:isDesktop?12:0, justifyContent:isDesktop?"flex-start":"center", padding: isDesktop?"11px 14px":"11px 0", borderRadius:C.rMd, border:"none", background:isActive?`${C.orange}18`:"transparent", cursor:"pointer", position:"relative", width:"100%", transition:"background .15s" }}
+                  <button key={key} onClick={()=>irA(key)} aria-current={isActive?"page":undefined} aria-label={badge?`${label}, ${badge} pendientes`:label}
+                    style={{ position:"relative", display:"flex", flexDirection:isDesktop?"row":"column", alignItems:"center", gap:isDesktop?12:4, justifyContent:isDesktop?"flex-start":"center", padding: isDesktop?"11px 14px":"10px 0 8px", borderRadius:C.rMd, border:"none", background:isActive?`${C.orange}1F`:"transparent", cursor:"pointer", width:"100%", transition:"background .15s" }}
                     onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background=C.bg3}}
                     onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background="transparent"}}>
-                    <div style={{ position:"relative", flexShrink:0 }}>
-                      <span style={{ fontSize:20 }}>{icon}</span>
-                      {badge && <div style={{ position:"absolute", top:-4, right:-6, background:C.red, color:"#fff", fontSize:9, fontWeight:900, borderRadius:10, padding:"1px 4px", minWidth:14, textAlign:"center", lineHeight:"13px" }}>{badge}</div>}
-                    </div>
-                    {isDesktop && <span style={{ fontSize:14, fontWeight:isActive?800:600, color:isActive?C.orange:C.t2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{label}</span>}
-                    {isActive && <div style={{ position:"absolute", left:0, top:"20%", bottom:"20%", width:3, background:C.orange, borderRadius:"0 3px 3px 0" }} />}
+                    <span style={{ position:"relative", display:"inline-flex" }}>
+                      <Icon size={22} strokeWidth={isActive?2.4:1.8} color={isActive?C.orange:C.t2} aria-hidden="true" />
+                      <Insignia n={badge} urgente={urgente} />
+                    </span>
+                    <span style={{ fontSize:isDesktop?14:12, fontWeight:isActive?800:600, color:isActive?C.orange:C.t2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"100%" }}>{label}</span>
+                    {isActive && <span style={{ position:"absolute", left:0, top:"20%", bottom:"20%", width:3, background:C.orange, borderRadius:"0 3px 3px 0" }} />}
                   </button>
                 );
               })}
             </div>
             {/* Kiosk + export in sidebar */}
             <div style={{ padding: isDesktop?"10px":"8px 6px", borderTop:`1px solid ${C.bg4}`, display:"flex", flexDirection:"column", gap:6 }}>
-              <button onClick={()=>exportExcel(jobs,printers)} style={{ display:"flex", alignItems:"center", gap:isDesktop?10:0, justifyContent:isDesktop?"flex-start":"center", padding: isDesktop?"10px 14px":"10px 0", borderRadius:C.rMd, background:"none", border:"none", color:C.green, cursor:"pointer", fontSize:isDesktop?13:18, fontWeight:700, width:"100%" }}>
-                <span style={{ fontSize:18 }}>📊</span>{isDesktop&&" Exportar"}
+              <button onClick={()=>exportExcel(jobs,printers)} style={{ display:"flex", flexDirection:isDesktop?"row":"column", alignItems:"center", gap:isDesktop?10:0, justifyContent:isDesktop?"flex-start":"center", padding: isDesktop?"10px 14px":"10px 0", borderRadius:C.rMd, background:"none", border:"none", color:C.green, cursor:"pointer", fontSize:isDesktop?13:18, fontWeight:700, width:"100%" }}>
+                <FileSpreadsheet size={20} color={C.green} aria-hidden="true" />{isDesktop?" Exportar":<span style={{ fontSize:12 }}>Excel</span>}
               </button>
-              <button onClick={()=>setKioskMode(true)} style={{ display:"flex", alignItems:"center", gap:isDesktop?10:0, justifyContent:isDesktop?"flex-start":"center", padding: isDesktop?"10px 14px":"10px 0", borderRadius:C.rMd, background:"none", border:"none", color:C.t3, cursor:"pointer", fontSize:isDesktop?13:18, fontWeight:700, width:"100%" }}>
-                <span style={{ fontSize:18 }}>⊟</span>{isDesktop&&" Modo kiosco"}
+              <button onClick={()=>setKioskMode(true)} style={{ display:"flex", flexDirection:isDesktop?"row":"column", alignItems:"center", gap:isDesktop?10:0, justifyContent:isDesktop?"flex-start":"center", padding: isDesktop?"10px 14px":"10px 0", borderRadius:C.rMd, background:"none", border:"none", color:C.t3, cursor:"pointer", fontSize:isDesktop?13:18, fontWeight:700, width:"100%" }}>
+                <MonitorSmartphone size={20} color={C.t2} aria-hidden="true" />{isDesktop?" Modo kiosco":<span style={{ fontSize:12 }}>Kiosco</span>}
               </button>
             </div>
           </div>
@@ -2533,23 +2560,45 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── BOTTOM NAV (mobile only) ── */}
+      {/* ── BOTTOM NAV (celu): 4 principales + Más ── */}
       {isMobile && (
-      <div style={{ position:"fixed", bottom:0, left:0, right:0, background:C.bg0, borderTop:`1px solid ${C.bg4}`, zIndex:10, display:"flex", padding:"8px 6px 18px" }}>
-        {TABS.map(({ key, icon, label, badge }) => {
-          const isActive = view===key;
+      <nav aria-label="Secciones" style={{ position:"fixed", bottom:0, left:0, right:0, background:C.bg0, borderTop:`1px solid ${C.bg4}`, zIndex:10, display:"flex", padding:"6px 6px calc(env(safe-area-inset-bottom) + 8px)" }}>
+        {[...TABS.filter(t=>!t.extra), { key:"__mas", Icon:MoreHorizontal, label:"Más" }].map(({ key, Icon, label, badge, urgente }) => {
+          const enMas = TABS.some(t=>t.extra && t.key===view);
+          const isActive = key==="__mas" ? (showMas || enMas) : view===key;
           return (
-            <button key={key} onClick={()=>{setView(key);if(key!=="clients")setSelectedClient(null);if(key!=="queue")setSortMode(false);}} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4, padding:"6px 2px 2px", border:"none", background:"transparent", cursor:"pointer", position:"relative" }}>
-              {isActive && <div style={{ position:"absolute", top:0, left:"50%", transform:"translateX(-50%)", width:44, height:30, background:`${C.orange}22`, borderRadius:10, border:`1px solid ${C.orange}44` }} />}
-              <div style={{ position:"relative", display:"inline-block", zIndex:1 }}>
-                <span style={{ fontSize:18 }}>{icon}</span>
-                {badge && <div style={{ position:"absolute", top:-4, right:-7, background:C.red, color:"#fff", fontSize:9, fontWeight:900, borderRadius:10, padding:"1px 4px", minWidth:14, textAlign:"center", lineHeight:"13px" }}>{badge}</div>}
-              </div>
-              <span style={{ fontSize:9, fontWeight:isActive?900:600, color:isActive?C.orange:C.t2, zIndex:1 }}>{label}</span>
+            <button key={key} aria-label={badge?`${label}, ${badge} pendientes`:label} onClick={()=> key==="__mas" ? setShowMas(v=>!v) : irA(key)} aria-current={isActive&&key!=="__mas"?"page":undefined} aria-expanded={key==="__mas"?showMas:undefined}
+              style={{ flex:1, position:"relative", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3, minHeight:52, border:"none", background:"transparent", cursor:"pointer" }}>
+              <span style={{ position:"relative", display:"inline-flex", alignItems:"center", justifyContent:"center", width:52, height:30, borderRadius:15, background:isActive?`${C.orange}26`:"transparent", transition:"background .2s" }}>
+                <Icon size={22} strokeWidth={isActive?2.4:1.8} color={isActive?C.orange:C.t2} aria-hidden="true" />
+                <Insignia n={badge} urgente={urgente} />
+              </span>
+              <span style={{ fontSize:12, fontWeight:isActive?800:600, color:isActive?C.orange:C.t2 }}>{label}</span>
             </button>
           );
         })}
-      </div>
+      </nav>
+      )}
+      {isMobile && showMas && (
+        <div onClick={e=>{ if(e.target===e.currentTarget) setShowMas(false); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:9 }}>
+          <div role="menu" aria-label="Más secciones" style={{ position:"absolute", left:10, right:10, bottom:"calc(env(safe-area-inset-bottom) + 80px)", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:10, boxShadow:"0 -8px 30px rgba(0,0,0,.5)", animation:"w3dSube .2s ease-out" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+              {TABS.filter(t=>t.extra).map(({ key, Icon, label }) => (
+                <button key={key} role="menuitem" onClick={()=>irA(key)} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${view===key?C.orange:C.bg4}`, background:view===key?`${C.orange}1F`:C.bg3, color:view===key?C.orange:C.t1, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+                  <Icon size={20} aria-hidden="true" />{label}
+                </button>
+              ))}
+              <button role="menuitem" onClick={()=>{ setShowMas(false); exportExcel(jobs,printers); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${C.bg4}`, background:C.bg3, color:C.green, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+                <FileSpreadsheet size={20} aria-hidden="true" />Exportar Excel
+              </button>
+              <button role="menuitem" onClick={()=>{ setShowMas(false); setKioskMode(true); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${C.bg4}`, background:C.bg3, color:C.t1, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+                <MonitorSmartphone size={20} aria-hidden="true" />Modo kiosco
+              </button>
+            </div>
+            <button onClick={()=>setShowMas(false)} style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", marginTop:8, minHeight:44, border:"none", background:"transparent", color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer" }}><X size={16} aria-hidden="true" />Cerrar</button>
+          </div>
+          <style>{`@keyframes w3dSube{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}`}</style>
+        </div>
       )}
 
       {/* ── FORM: NUEVO TRABAJO ── */}
@@ -2586,7 +2635,7 @@ export default function App() {
                   if(matches.length===0) return null;
                   return (
                     <div style={{ position:"absolute", top:"100%", left:0, right:0, background:C.bg3, border:`1.5px solid ${C.orange}55`, borderRadius:C.rMd, zIndex:99, marginTop:4, overflow:"hidden", boxShadow:"0 12px 36px rgba(0,0,0,.7)" }}>
-                      <div style={{ fontSize:10, color:C.t3, fontWeight:800, textTransform:"uppercase", letterSpacing:.8, padding:"8px 14px 4px" }}>Productos guardados</div>
+                      <div style={{ fontSize:12, color:C.t3, fontWeight:800, textTransform:"uppercase", letterSpacing:.8, padding:"8px 14px 4px" }}>Productos guardados</div>
                       {matches.slice(0,5).map(prod=>(
                         <div key={prod.id} onMouseDown={()=>{
                           setForm(f=>({
@@ -2607,7 +2656,7 @@ export default function App() {
                           <div style={{ width:36, height:36, borderRadius:10, background:C.orangeBg, border:`1px solid ${C.orange}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📦</div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{prod.name}</div>
-                            <div style={{ fontSize:11, color:C.t3, marginTop:1 }}>
+                            <div style={{ fontSize:12, color:C.t3, marginTop:1 }}>
                               {prod.material&&<span>{prod.material} </span>}
                               {prod.color&&<span>· {prod.color} </span>}
                               {prod.duration>0&&<span>· ⏱{fmtTime(Number(prod.duration))} </span>}
@@ -2664,9 +2713,9 @@ export default function App() {
               return (
                 <div style={{ marginBottom:16 }}>
                   <div style={{ background:"linear-gradient(135deg,#060b1a,#0a1e35)", border:"1px solid #1e3a5f", borderRadius:C.rMd, padding:"14px 16px", marginBottom:8 }}>
-                    <div style={{ fontSize:11, color:"#60a5fa", fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6 }}>🕐 Estimado listo — {selP?.name}</div>
+                    <div style={{ fontSize:12, color:"#60a5fa", fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6 }}>🕐 Estimado listo — {selP?.name}</div>
                     <div style={{ fontSize:20, fontWeight:900, color:C.t1, marginBottom:6 }}>{fmtReadyDate(readyAt)}</div>
-                    <div style={{ display:"flex", gap:10, fontSize:11, color:C.t3, flexWrap:"wrap" }}>
+                    <div style={{ display:"flex", gap:10, fontSize:12, color:C.t3, flexWrap:"wrap" }}>
                       {selInfo.activeJob&&<span>🖨 Imprimiendo: {fmtTime(selInfo.activeMins)}</span>}
                       {selInfo.queueCount>0&&<span>⏳ Cola: {selInfo.queueCount} trabajo{selInfo.queueCount>1?"s":""} ({fmtTime(selInfo.queuedMins)})</span>}
                       {selInfo.totalWait===0&&<span style={{ color:C.green }}>✅ Libre — empieza de inmediato</span>}
@@ -2677,9 +2726,9 @@ export default function App() {
                       <span style={{ fontSize:15 }}>💡</span>
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:12, fontWeight:800, color:C.green }}>Más rápida: {bestFDM.name}</div>
-                        <div style={{ fontSize:11, color:C.t3 }}>Lista {fmtReadyDate(bestReady)}</div>
+                        <div style={{ fontSize:12, color:C.t3 }}>Lista {fmtReadyDate(bestReady)}</div>
                       </div>
-                      <button onClick={()=>setForm(f=>({...f,printer:bestFDM.id}))} style={{ padding:"7px 13px", background:C.green, color:"#000", border:"none", borderRadius:C.rXs, fontSize:11, fontWeight:900, cursor:"pointer" }}>Usar</button>
+                      <button onClick={()=>setForm(f=>({...f,printer:bestFDM.id}))} style={{ padding:"7px 13px", background:C.green, color:"#000", border:"none", borderRadius:C.rXs, fontSize:12, fontWeight:900, cursor:"pointer" }}>Usar</button>
                     </div>
                   )}
                 </div>
@@ -2707,15 +2756,15 @@ export default function App() {
                   if(matches.length===0) return null;
                   return (
                     <div style={{ position:"absolute", top:"100%", left:0, right:0, background:C.bg3, border:`1.5px solid ${C.orange}55`, borderRadius:C.rMd, zIndex:99, marginTop:4, overflow:"hidden", boxShadow:"0 12px 36px rgba(0,0,0,.7)" }}>
-                      <div style={{ fontSize:10, color:C.t3, fontWeight:800, textTransform:"uppercase", letterSpacing:.8, padding:"8px 14px 4px" }}>Clientes anteriores</div>
+                      <div style={{ fontSize:12, color:C.t3, fontWeight:800, textTransform:"uppercase", letterSpacing:.8, padding:"8px 14px 4px" }}>Clientes anteriores</div>
                       {matches.slice(0,5).map(c=>(
                         <div key={c.name} onMouseDown={()=>{setForm(f=>({...f,clientName:c.name,clientPhone:c.phone||f.clientPhone}));setClientSugOpen(false);}} style={{ padding:"11px 14px", cursor:"pointer", borderTop:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:11 }} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                           <div style={{ width:34, height:34, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange}88,${C.orangeD}88)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:900, color:"#fff", flexShrink:0 }}>{c.name.split(" ").slice(0,2).map(w=>w[0]?.toUpperCase()||"").join("")}</div>
                           <div>
                             <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{c.name}</div>
-                            <div style={{ fontSize:11, color:C.t3 }}>{c.phone||"Sin tel."} · {c.totalJobs} pedido{c.totalJobs!==1?"s":""}</div>
+                            <div style={{ fontSize:12, color:C.t3 }}>{c.phone||"Sin tel."} · {c.totalJobs} pedido{c.totalJobs!==1?"s":""}</div>
                           </div>
-                          <div style={{ marginLeft:"auto", fontSize:11, color:C.orange, fontWeight:700 }}>Seleccionar</div>
+                          <div style={{ marginLeft:"auto", fontSize:12, color:C.orange, fontWeight:700 }}>Seleccionar</div>
                         </div>
                       ))}
                     </div>
@@ -2733,7 +2782,7 @@ export default function App() {
               {form.deliveryAt && (
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
                   <div style={{ fontSize:12, color:"#60a5fa", fontWeight:700 }}>📅 {new Date(form.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
-                  <button onClick={()=>setForm(f=>({...f,deliveryAt:null}))} style={{ fontSize:11, color:C.t4, background:"none", border:"none", cursor:"pointer", padding:"2px 6px" }}>✕ Quitar</button>
+                  <button onClick={()=>setForm(f=>({...f,deliveryAt:null}))} style={{ fontSize:12, color:C.t4, background:"none", border:"none", cursor:"pointer", padding:"2px 6px" }}>✕ Quitar</button>
                 </div>
               )}
             </FormField>
@@ -2762,9 +2811,9 @@ export default function App() {
               const pend=Number(form.price)-Number(form.deposit);
               return (
                 <div style={{ background:pend>0?C.yellowBg:C.greenBg, border:`1px solid ${pend>0?"#4a3500":C.greenD+"33"}`, borderRadius:C.rSm, padding:"11px 14px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div><div style={{ fontSize:11, color:C.t3, marginBottom:2 }}>Adelanto</div><div style={{ fontSize:15, fontWeight:800, color:"#4ade80" }}>{fmtMoney(Number(form.deposit))}</div></div>
+                  <div><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>Adelanto</div><div style={{ fontSize:15, fontWeight:800, color:"#4ade80" }}>{fmtMoney(Number(form.deposit))}</div></div>
                   <div style={{ fontSize:18, color:C.t4 }}>→</div>
-                  <div style={{ textAlign:"right" }}><div style={{ fontSize:11, color:C.t3, marginBottom:2 }}>{pend>0?"Por cobrar":"Pagado"}</div><div style={{ fontSize:15, fontWeight:800, color:pend>0?C.yellow:C.green }}>{pend>0?fmtMoney(pend):"✅ Bs. 0.00"}</div></div>
+                  <div style={{ textAlign:"right" }}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{pend>0?"Por cobrar":"Pagado"}</div><div style={{ fontSize:15, fontWeight:800, color:pend>0?C.yellow:C.green }}>{pend>0?fmtMoney(pend):"✅ Bs. 0.00"}</div></div>
                 </div>
               );
             })()}
@@ -2772,7 +2821,7 @@ export default function App() {
               <input style={inputSt} placeholder="Instrucciones especiales..." value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
             </FormField>
 
-            <button onClick={submitJob} style={{ width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitJob} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               {editJob?"💾 Guardar cambios":"✅ Agregar a la cola"}
             </button>
             <button onClick={()=>{setShowForm(false);setEditJob(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -2804,7 +2853,7 @@ export default function App() {
                       {matches.slice(0,4).map(c=>(
                         <div key={c.name} onMouseDown={()=>{setOrderClient(oc=>({...oc,name:c.name,phone:c.phone||oc.phone}));setOrderClientSugOpen(false);}} style={{ padding:"10px 14px", cursor:"pointer", borderBottom:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:10 }} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                           <div style={{ width:32, height:32, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange}88,${C.orangeD}88)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:900, color:"#fff" }}>{initials(c.name)}</div>
-                          <div><div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{c.name}</div><div style={{ fontSize:11, color:C.t3 }}>{c.phone||"Sin tel."}</div></div>
+                          <div><div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{c.name}</div><div style={{ fontSize:12, color:C.t3 }}>{c.phone||"Sin tel."}</div></div>
                         </div>
                       ))}
                     </div>
@@ -2822,7 +2871,7 @@ export default function App() {
               {orderClient.deliveryAt && (
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
                   <div style={{ fontSize:12, color:"#60a5fa", fontWeight:700 }}>📅 {new Date(orderClient.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
-                  <button onClick={()=>setOrderClient(c=>({...c,deliveryAt:null}))} style={{ fontSize:11, color:C.t4, background:"none", border:"none", cursor:"pointer" }}>✕ Quitar</button>
+                  <button onClick={()=>setOrderClient(c=>({...c,deliveryAt:null}))} style={{ fontSize:12, color:C.t4, background:"none", border:"none", cursor:"pointer" }}>✕ Quitar</button>
                 </div>
               )}
             </FormField>
@@ -2853,7 +2902,7 @@ export default function App() {
                                 <span style={{ fontSize:16 }}>📦</span>
                                 <div style={{ flex:1, minWidth:0 }}>
                                   <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{prod.name}</div>
-                                  <div style={{ fontSize:11, color:C.t3 }}>{prod.material} {prod.color} {prod.duration>0?`· ⏱${fmtTime(Number(prod.duration))}`:""}{prod.weight>0?` · ⚖${prod.weight}g`:""}</div>
+                                  <div style={{ fontSize:12, color:C.t3 }}>{prod.material} {prod.color} {prod.duration>0?`· ⏱${fmtTime(Number(prod.duration))}`:""}{prod.weight>0?` · ⚖${prod.weight}g`:""}</div>
                                 </div>
                                 {prod.price&&<span style={{ fontSize:13, color:C.green, fontWeight:900 }}>Bs.{Number(prod.price).toFixed(2)}</span>}
                               </div>
@@ -2864,13 +2913,13 @@ export default function App() {
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                       <div>
-                        <label style={{ fontSize:11, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>🧵 Material</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>🧵 Material</label>
                         <select style={inputSt} value={item.material} onChange={e=>updateOrderItem(item.id,"material",e.target.value)}>
                           <option value="">—</option>{MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize:11, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>🎨 Color</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>🎨 Color</label>
                         <select style={inputSt} value={item.color} onChange={e=>updateOrderItem(item.id,"color",e.target.value)}>
                           <option value="">—</option>{COLORS.map(c=><option key={c} value={c}>{etiquetaColor(c)}</option>)}
                         </select>
@@ -2878,15 +2927,15 @@ export default function App() {
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
                       <div>
-                        <label style={{ fontSize:11, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Cant.</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Cant.</label>
                         <input style={inputSt} type="number" min="1" placeholder="1" value={item.quantity} onChange={e=>updateOrderItem(item.id,"quantity",e.target.value)} />
                       </div>
                       <div>
-                        <label style={{ fontSize:11, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Precio u.</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Precio u.</label>
                         <input style={inputSt} type="number" placeholder="0.00" value={item.unitPrice} onChange={e=>updateOrderItem(item.id,"unitPrice",e.target.value)} />
                       </div>
                       <div>
-                        <label style={{ fontSize:11, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>⏱ min</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>⏱ min</label>
                         <input style={inputSt} type="number" placeholder="120" value={item.duration} onChange={e=>updateOrderItem(item.id,"duration",e.target.value)} />
                       </div>
                     </div>
@@ -2912,8 +2961,8 @@ export default function App() {
               return (
                 <div style={{ background:`linear-gradient(135deg,${C.greenBg},#002018)`, border:`1px solid ${C.greenD}44`, borderRadius:C.rMd, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <div>
-                    <div style={{ fontSize:11, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.6 }}>Total del pedido</div>
-                    <div style={{ fontSize:11, color:C.t4, marginTop:2 }}>{orderItems.filter(x=>x.fileName).length} producto{orderItems.filter(x=>x.fileName).length!==1?"s":""}</div>
+                    <div style={{ fontSize:12, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.6 }}>Total del pedido</div>
+                    <div style={{ fontSize:12, color:C.t4, marginTop:2 }}>{orderItems.filter(x=>x.fileName).length} producto{orderItems.filter(x=>x.fileName).length!==1?"s":""}</div>
                   </div>
                   <div style={{ fontSize:24, fontWeight:900, color:C.green }}>Bs. {total.toFixed(2)}</div>
                 </div>
@@ -2924,7 +2973,7 @@ export default function App() {
               <input style={inputSt} placeholder="Instrucciones generales del pedido..." value={orderClient.notes} onChange={e=>setOrderClient(c=>({...c,notes:e.target.value}))} />
             </FormField>
 
-            <button onClick={submitOrder} style={{ width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitOrder} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               ✅ Crear pedido ({orderItems.filter(x=>x.fileName.trim()).length} producto{orderItems.filter(x=>x.fileName.trim()).length!==1?"s":""})
             </button>
             <button onClick={()=>{setShowForm(false);setMultiMode(false);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -2960,7 +3009,7 @@ export default function App() {
                 ))}
               </div>
             </FormField>
-            <button onClick={submitP} style={{ width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:6, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitP} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:6, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               {editP?"💾 Guardar cambios":"✅ Agregar impresora"}
             </button>
             <button onClick={()=>{setShowPForm(false);setEditP(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -3027,7 +3076,7 @@ export default function App() {
                 );
               })()}
             </FormField>
-            <button onClick={submitProduct} style={{ width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitProduct} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               {editProduct?"💾 Guardar cambios":"✅ Guardar producto"}
             </button>
             <button onClick={()=>{setShowProductForm(false);setEditProduct(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -3053,8 +3102,10 @@ export default function App() {
       {/* ── TOAST ── */}
       <CartelPedido />
       {toast && (
-        <div style={{ position:"fixed", bottom:96, left:"50%", transform:"translateX(-50%)", background:toast.type==="err"?"#3d0018":"#001811", color:"#fff", padding:"13px 24px", borderRadius:C.rPill, fontSize:14, fontWeight:800, zIndex:100, boxShadow:"0 10px 36px rgba(0,0,0,.7)", whiteSpace:"nowrap", border:`1px solid ${toast.type==="err"?"#7d0030":"#005c30"}` }}>
-          {toast.msg}
+        <div role="status" aria-live="polite" key={toast.id} style={{ position:"fixed", bottom: isMobile?"calc(env(safe-area-inset-bottom) + 84px)":24, left:"50%", transform:"translateX(-50%)", width:"max-content", maxWidth:"calc(100vw - 24px)", display:"flex", alignItems:"center", gap:14, background:toast.type==="err"?"#3A1510":"#12301E", border:`1px solid ${toast.type==="err"?"#6B2A1F":"#1F5A35"}`, color:C.t1, padding: toast.deshacer?"8px 8px 8px 20px":"13px 22px", borderRadius:C.rPill, fontSize:15, fontWeight:700, zIndex:100, boxShadow:"0 10px 30px rgba(0,0,0,.5)", animation:"w3dSubeT .2s ease-out" }}>
+          <span>{toast.msg}</span>
+          {toast.deshacer && <button onClick={()=>{ const f=toast.deshacer; setToast(null); clearTimeout(toastTimer.current); f(); }} style={{ background:C.orange, color:"#fff", border:"none", borderRadius:C.rPill, padding:"0 16px", minHeight:40, fontSize:14, fontWeight:900, cursor:"pointer" }}>Deshacer</button>}
+          <style>{`@keyframes w3dSubeT{from{transform:translate(-50%,12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}`}</style>
         </div>
       )}
     </div>
