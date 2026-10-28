@@ -12,37 +12,41 @@ export const MARCA = {
   negro: "#191513",
 };
 
+// Solo colores del brand board. Los fondos y grises son tonos cálidos sacados de Charming Black y Winter Cream.
+// Los nombres viejos (green, blue, purple...) se mantienen para no tocar todo el código, pero ahora apuntan a la marca:
+//   en marcha / dinero  → Trendy Orange      listo / terminar → Heliconia
+//   pausa / alerta      → Red Sunset         espera / neutro  → Winter Cream / Sauvignon
 export const C = {
   bg0: "#100E0D",
-  bg1: "#191513",
+  bg1: "#191513",   // Charming Black
   bg2: "#221D1B",
   bg3: "#2B2523",
   bg4: "#372F2C",
   bg5: "#473D39",
-  t1: "#FFF7F3",
+  t1: "#FFF7F3",    // Sauvignon
   t2: "#D9CCC4",
-  t3: "#B3A59C",   // texto secundario: 6.3:1 sobre las tarjetas
-  t4: "#9C8E85",   // texto apagado: 4.7:1 sobre las tarjetas (antes 3:1)
-  orange: "#F1841B",
-  orangeD: "#E9521E",
-  orangeBg: "#2B1607",
-  orangeLight: "#FFA64D",
-  green: "#22C55E",
-  greenD: "#16A34A",
-  greenBg: "#0D2416",
-  red: "#E53212",
-  redBg: "#2B0E09",
-  blue: "#5B9DF5",
-  blueD: "#2F6FD6",
-  blueBg: "#0F1A2E",
-  purple: "#C084FC",
-  purpleBg: "#1E1230",
-  yellow: "#FFC83D",
-  yellowBg: "#2B2008",
-  teal: "#2DD4BF",
-  tealBg: "#0B2622",
-  wa: "#25D366",
-  waBg: "#0B2418",
+  t3: "#B3A59C",    // texto secundario: 6.3:1 sobre las tarjetas
+  t4: "#9C8E85",    // texto apagado: 4.7:1 sobre las tarjetas
+  orange: "#F1841B",      // Trendy Orange
+  orangeD: "#E9521E",     // Heliconia
+  orangeBg: "#2E1A0B",
+  orangeLight: "#F1841B",
+  green: "#F1841B",       // en marcha, cobrado → Trendy Orange
+  greenD: "#E9521E",
+  greenBg: "#2E1A0B",
+  red: "#E53212",         // Red Sunset
+  redBg: "#2E0F09",
+  blue: "#E9521E",        // listo / terminar → Heliconia
+  blueD: "#E9521E",
+  blueBg: "#2E1309",
+  purple: "#FFF0DE",      // envíos, cantidades → Winter Cream
+  purpleBg: "#2A2420",
+  yellow: "#FFF0DE",      // en espera, entregas → Winter Cream
+  yellowBg: "#2A2420",
+  teal: "#D9CCC4",        // entregado (cerrado) → crema apagado
+  tealBg: "#241F1C",
+  wa: "#FFF0DE",          // WhatsApp: crema, con su ícono
+  waBg: "#2A2420",
   r: 20,
   rMd: 14,
   rSm: 10,
@@ -50,12 +54,12 @@ export const C = {
   rPill: 50,
 };
 export const STATUS = {
-  printing: { label: "Imprimiendo", color: "#22C55E", bg: "#0D2416", border: "#1A4D2B", dot: "#22C55E" },
-  pending:  { label: "En cola",     color: "#FFC83D", bg: "#2B2008", border: "#5C4610", dot: "#FFC83D" },
-  done:     { label: "Listo",       color: "#D9CCC4", bg: "#221D1B", border: "#372F2C", dot: "#9A8B82" },
-  paused:   { label: "Pausado",     color: "#FF6A4D", bg: "#2B0E09", border: "#5C1F14", dot: "#E53212" },
-  shipping: { label: "Para envío",  color: "#C084FC", bg: "#1E1230", border: "#3B2560", dot: "#C084FC" },
-  shipped:  { label: "Entregado",   color: "#2DD4BF", bg: "#0B2622", border: "#154D44", dot: "#2DD4BF" },
+  printing: { label: "Imprimiendo", color: "#F1841B", bg: "#2E1A0B", border: "#6B3A12", dot: "#F1841B" },
+  pending:  { label: "En cola",     color: "#FFF0DE", bg: "#2A2420", border: "#4A3F36", dot: "#FFF0DE" },
+  done:     { label: "Listo",       color: "#E9521E", bg: "#2E1309", border: "#6B2812", dot: "#E9521E" },
+  paused:   { label: "Pausado",     color: "#E53212", bg: "#2E0F09", border: "#6B1F12", dot: "#E53212" },
+  shipping: { label: "Para envío",  color: "#FFF7F3", bg: "#2B2523", border: "#5C4F47", dot: "#FFF7F3" },
+  shipped:  { label: "Entregado",   color: "#B3A59C", bg: "#221D1B", border: "#372F2C", dot: "#9C8E85" },
 };
 
 // Isotipo oficial (hexágono rojo con la W en crema), el mismo que usa el sitio

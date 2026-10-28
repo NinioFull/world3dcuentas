@@ -10,6 +10,7 @@ import { C, STATUS, COLORS, ISOTIPO, FUENTES_URL, FUENTE_TEXTO, etiquetaColor } 
 import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedidos, cambiarEstadoPedido, numPedido, partirNombre } from "./web";
 import WebView from "./WebView";
 import LoginView from "./LoginView";
+import Icono from "./Icono";
 import { Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, Wallet } from "lucide-react";
 import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
@@ -405,7 +406,7 @@ export default function App() {
       }));
       await cambiarEstadoPedido(p.id, "en produccion");
       setPedidos(prev => prev.map(x => x.id === p.id ? { ...x, estado: "en produccion" } : x));
-      toast_(`🖨 ${numPedido(p)}: ${items.length} trabajo${items.length === 1 ? "" : "s"} en la cola`);
+      toast_(`${numPedido(p)}: ${items.length} trabajo${items.length === 1 ? "" : "s"} en la cola`);
     } catch (e) { toast_("No se pudo pasar a la cola: " + (e.message || e), "err"); }
   };
 
@@ -423,7 +424,7 @@ export default function App() {
       if (!nuevo || nuevo === p.estado) return;
       sincronizando.current.add(p.id);
       cambiarEstadoPedido(p.id, nuevo)
-        .then(() => { setPedidos(prev => prev.map(x => x.id === p.id ? { ...x, estado: nuevo } : x)); toast_(`🌐 ${numPedido(p)} ${nuevo === "listo" ? "listo" : "entregado"} · avisale desde Web`); })
+        .then(() => { setPedidos(prev => prev.map(x => x.id === p.id ? { ...x, estado: nuevo } : x)); toast_(`${numPedido(p)} ${nuevo === "listo" ? "listo" : "entregado"} · avisale desde Web`); })
         .catch(() => {})
         .finally(() => sincronizando.current.delete(p.id));
     });
@@ -501,7 +502,7 @@ export default function App() {
     const updated = {...matCosts,[material]:val};
     await setDoc(doc(db,"config","matCosts"),updated);
     setMatCosts(updated); setEditingCost(null); setCostInput("");
-    toast_("✅ Costo guardado");
+    toast_("Costo guardado");
   };
   const deleteCost = async (material) => {
     const updated = {...matCosts}; delete updated[material];
@@ -576,10 +577,10 @@ export default function App() {
     if(!prodForm.name.trim()) return;
     if(editProduct) {
       await updateDoc(doc(db,"products",editProduct.id), prodForm);
-      toast_("✅ Producto actualizado");
+      toast_("Producto actualizado");
     } else {
       await addDoc(collection(db,"products"), { ...prodForm, createdAt:Date.now() });
-      toast_("✅ Producto guardado");
+      toast_("Producto guardado");
     }
     setProdForm({ name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"" });
     setShowProductForm(false); setEditProduct(null);
@@ -591,7 +592,7 @@ export default function App() {
     const existing = stock[prod.id];
     const qty = existing ? (existing.qty||0)+1 : 1;
     await setDoc(doc(db,"stock",prod.id),{ productId:prod.id, name:prod.name, qty, material:prod.material||"", color:prod.color||"", price:prod.price||"", updatedAt:Date.now() });
-    toast_("📦 Stock actualizado: " + prod.name);
+    toast_("Stock actualizado: " + prod.name);
   };
 
   const removeFromStock = async (prodId, currentQty) => {
@@ -635,7 +636,7 @@ export default function App() {
       priority: Date.now(),
     });
     await removeFromStock(prodId, s.qty);
-    toast_("💰 Vendido: " + prod.name + (prod.price?" · Bs. "+Number(prod.price).toFixed(2):""));
+    toast_("Vendido: " + prod.name + (prod.price?" · Bs. "+Number(prod.price).toFixed(2):""));
   };
 
   const quickAddProduct = async (prod) => {
@@ -663,7 +664,7 @@ export default function App() {
       shippedAt: null,
       priority: Date.now(),
     });
-    toast_("✅ " + prod.name + " agregado a la cola");
+    toast_(prod.name + " agregado a la cola");
   };
 
 
@@ -730,7 +731,7 @@ export default function App() {
       }
     }
     const totalPrice = validItems.reduce((s,x)=>(s+Number(x.unitPrice||0)*(Number(x.quantity)||1)),0);
-    toast_("✅ Pedido con "+validItems.length+" productos agregado" + (totalPrice>0?" · Bs."+totalPrice.toFixed(2):""));
+    toast_("Pedido con "+validItems.length+" productos agregado" + (totalPrice>0?" · Bs."+totalPrice.toFixed(2):""));
     setShowForm(false);
     setMultiMode(false);
     setOrderItems([]);
@@ -742,7 +743,7 @@ export default function App() {
     const data = {...form, printer:form.jobType==="design"?"":pid, duration:Number(form.duration), weight:Number(form.weight), quantity:Number(form.quantity)||1};
     if(editJob) {
       await updateDoc(doc(db,"jobs",editJob.id),{...data,...(editJob.status==="printing"&&data.status==="printing"?{remaining:editJob.remaining,runStart:Date.now()}:{remaining:Number(form.duration),runStart:data.status==="printing"?Date.now():null})});
-      toast_("✅ Trabajo actualizado");
+      toast_("Trabajo actualizado");
     } else {
       await addDoc(collection(db,"jobs"),{...data,remaining:Number(form.duration),createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,priority:Date.now()});
       // Auto-add to catalog if product doesn't exist yet
@@ -761,29 +762,29 @@ export default function App() {
           createdAt: Date.now(),
         });
       }
-      toast_("✅ Agregado a la cola");
+      toast_("Agregado a la cola");
     }
     setForm(J0); setShowForm(false); setEditJob(null);
   });
 
   const submitP = conGuardado(async () => {
     if(!pForm.name.trim()) return;
-    if(editP) { await updateDoc(doc(db,"printers",editP.id),pForm); toast_("✅ Impresora actualizada"); }
-    else { await addDoc(collection(db,"printers"),pForm); toast_("✅ Impresora agregada"); }
+    if(editP) { await updateDoc(doc(db,"printers",editP.id),pForm); toast_("Impresora actualizada"); }
+    else { await addDoc(collection(db,"printers"),pForm); toast_("Impresora agregada"); }
     setPForm(P0); setShowPForm(false); setEditP(null);
   });
 
-  const startJ  = (j)  => { const t=Date.now(); updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:t,runStart:t,remaining:Number(j.duration)||0}); toast_("🖨 Impresión iniciada"); };
+  const startJ  = (j)  => { const t=Date.now(); updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:t,runStart:t,remaining:Number(j.duration)||0}); toast_("Impresión iniciada"); };
   // Al pausar se congela lo que falta; al reanudar arranca un tramo nuevo
-  const pauseJ  = (id) => { const j=jobs.find(x=>x.id===id); updateDoc(doc(db,"jobs",id),{status:"paused",remaining:j?Number(j.remaining)||0:0,runStart:null}); toast_("⏸ Trabajo pausado"); };
-  const resumeJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"printing",runStart:Date.now()}); toast_("▶ Impresión reanudada"); };
-  const completeJ= (id) => { updateDoc(doc(db,"jobs",id),{status:"done",endedAt:Date.now(),remaining:0,runStart:null}); toast_("✅ Listo para entregar"); };
-  const toShipJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"shipping"}); toast_("📦 Marcado para envío"); };
+  const pauseJ  = (id) => { const j=jobs.find(x=>x.id===id); updateDoc(doc(db,"jobs",id),{status:"paused",remaining:j?Number(j.remaining)||0:0,runStart:null}); toast_("Trabajo pausado"); };
+  const resumeJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"printing",runStart:Date.now()}); toast_("Impresión reanudada"); };
+  const completeJ= (id) => { updateDoc(doc(db,"jobs",id),{status:"done",endedAt:Date.now(),remaining:0,runStart:null}); toast_("Listo para entregar"); };
+  const toShipJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"shipping"}); toast_("Marcado para envío"); };
   const shippedJ= (id,job) => {
     updateDoc(doc(db,"jobs",id),{status:"shipped",shippedAt:Date.now()});
     const total=Number(job?.price)||0,dep=Number(job?.deposit)||0,pend=total-dep;
-    if(dep>0&&pend>0) toast_(`🚚 Entregado! Cobrar ${fmtMoney(pend)}`);
-    else toast_("🚚 Entregado! ✅");
+    if(dep>0&&pend>0) toast_(`Entregado! Cobrar ${fmtMoney(pend)}`);
+    else toast_("Entregado");
   };
   // jobsDb guarda los datos tal cual (sin el tiempo restante recalculado)
   const deleteJ = (id) => { borrarConDeshacer("jobs", id, jobsDb.find(x=>x.id===id), "Trabajo eliminado"); setConfirmDel(null); };
@@ -791,7 +792,7 @@ export default function App() {
   const duplicateJ = async (job) => {
     const {id,...rest} = job;
     await addDoc(collection(db,"jobs"),{...rest,fileName:job.fileName+" (copia)",createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,status:"pending",remaining:job.duration,runStart:null,webPedido:null,webItem:null,priority:Date.now()});
-    toast_("📋 Trabajo duplicado");
+    toast_("Trabajo duplicado");
   };
   const openEJ = (job) => {
     setEditJob(job);
@@ -867,12 +868,14 @@ export default function App() {
     const isHighlighted = highlightJob===job.id;
     const isDesign = job.jobType==="design";
 
+    // Acción principal de cada trabajo, solo con colores de la marca
     const primaryAction = () => {
-      if(job.status==="pending")   return {label:isDesign?"🎨  Iniciar diseño":"▶  Iniciar impresión",fn:()=>startJ(job),bg:isDesign?"linear-gradient(135deg,#9333ea,#7e22ce)":`linear-gradient(135deg,${C.orange},${C.orangeD})`,shadow:`0 4px 20px rgba(${isDesign?"147,51,234":"255,87,34"},0.35)`};
-      if(job.status==="printing")  return {label:isDesign?"✅  Diseño terminado":"✅  Marcar como listo",fn:()=>completeJ(job.id),bg:`linear-gradient(135deg,${C.blue},${C.blueD})`,shadow:`0 4px 20px rgba(79,142,247,0.35)`};
-      if(job.status==="paused")    return {label:"▶  Reanudar",fn:()=>resumeJ(job.id),bg:`linear-gradient(135deg,${C.green},${C.greenD})`,shadow:`0 4px 20px rgba(0,224,150,0.3)`};
-      if(job.status==="done")      return {label:"📦  Listo para envío",fn:()=>toShipJ(job.id),bg:`linear-gradient(135deg,${C.purple},#9333ea)`,shadow:`0 4px 20px rgba(192,132,252,0.3)`};
-      if(job.status==="shipping")  return {label:"🚚  Marcar como entregado",fn:()=>shippedJ(job.id,job),bg:`linear-gradient(135deg,${C.teal},#0891b2)`,shadow:`0 4px 20px rgba(34,211,238,0.3)`};
+      const naranja = `linear-gradient(135deg,${C.orange},${C.orangeD})`, sombra = "0 4px 20px rgba(241,132,27,0.30)";
+      if(job.status==="pending")   return {label:isDesign?"Iniciar diseño":"Iniciar impresión",fn:()=>startJ(job),bg:naranja,shadow:sombra};
+      if(job.status==="printing")  return {label:isDesign?"Diseño terminado":"Marcar como listo",fn:()=>completeJ(job.id),bg:"#E9521E",shadow:"0 4px 20px rgba(233,82,30,0.30)"};
+      if(job.status==="paused")    return {label:"Reanudar",fn:()=>resumeJ(job.id),bg:naranja,shadow:sombra};
+      if(job.status==="done")      return {label:"Listo para envío",fn:()=>toShipJ(job.id),bg:"#FFF0DE",color:"#191513",shadow:"none"};
+      if(job.status==="shipping")  return {label:"Marcar como entregado",fn:()=>shippedJ(job.id,job),bg:"#FFF7F3",color:"#191513",shadow:"none"};
       return null;
     };
     const action = primaryAction();
@@ -886,20 +889,20 @@ export default function App() {
             <button onClick={()=>movePriority(job.id,+1)} disabled={idx===total-1} style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===total-1?"not-allowed":"pointer", fontSize:12, color:idx===total-1?C.bg5:C.t2, opacity:idx===total-1?.3:1 }}>▼</button>
           </div>
         )}
-        <div style={{ flex:1, background:isHighlighted?"#0d1f15":C.bg2, borderRadius:showPriority?`0 ${C.r}px ${C.r}px 0`:C.r, border:`1px solid ${isHighlighted?"#00e096":isPrinting?STATUS.printing.border:isPaused?STATUS.paused.border:C.bg4}`, overflow:"hidden", transition:"border-color .3s,background .3s", position:"relative" }}>
+        <div style={{ flex:1, background:isHighlighted?C.orangeBg:C.bg2, borderRadius:showPriority?`0 ${C.r}px ${C.r}px 0`:C.r, border:`1px solid ${isHighlighted?C.orange:isPrinting?STATUS.printing.border:isPaused?STATUS.paused.border:C.bg4}`, overflow:"hidden", transition:"border-color .3s,background .3s", position:"relative" }}>
           {/* Left status accent bar */}
-          <div style={{ position:"absolute", left:0, top:0, bottom:0, width:4, background:isDesign?"#a855f7":st.dot, borderRadius:"4px 0 0 4px", opacity:0.9 }} />
+          <div style={{ position:"absolute", left:0, top:0, bottom:0, width:4, background:isDesign?"#E9521E":st.dot, borderRadius:"4px 0 0 4px", opacity:0.9 }} />
 
           <div style={{ padding:"16px 16px 14px 20px" }}>
             {/* Row 1: filename + status */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:8 }}>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
-                  {isDesign && <span style={{ fontSize:12, background:"#2e1065", color:"#c084fc", border:"1px solid #6b21a8", borderRadius:C.rPill, padding:"2px 8px", fontWeight:800, flexShrink:0 }}>🎨 Diseño 3D</span>}
+                  {isDesign && <span style={{ fontSize:12, background:"#2E1309", color:"#FFF0DE", border:"1px solid #6B2812", borderRadius:C.rPill, padding:"2px 8px", fontWeight:800, flexShrink:0 }}>Diseño 3D</span>}
                   <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", letterSpacing:-.2 }}>{job.fileName}</div>
                 </div>
-                {printer && !isDesign && <div style={{ fontSize:12, color:C.t3, marginTop:2, display:"flex", alignItems:"center", gap:4 }}><span>🖨</span>{printer.name}</div>}
-                {isDesign && job.quantity>1 && <div style={{ fontSize:12, color:"#c084fc", marginTop:2 }}>✏️ {job.quantity} piezas</div>}
+                {printer && !isDesign && <div style={{ fontSize:12, color:C.t3, marginTop:2, display:"flex", alignItems:"center", gap:4 }}><span><Icono e="🖨" /></span>{printer.name}</div>}
+                {isDesign && job.quantity>1 && <div style={{ fontSize:12, color:"#FFF0DE", marginTop:2 }}>{job.quantity} piezas</div>}
               </div>
               <StatusBadge status={job.status} pulse={isPrinting} />
             </div>
@@ -909,7 +912,7 @@ export default function App() {
               {!isDesign && job.material && <Chip bg={C.bg4} color={C.t2}>{job.material}</Chip>}
               {!isDesign && job.color    && <Chip bg={C.bg4} color={C.t2}>{job.color}</Chip>}
               {!isDesign && job.weight>0 && <Chip bg={C.bg4} color={C.t3}>{job.weight}g</Chip>}
-              {job.duration>0 && <Chip bg={C.bg4} color={C.t3}>⏱ {fmtTime(job.duration * (qty>1?qty:1))}{qty>1&&<span style={{opacity:.6}}> (×{qty})</span>}</Chip>}
+              {job.duration>0 && <Chip bg={C.bg4} color={C.t3}>{fmtTime(job.duration * (qty>1?qty:1))}{qty>1&&<span style={{opacity:.6}}> (×{qty})</span>}</Chip>}
               {qty>1 && <Chip bg={C.purpleBg} color={C.purple}>×{qty} {isDesign?"piezas":"uds."}</Chip>}
             </div>
 
@@ -918,19 +921,19 @@ export default function App() {
               <div style={{ marginBottom:12 }}>
                 <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5 }}>
                   <span style={{ color:C.green, fontWeight:800 }}>{pct}% completado</span>
-                  <span style={{ color:C.t2 }}>⏳ <strong style={{ color:C.t1 }}>{fmtTime(job.remaining * (qty>1?qty:1))}</strong> restante</span>
+                  <span style={{ color:C.t2 }}><Icono e="⏳" /><strong style={{ color:C.t1 }}>{fmtTime(job.remaining * (qty>1?qty:1))}</strong> restante</span>
                 </div>
                 <div style={{ height:7, background:C.bg4, borderRadius:7 }}>
-                  <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#86efac)`, borderRadius:7, transition:"width 1s" }} />
+                  <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#F1841B)`, borderRadius:7, transition:"width 1s" }} />
                 </div>
               </div>
             )}
 
             {/* Status messages */}
-            {job.status==="shipping"&&job.endedAt && <div style={{ fontSize:12, color:C.purple, marginBottom:8 }}>📦 Impreso el {fmtDate(job.endedAt)} — esperando envío</div>}
-            {job.status==="shipped"&&job.shippedAt && <div style={{ fontSize:12, color:C.teal, marginBottom:8 }}>🚚 Entregado el {fmtDate(job.shippedAt)}</div>}
-            {job.status==="done"&&job.endedAt && <div style={{ fontSize:12, color:C.t3, marginBottom:8 }}>✅ Terminado el {fmtDate(job.endedAt)}</div>}
-            {isPaused && <div style={{ fontSize:12, color:STATUS.paused.color, marginBottom:8 }}>⏸ En pausa — toca Reanudar para continuar</div>}
+            {job.status==="shipping"&&job.endedAt && <div style={{ fontSize:12, color:C.purple, marginBottom:8 }}>Impreso el {fmtDate(job.endedAt)} — esperando envío</div>}
+            {job.status==="shipped"&&job.shippedAt && <div style={{ fontSize:12, color:C.teal, marginBottom:8 }}>Entregado el {fmtDate(job.shippedAt)}</div>}
+            {job.status==="done"&&job.endedAt && <div style={{ fontSize:12, color:C.t3, marginBottom:8 }}>Terminado el {fmtDate(job.endedAt)}</div>}
+            {isPaused && <div style={{ fontSize:12, color:STATUS.paused.color, marginBottom:8 }}>En pausa — toca Reanudar para continuar</div>}
 
             {/* Client + price */}
             {!compact&&(job.clientName||job.price) && (
@@ -949,13 +952,13 @@ export default function App() {
                       <div style={{ fontSize:12, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:3 }}>{qty>1?`×${qty} unidades`:"Total"}</div>
                       <div style={{ fontSize:20, color:C.green, fontWeight:900, letterSpacing:-.5 }}>{fmtMoney(total)}</div>
                       {qty>1&&job.unitPrice && <div style={{ fontSize:12, color:C.t3 }}>{fmtMoney(job.unitPrice)} c/u</div>}
-                      {job.status==="shipped" ? <div style={{ fontSize:12, color:C.green, fontWeight:700, marginTop:3 }}>✅ Cobrado</div>
+                      {job.status==="shipped" ? <div style={{ fontSize:12, color:C.green, fontWeight:700, marginTop:3 }}>Cobrado</div>
                         : dep>0 ? <div style={{ marginTop:4 }}>
-                            <div style={{ fontSize:12, color:"#4ade80" }}>✅ Adelanto: {fmtMoney(dep)}</div>
-                            {pend>0 && <div style={{ fontSize:12, color:C.yellow, fontWeight:800 }}>💵 Cobrar: {fmtMoney(pend)}</div>}
-                            {pend<=0 && <div style={{ fontSize:12, color:C.green, fontWeight:700 }}>✅ Pagado completo</div>}
+                            <div style={{ fontSize:12, color:"#F1841B" }}>Adelanto: {fmtMoney(dep)}</div>
+                            {pend>0 && <div style={{ fontSize:12, color:C.yellow, fontWeight:800 }}>Cobrar: {fmtMoney(pend)}</div>}
+                            {pend<=0 && <div style={{ fontSize:12, color:C.green, fontWeight:700 }}>Pagado completo</div>}
                           </div>
-                        : <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:3 }}>💵 Cobrar: {fmtMoney(total)}</div>}
+                        : <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:3 }}>Cobrar: {fmtMoney(total)}</div>}
                     </div>
                   );
                 })()}
@@ -966,17 +969,17 @@ export default function App() {
               return (
                 <div style={{ marginBottom:8 }}>
                   <span style={{ fontSize:14,color:C.green,fontWeight:800 }}>{fmtMoney(total)}{qty>1?` (×${qty})`:""}</span>
-                  {job.status==="shipped"?<span style={{ fontSize:12,color:C.green,fontWeight:700,marginLeft:8 }}>✅ Cobrado</span>
-                    :pend>0?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>💵 Cobrar: {fmtMoney(pend)}</span>
-                    :total>0&&!dep?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>💵 Cobrar: {fmtMoney(total)}</span>:null}
+                  {job.status==="shipped"?<span style={{ fontSize:12,color:C.green,fontWeight:700,marginLeft:8 }}>Cobrado</span>
+                    :pend>0?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>Cobrar: {fmtMoney(pend)}</span>
+                    :total>0&&!dep?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>Cobrar: {fmtMoney(total)}</span>:null}
                 </div>
               );
             })()}
 
             {/* Pedido web */}
-            {job.webPedido && <button onClick={()=>setView("web")} style={{ fontSize:12, fontWeight:800, color:C.orange, background:C.orangeBg, border:`1px solid ${C.orange}44`, borderRadius:C.rPill, padding:"3px 10px", marginBottom:10, cursor:"pointer" }}>🌐 Pedido web #{String(job.webPedido).padStart(5,"0")}</button>}
+            {job.webPedido && <button onClick={()=>setView("web")} style={{ fontSize:12, fontWeight:800, color:C.orange, background:C.orangeBg, border:`1px solid ${C.orange}44`, borderRadius:C.rPill, padding:"3px 10px", marginBottom:10, cursor:"pointer" }}>Pedido web #{String(job.webPedido).padStart(5,"0")}</button>}
             {/* Notes */}
-            {job.notes && <div style={{ fontSize:12, color:C.t2, background:C.bg3, borderRadius:C.rSm, padding:"8px 12px", marginBottom:12, borderLeft:`3px solid ${C.orange}`, whiteSpace:"pre-wrap" }}>📝 {job.notes}</div>}
+            {job.notes && <div style={{ fontSize:12, color:C.t2, background:C.bg3, borderRadius:C.rSm, padding:"8px 12px", marginBottom:12, borderLeft:`3px solid ${C.orange}`, whiteSpace:"pre-wrap" }}>{job.notes}</div>}
 
             {/* Delivery date */}
             {job.deliveryAt&&job.status!=="shipped"&&(()=>{
@@ -985,10 +988,10 @@ export default function App() {
               const isToday=dDel.getDate()===dNow.getDate()&&dDel.getMonth()===dNow.getMonth();
               const dTom=new Date(dNow); dTom.setDate(dTom.getDate()+1);
               const isTomorrow=dDel.getDate()===dTom.getDate()&&dDel.getMonth()===dTom.getMonth();
-              const dotColor=isLate?"#ff5c7a":isToday?"#ffca28":isTomorrow?"#c084fc":"#60a5fa";
+              const dotColor=isLate?"#E53212":isToday?"#FFF0DE":isTomorrow?"#FFF0DE":"#F1841B";
               const bgColor=isLate?C.redBg:isToday?C.yellowBg:isTomorrow?C.purpleBg:C.blueBg;
-              const bdColor=isLate?"#3d0018":isToday?"#4a3500":isTomorrow?"#3b0080":"#1e3a5f";
-              const title=isLate?"⚠️ Entrega vencida":isToday?"⏰ Entrega HOY":isTomorrow?"📅 Mañana":"📅 Entrega acordada";
+              const bdColor=isLate?"#4A1A10":isToday?"#4A3F36":isTomorrow?"#6B2812":"#372F2C";
+              const title=isLate?"Entrega vencida":isToday?"Entrega HOY":isTomorrow?"Mañana":"Entrega acordada";
               const timeLeft=isLate?`hace ${Math.abs(diffD)>0?`${Math.abs(diffD)}d`:`${Math.abs(diffH)}h`}`:diffH<1?"en menos de 1h":isToday?`en ${diffH}h`:isTomorrow?`en ${diffH}h`:`en ${diffD}d`;
               const fmtDel=new Date(job.deliveryAt).toLocaleDateString("es-ES",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
               return (
@@ -1010,7 +1013,7 @@ export default function App() {
                     <div key={step.key} role="listitem" aria-current={isActive?"step":undefined} title={step.label} style={{ display:"flex", alignItems:"center", flex: i<arr.length-1 ? 1 : "0 0 auto", minWidth:0 }}>
                       <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3, flexShrink:0, position:"relative" }}>
                         <div style={{ width:28, height:28, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, background:isActive?st.dot:isDone?C.bg4:C.bg3, border:`2px solid ${isActive?st.dot:isDone?C.bg5:C.bg4}`, boxShadow:isActive?`0 0 10px ${st.dot}44`:undefined, opacity:isDone?.4:1 }}>
-                          {isDone?"✓":step.icon}
+                          {isDone?<Icono e="✓" size={14} />:<Icono e={step.icon} size={14} />}
                         </div>
                         <div style={ isActive ? { fontSize:12, color:C.t1, fontWeight:800, textAlign:"center", lineHeight:1.2, whiteSpace:"nowrap" } : { position:"absolute", width:1, height:1, overflow:"hidden", clip:"rect(0 0 0 0)" } }>{step.label}</div>
                       </div>
@@ -1023,26 +1026,26 @@ export default function App() {
 
             {/* PRIMARY ACTION */}
             {action && (
-              <button onClick={action.fn} style={{ width:"100%", padding:"14px 0", background:action.bg, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:15, fontWeight:800, cursor:"pointer", marginBottom:8, letterSpacing:.2, boxShadow:action.shadow }}>
+              <button onClick={action.fn} style={{ width:"100%", padding:"14px 0", background:action.bg, color:action.color||"#fff", border:"none", borderRadius:C.rSm, fontSize:15, fontWeight:800, cursor:"pointer", marginBottom:8, letterSpacing:.2, boxShadow:action.shadow }}>
                 {action.label}
               </button>
             )}
             {isPrinting && (
               <button onClick={()=>pauseJ(job.id)} style={{ width:"100%", padding:"10px 0", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:8 }}>
-                ⏸ Pausar impresión
+                Pausar impresión
               </button>
             )}
 
             {/* SECONDARY ACTIONS */}
             <div style={{ display:"flex", gap:6 }}>
               {wa && (
-                <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ flex:1, padding:"9px 4px", background:C.waBg, color:C.wa, border:`1px solid #005c1a`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>
-                  💬 WhatsApp
+                <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ flex:1, padding:"9px 4px", background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>
+                  WhatsApp
                 </button>
               )}
-              <button onClick={()=>duplicateJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>📋 Duplicar</button>
-              {!compact && <button onClick={()=>openEJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>✏️ Editar</button>}
-              {!compact && <button onClick={()=>setConfirmDel(job.id)} style={{ width:38, padding:"9px 0", background:C.redBg, color:C.red, border:`1px solid #3d0018`, borderRadius:C.rSm, fontSize:14, cursor:"pointer" }}>🗑</button>}
+              <button onClick={()=>duplicateJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Duplicar</button>
+              {!compact && <button onClick={()=>openEJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Editar</button>}
+              {!compact && <button onClick={()=>setConfirmDel(job.id)} style={{ width:38, padding:"9px 0", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:14, cursor:"pointer" }}><Icono e="🗑" /></button>}
             </div>
           </div>
         </div>
@@ -1057,7 +1060,7 @@ export default function App() {
     return (
       <div style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${active?STATUS.printing.border:C.bg4}`, display:"flex", alignItems:"center", gap:14 }}>
         <div style={{ width:56, height:56, borderRadius:14, background:p.imgBg||C.bg3, border:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>
-          {p.img ? <img src={p.img} alt={p.name} style={{ width:50, height:50, objectFit:"contain" }} onError={e=>{e.target.style.display="none"}} /> : <span style={{ fontSize:24 }}>{p.type==="FDM"?"🧵":"🧪"}</span>}
+          {p.img ? <img src={p.img} alt={p.name} style={{ width:50, height:50, objectFit:"contain" }} onError={e=>{e.target.style.display="none"}} /> : <span style={{ color:C.t3 }}><Icono e={p.type==="FDM"?"🖨":"🧪"} size={26} /></span>}
         </div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
@@ -1068,8 +1071,8 @@ export default function App() {
           <div style={{ fontSize:12, color:C.t3, marginBottom:active?6:0 }}>{p.brand} · {p.type}</div>
           {active ? (
             <>
-              <div style={{ fontSize:12, color:C.green, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:4 }}>🖨 {active.fileName} — quedan {fmtTime(active.remaining)}</div>
-              <div style={{ height:4, background:C.bg4, borderRadius:4 }}><div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#86efac)`, borderRadius:4 }} /></div>
+              <div style={{ fontSize:12, color:C.green, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:4 }}>{active.fileName} — quedan {fmtTime(active.remaining)}</div>
+              <div style={{ height:4, background:C.bg4, borderRadius:4 }}><div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#F1841B)`, borderRadius:4 }} /></div>
             </>
           ) : (
             <div style={{ fontSize:12, color:C.t4 }}>{pPend(p.id)>0?`${pPend(p.id)} trabajo${pPend(p.id)>1?"s":""} esperando`:"Sin trabajos pendientes"}</div>
@@ -1077,8 +1080,8 @@ export default function App() {
         </div>
         {showActions && (
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            <button onClick={()=>openEP(p)} style={{ padding:"8px 11px", borderRadius:C.rSm, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:"pointer", fontSize:13, color:C.t2 }}>✏️</button>
-            <button onClick={()=>deleteP(p.id)} style={{ padding:"8px 11px", borderRadius:C.rSm, border:`1px solid #3d0018`, background:C.redBg, cursor:"pointer", fontSize:13, color:C.red }}>🗑</button>
+            <button onClick={()=>openEP(p)} style={{ padding:"8px 11px", borderRadius:C.rSm, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:"pointer", fontSize:13, color:C.t2 }}><Icono e="✏️" /></button>
+            <button onClick={()=>deleteP(p.id)} style={{ padding:"8px 11px", borderRadius:C.rSm, border:`1px solid #4A1A10`, background:C.redBg, cursor:"pointer", fontSize:13, color:C.red }}><Icono e="🗑" /></button>
           </div>
         )}
       </div>
@@ -1087,7 +1090,7 @@ export default function App() {
 
   const Empty = ({ icon, title, sub }) => (
     <div style={{ textAlign:"center", padding:"56px 20px" }}>
-      <div style={{ fontSize:54, marginBottom:16 }}>{icon}</div>
+      <div style={{ marginBottom:16, color:C.t4 }}><Icono e={icon} size={48} strokeWidth={1.5} /></div>
       <div style={{ fontSize:17, fontWeight:800, color:C.t1, marginBottom:8 }}>{title}</div>
       {sub && <div style={{ fontSize:13, color:C.t3, lineHeight:1.7 }}>{sub}</div>}
     </div>
@@ -1126,10 +1129,10 @@ export default function App() {
             const hoy = abiertos.filter(j=>Number(j.deliveryAt) >= Date.now() && Number(j.deliveryAt) <= fin.getTime());
             const listos = done.length + shipping.length;
             return [
-              { key:"hoy",   Icon:CalendarClock, n:hoy.length,       label:"Entregar hoy",   color:C.yellow, bg:C.yellowBg, borde:"#5C4610", ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
-              { key:"atr",   Icon:AlertTriangle, n:atrasados.length, label:"Atrasados",      color:atrasados.length?"#FF6A4D":C.t3, bg:atrasados.length?C.redBg:C.bg2, borde:atrasados.length?"#5C1F14":C.bg4, ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
+              { key:"hoy",   Icon:CalendarClock, n:hoy.length,       label:"Entregar hoy",   color:C.yellow, bg:C.yellowBg, borde:"#4A3F36", ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
+              { key:"atr",   Icon:AlertTriangle, n:atrasados.length, label:"Atrasados",      color:atrasados.length?"#E53212":C.t3, bg:atrasados.length?C.redBg:C.bg2, borde:atrasados.length?"#5C1F14":C.bg4, ir:()=>{ setView("queue"); setFStatus("all"); setQueueSort("delivery"); } },
               { key:"web",   Icon:Globe,         n:webAtencion,      label:"Web por atender",color:webAtencion?C.orange:C.t3, bg:webAtencion?C.orangeBg:C.bg2, borde:webAtencion?`${C.orange}55`:C.bg4, ir:()=>setView("web") },
-              { key:"listo", Icon:PackageCheck,  n:listos,           label:"Listos p/ entregar", color:C.purple, bg:C.purpleBg, borde:"#3B2560", ir:()=>setView("shipping_view") },
+              { key:"listo", Icon:PackageCheck,  n:listos,           label:"Listos p/ entregar", color:C.purple, bg:C.purpleBg, borde:"#4A3F36", ir:()=>setView("shipping_view") },
             ].map(({ key, Icon, n, label, color, bg, borde, ir }) => (
               <button key={key} onClick={ir} style={{ background:bg, border:`1px solid ${borde}`, borderRadius:C.r, padding:"12px 8px", textAlign:"center", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
                 <Icon size={20} color={color} aria-hidden="true" style={{ marginBottom:4 }} />
@@ -1143,8 +1146,8 @@ export default function App() {
           {/* Eye toggle */}
           <button onClick={()=>setShowRevenue(v=>!v)} style={{ position:"absolute", top:14, right:14, background:"rgba(255,255,255,.07)", border:"1px solid rgba(255,255,255,.12)", borderRadius:C.rSm, width:32, height:32, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", zIndex:2 }} aria-label={showRevenue?"Ocultar ingresos":"Mostrar ingresos"} title={showRevenue?"Ocultar":"Mostrar"}>
             {showRevenue
-              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="2" x2="22" y2="22"></line><path d="M6.71 6.71A10 10 0 0 0 1 12s4 8 11 8a9.9 9.9 0 0 0 5.29-1.51"/><path d="M17.94 17.94A10 10 0 0 0 23 12s-4-8-11-8a9.9 9.9 0 0 0-5.29 1.51"/><circle cx="12" cy="12" r="3"/></svg>
+              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D9CCC4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D9CCC4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="2" y1="2" x2="22" y2="22"></line><path d="M6.71 6.71A10 10 0 0 0 1 12s4 8 11 8a9.9 9.9 0 0 0 5.29-1.51"/><path d="M17.94 17.94A10 10 0 0 0 23 12s-4-8-11-8a9.9 9.9 0 0 0-5.29 1.51"/><circle cx="12" cy="12" r="3"/></svg>
             }
           </button>
           <div style={{ filter:showRevenue?"none":"blur(10px)", userSelect:showRevenue?"auto":"none", transition:"filter .25s", pointerEvents:showRevenue?"auto":"none" }}>
@@ -1176,7 +1179,7 @@ export default function App() {
         </>)}
         {jobs.length===0 && (
           <div style={{ textAlign:"center", padding:"50px 20px" }}>
-            <div style={{ fontSize:60, marginBottom:16 }}>🖨</div>
+            <div style={{ fontSize:60, marginBottom:16 }}><Icono e="🖨" size={48} /></div>
             <div style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:8 }}>Todo listo para empezar</div>
             <div style={{ fontSize:13, color:C.t3, lineHeight:1.7, marginBottom:24 }}>Agrega tu primer trabajo tocando el botón <strong style={{ color:C.t1 }}>+ Nuevo</strong> arriba</div>
             <button onClick={()=>{setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ padding:"14px 32px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:800, cursor:"pointer", boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
@@ -1188,10 +1191,10 @@ export default function App() {
     );
     const statsRight = (
       <div style={{ borderLeft: isDesktop?`1px solid ${C.bg4}`:"none", paddingLeft: isDesktop?28:0, marginTop: isDesktop?0:24 }}>
-        <SectionLabel color={C.t3}>🖨 Impresoras</SectionLabel>
+        <SectionLabel color={C.t3}>Impresoras</SectionLabel>
         {printers.map(p=><PrinterCard key={p.id} p={p} />)}
         {pending.length>0 && (<>
-          <SectionLabel color={C.yellow} style={{ marginTop:20 }}>⏳ Cola de trabajo</SectionLabel>
+          <SectionLabel color={C.yellow} style={{ marginTop:20 }}>Cola de trabajo</SectionLabel>
           {pending.slice(0,8).map(j=>(
             <div key={j.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.bg2, borderRadius:C.rSm, marginBottom:6, border:`1px solid ${C.bg4}`, cursor:"pointer" }} onClick={()=>setView("queue")}>
               <div style={{ width:7, height:7, borderRadius:"50%", background:C.yellow, flexShrink:0 }} />
@@ -1233,13 +1236,13 @@ export default function App() {
     const designJobs = jobs.filter(j=>j.jobType==="design");
     const printJobs  = jobs.filter(j=>j.jobType!=="design");
     const filters = [
-      {key:"all",      label:"🖨 Impresión", count:printJobs.filter(j=>j.status!=="shipped").length},
-      {key:"design",   label:"🎨 Diseño",   count:designJobs.length, purple:true},
-      {key:"pending",  label:"⏳ Cola",      count:pending.filter(j=>j.jobType!=="design").length},
-      {key:"printing", label:"🖨 Activos",   count:[...printing,...paused].filter(j=>j.jobType!=="design").length},
-      {key:"done",     label:"✅ Listos",    count:done.filter(j=>j.jobType!=="design").length},
-      {key:"shipping", label:"📦 Envío",     count:shipping.filter(j=>j.jobType!=="design").length},
-      {key:"shipped",  label:"🚚 Entregados",count:shipped.filter(j=>j.jobType!=="design").length},
+      {key:"all",      label:"Impresión", count:printJobs.filter(j=>j.status!=="shipped").length},
+      {key:"design",   label:"Diseño",   count:designJobs.length, purple:true},
+      {key:"pending",  label:"Cola",      count:pending.filter(j=>j.jobType!=="design").length},
+      {key:"printing", label:"Activos",   count:[...printing,...paused].filter(j=>j.jobType!=="design").length},
+      {key:"done",     label:"Listos",    count:done.filter(j=>j.jobType!=="design").length},
+      {key:"shipping", label:"Envío",     count:shipping.filter(j=>j.jobType!=="design").length},
+      {key:"shipped",  label:"Entregados",count:shipped.filter(j=>j.jobType!=="design").length},
     ];
 
     const SORT_OPTIONS = [
@@ -1275,20 +1278,20 @@ export default function App() {
     const baseJobFilter = (j) => printerFilter(j) && designFilter(j) && searchFilter(j);
     const isDesignMode = fStatus==="design";
     const KANBAN_GROUPS = [
-      {key:"pending",  label:isDesignMode?"📝 Pendiente":"Cola",         color:C.yellow,  dot:C.yellow,  jobs:applySort(pending.filter(baseJobFilter))},
-      {key:"printing", label:isDesignMode?"🎨 En diseño":"Imprimiendo",  color:isDesignMode?"#a855f7":C.green, dot:isDesignMode?"#a855f7":C.green, jobs:applySort([...printing,...paused].filter(baseJobFilter))},
-      {key:"done",     label:isDesignMode?"✅ Diseño listo":"Listo",     color:C.t2,      dot:C.t3,      jobs:applySort(done.filter(baseJobFilter))},
-      {key:"shipping", label:isDesignMode?"📤 Enviando":"Envío",         color:C.purple,  dot:C.purple,  jobs:applySort(shipping.filter(baseJobFilter))},
-      {key:"shipped",  label:isDesignMode?"🏁 Entregado":"Entregados",   color:C.teal,    dot:C.teal,    jobs:applySort(shipped.filter(baseJobFilter))},
+      {key:"pending",  label:isDesignMode?"Pendiente":"Cola",         color:C.yellow,  dot:C.yellow,  jobs:applySort(pending.filter(baseJobFilter))},
+      {key:"printing", label:isDesignMode?"En diseño":"Imprimiendo",  color:isDesignMode?"#E9521E":C.green, dot:isDesignMode?"#E9521E":C.green, jobs:applySort([...printing,...paused].filter(baseJobFilter))},
+      {key:"done",     label:isDesignMode?"Diseño listo":"Listo",     color:C.t2,      dot:C.t3,      jobs:applySort(done.filter(baseJobFilter))},
+      {key:"shipping", label:isDesignMode?"Enviando":"Envío",         color:C.purple,  dot:C.purple,  jobs:applySort(shipping.filter(baseJobFilter))},
+      {key:"shipped",  label:isDesignMode?"Entregado":"Entregados",   color:C.teal,    dot:C.teal,    jobs:applySort(shipped.filter(baseJobFilter))},
     ];
 
     const quickAction = (job) => {
       const isDes = job.jobType==="design";
-      if(job.status==="pending")  return {label:isDes?"🎨 Iniciar":"▶ Iniciar",  fn:()=>startJ(job),          bg:isDes?"#7e22ce":C.green, color:"#fff"};
-      if(job.status==="printing") return {label:isDes?"✅ Terminado":"✅ Listo",   fn:()=>completeJ(job.id),   bg:C.blue,   color:"#fff"};
-      if(job.status==="paused")   return {label:"▶ Reanudar",                      fn:()=>resumeJ(job.id),    bg:C.green,  color:"#000"};
-      if(job.status==="done")     return {label:"📤 Enviar",                        fn:()=>toShipJ(job.id),    bg:C.purple, color:"#fff"};
-      if(job.status==="shipping") return {label:"🏁 Entregado",                    fn:()=>shippedJ(job.id,job),bg:C.teal,  color:"#000"};
+      if(job.status==="pending")  return {label:"Iniciar",   fn:()=>startJ(job),           bg:C.orange,  color:"#191513"};
+      if(job.status==="printing") return {label:isDes?"Terminado":"Listo", fn:()=>completeJ(job.id), bg:"#E9521E", color:"#fff"};
+      if(job.status==="paused")   return {label:"Reanudar",  fn:()=>resumeJ(job.id),       bg:C.orange,  color:"#191513"};
+      if(job.status==="done")     return {label:"Enviar",    fn:()=>toShipJ(job.id),       bg:"#FFF0DE", color:"#191513"};
+      if(job.status==="shipping") return {label:"Entregado", fn:()=>shippedJ(job.id,job),  bg:"#FFF7F3", color:"#191513"};
       return null;
     };
 
@@ -1299,17 +1302,17 @@ export default function App() {
 
         {/* ── DESIGN MODE BANNER ── */}
         {fStatus==="design" && (
-          <div style={{ background:"linear-gradient(135deg,#1a0533,#2e1065)", border:"1px solid #6b21a8", borderRadius:C.r, padding:"14px 18px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div style={{ background:"linear-gradient(135deg,#2E1309,#2E1309)", border:"1px solid #6B2812", borderRadius:C.r, padding:"14px 18px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <span style={{ fontSize:22 }}>🎨</span>
+              <span style={{ fontSize:22 }}><Icono e="🎨" size={24} /></span>
               <div>
-                <div style={{ fontSize:14, fontWeight:900, color:"#c084fc" }}>Modo Diseño 3D</div>
-                <div style={{ fontSize:12, color:"#9333ea", marginTop:1 }}>
+                <div style={{ fontSize:14, fontWeight:900, color:"#FFF0DE" }}>Modo Diseño 3D</div>
+                <div style={{ fontSize:12, color:"#E9521E", marginTop:1 }}>
                   {designJobs.filter(j=>j.status==="pending").length} pendientes · {designJobs.filter(j=>j.status==="printing").length} en diseño · {designJobs.filter(j=>j.status==="done").length} listos · {designJobs.filter(j=>j.status==="shipped").length} entregados
                 </div>
               </div>
             </div>
-            <button onClick={()=>setFStatus("all")} style={{ fontSize:12, color:"#9333ea", background:"none", border:"1px solid #6b21a8", borderRadius:C.rSm, padding:"6px 12px", cursor:"pointer", fontWeight:700 }}>
+            <button onClick={()=>setFStatus("all")} style={{ fontSize:12, color:"#E9521E", background:"none", border:"1px solid #6B2812", borderRadius:C.rSm, padding:"6px 12px", cursor:"pointer", fontWeight:700 }}>
               ← Ver impresión
             </button>
           </div>
@@ -1318,14 +1321,14 @@ export default function App() {
         {/* ── TOP BAR: search + view toggle ── */}
         <div style={{ display:"flex", gap:8, marginBottom:12 }}>
           <div style={{ flex:1, position:"relative" }}>
-            <div style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}>🔍</div>
+            <div style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
             <input style={{ ...inputSt, paddingLeft:40, background:C.bg3, borderColor:queueSearch?C.orange:C.bg5, fontSize:13 }} placeholder="Buscar por nombre o cliente..." value={queueSearch} onChange={e=>setQueueSearch(e.target.value)} />
             {queueSearch && <button onClick={()=>setQueueSearch("")} style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:C.t3, fontSize:17, cursor:"pointer" }}>✕</button>}
           </div>
           {/* View mode toggle */}
           <div style={{ display:"flex", background:C.bg3, borderRadius:C.rSm, padding:3, gap:2, flexShrink:0 }}>
-            <button onClick={()=>setQueueViewMode("summary")}  title="Vista resumen"   style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="summary"?"#3b0080":"transparent",  color:queueViewMode==="summary"?C.purple:C.t3 }}>⊞</button>
-            <button onClick={()=>setQueueViewMode("calendar")} title="Vista calendario" style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="calendar"?C.blueBg:"transparent", color:queueViewMode==="calendar"?C.blue:C.t3 }}>📅</button>
+            <button onClick={()=>setQueueViewMode("summary")}  title="Vista resumen"   style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="summary"?"#6B2812":"transparent",  color:queueViewMode==="summary"?C.purple:C.t3 }}>⊞</button>
+            <button onClick={()=>setQueueViewMode("calendar")} title="Vista calendario" style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="calendar"?C.blueBg:"transparent", color:queueViewMode==="calendar"?C.blue:C.t3 }}><Icono e="📅" /></button>
             <button onClick={()=>setQueueViewMode("detail")}   title="Vista detallada"  style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="detail"?C.orangeBg:"transparent",  color:queueViewMode==="detail"?C.orange:C.t3 }}>☰</button>
           </div>
         </div>
@@ -1333,7 +1336,7 @@ export default function App() {
         {/* ── STATUS FILTERS ── */}
         <div style={{ display:"flex", gap:6, marginBottom:8, overflowX:"auto", paddingBottom:4 }}>
           {filters.map(f=>(
-            <button key={f.key} onClick={()=>{setFStatus(f.key);setSortMode(false);}} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", background:fStatus===f.key?(f.purple?"#6b21a8":C.orange):C.bg3, color:fStatus===f.key?"#fff":C.t3, boxShadow:fStatus===f.key?`0 3px 12px rgba(${f.purple?"107,33,168":"255,87,34"},.35)`:undefined }}>
+            <button key={f.key} onClick={()=>{setFStatus(f.key);setSortMode(false);}} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", background:fStatus===f.key?(f.purple?"#6B2812":C.orange):C.bg3, color:fStatus===f.key?"#fff":C.t3, boxShadow:fStatus===f.key?`0 3px 12px rgba(${f.purple?"107,33,168":"255,87,34"},.35)`:undefined }}>
               {f.label}{f.count>0?` ${f.count}`:""}
             </button>
           ))}
@@ -1360,7 +1363,7 @@ export default function App() {
             <button onClick={()=>setSortMode(v=>!v)} style={{ padding:"9px 18px", borderRadius:C.rPill, border:`1.5px solid ${sortMode?C.orange:C.bg5}`, fontSize:12, fontWeight:800, cursor:"pointer", background:sortMode?C.orange:"transparent", color:sortMode?"#fff":C.t2 }}>
               {sortMode?"✓ Reordenando prioridad":"↕ Reordenar cola"}
             </button>
-            {sortMode && <div style={{ marginTop:8, background:C.orangeBg, borderRadius:C.rSm, padding:"10px 14px", border:`1px solid ${C.orange}33`, fontSize:12, color:"#ff9e7d" }}>💡 El trabajo #1 será el próximo en imprimirse. Usa ▲▼ para reordenar.</div>}
+            {sortMode && <div style={{ marginTop:8, background:C.orangeBg, borderRadius:C.rSm, padding:"10px 14px", border:`1px solid ${C.orange}33`, fontSize:12, color:"#E53212" }}>El trabajo #1 será el próximo en imprimirse. Usa ▲▼ para reordenar.</div>}
           </div>
         )}
 
@@ -1487,7 +1490,7 @@ export default function App() {
               {unscheduled.length>0 && (
                 <div style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, overflow:"hidden", marginBottom:12 }}>
                   <div style={{ padding:"10px 14px", background:C.bg3, borderBottom:`1px solid ${C.bg4}`, display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontSize:12, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.7 }}>📋 Sin fecha de entrega esta semana</span>
+                    <span style={{ fontSize:12, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.7 }}>Sin fecha de entrega esta semana</span>
                     <span style={{ fontSize:12, color:C.t4, fontWeight:700 }}>{unscheduled.length}</span>
                   </div>
                   {unscheduled.slice(0,5).map((job,i)=>{
@@ -1509,9 +1512,9 @@ export default function App() {
 
               {/* Overdue */}
               {overdueCount>0 && (
-                <div style={{ background:C.redBg, borderRadius:C.r, border:"1px solid #3d0018", overflow:"hidden", marginBottom:12 }}>
-                  <div style={{ padding:"10px 14px", borderBottom:"1px solid #3d0018", display:"flex", alignItems:"center", gap:8 }}>
-                    <span style={{ fontSize:12, fontWeight:800, color:C.red, textTransform:"uppercase", letterSpacing:.7 }}>⚠️ Entregas vencidas</span>
+                <div style={{ background:C.redBg, borderRadius:C.r, border:"1px solid #4A1A10", overflow:"hidden", marginBottom:12 }}>
+                  <div style={{ padding:"10px 14px", borderBottom:"1px solid #4A1A10", display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:12, fontWeight:800, color:C.red, textTransform:"uppercase", letterSpacing:.7 }}>Entregas vencidas</span>
                     <span style={{ fontSize:12, color:C.red, fontWeight:700 }}>{overdueCount}</span>
                   </div>
                   {jobs.filter(j=>j.deliveryAt&&j.deliveryAt<Date.now()&&j.status!=="shipped").map((job,i,arr)=>{
@@ -1520,10 +1523,10 @@ export default function App() {
                     const hours=Math.floor(diff/3600000);
                     const action=quickAction(job);
                     return (
-                      <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderBottom:i<arr.length-1?"1px solid #3d0018":"none" }}>
+                      <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", borderBottom:i<arr.length-1?"1px solid #4A1A10":"none" }}>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
-                          <div style={{ fontSize:12, color:"#ff9e9e" }}>{job.clientName||"Sin cliente"} · hace {days>0?`${days}d`:`${hours}h`}</div>
+                          <div style={{ fontSize:12, color:"#E53212" }}>{job.clientName||"Sin cliente"} · hace {days>0?`${days}d`:`${hours}h`}</div>
                         </div>
                         {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
                       </div>
@@ -1560,7 +1563,7 @@ export default function App() {
                     <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 16px", borderBottom:i<group.jobs.length-1?`1px solid ${C.bg4}`:"none" }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
-                          {isLateDelivery && <span style={{ fontSize:12, color:C.red }}>⚠️</span>}
+                          {isLateDelivery && <span style={{ fontSize:12, color:C.red }}><Icono e="⚠️" size={14} /></span>}
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                           {qty>1 && <span style={{ fontSize:12, color:C.purple, fontWeight:800, flexShrink:0 }}>×{qty}</span>}
                         </div>
@@ -1592,7 +1595,7 @@ export default function App() {
             <div className="cards-grid">{pending.map((j,i)=>(
               <div key={j.id}>
                 {queueSort==="waiting" && j.createdAt && (
-                  <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, marginLeft:48 }}>⏳ {fmtWaiting(j.createdAt)}</div>
+                  <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, marginLeft:48 }}>{fmtWaiting(j.createdAt)}</div>
                 )}
                 <JobCard job={j} showPriority idx={i} total={pending.length} />
               </div>
@@ -1611,7 +1614,7 @@ export default function App() {
               return (
                 <div key={j.id}>
                   {j.status==="pending"&&queueSort==="waiting"&&j.createdAt&&(
-                    <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, paddingLeft:4 }}>⏳ {fmtWaiting(j.createdAt)}</div>
+                    <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, paddingLeft:4 }}>{fmtWaiting(j.createdAt)}</div>
                   )}
                   <JobCard job={j} />
                 </div>
@@ -1660,19 +1663,19 @@ export default function App() {
         <div style={{ display:"grid", gridTemplateColumns: isDesktop?"1fr 1fr 1fr":"1fr 1fr", gap:10, marginBottom:14 }}>
           <div onClick={()=>setShipFilter("pending")} style={{ background:STATUS.shipping.bg, border:`2px solid ${shipFilter==="pending"?C.purple:STATUS.shipping.border}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
             <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{shipping.length}</div>
-            <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:5 }}>📦 Pendientes de envío</div>
+            <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:5 }}>Pendientes de envío</div>
             {shipFilter==="pending" && <div style={{ width:28, height:3, background:C.purple, borderRadius:3, marginTop:8 }} />}
           </div>
           <div onClick={()=>setShipFilter("shipped")} style={{ background:STATUS.shipped.bg, border:`2px solid ${shipFilter==="shipped"?C.teal:STATUS.shipped.border}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
             <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{shipped.length}</div>
-            <div style={{ fontSize:12, color:C.teal, fontWeight:800, marginTop:5 }}>🚚 Ya entregados</div>
+            <div style={{ fontSize:12, color:C.teal, fontWeight:800, marginTop:5 }}>Ya entregados</div>
             {shipFilter==="shipped" && <div style={{ width:28, height:3, background:C.teal, borderRadius:3, marginTop:8 }} />}
           </div>
         </div>
 
         {/* Search bar */}
         <div style={{ position:"relative", marginBottom:14 }}>
-          <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}>🔍</div>
+          <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
           <input
             style={{ width:"100%", background:C.bg2, border:`1.5px solid ${shipSearch?C.orange:C.bg4}`, borderRadius:C.r, padding:"12px 14px 12px 42px", fontSize:14, color:C.t1, outline:"none", boxSizing:"border-box", transition:"border-color .15s" }}
             placeholder="Buscar por producto o cliente..."
@@ -1707,7 +1710,7 @@ export default function App() {
               : groupByDate(deliveredSorted).map(([dateLabel, dayJobs])=>(
                   <div key={dateLabel} style={{ marginBottom:20 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-                      <div style={{ fontSize:12, fontWeight:800, color:C.teal, textTransform:"capitalize" }}>📅 {dateLabel}</div>
+                      <div style={{ fontSize:12, fontWeight:800, color:C.teal, textTransform:"capitalize" }}>{dateLabel}</div>
                       <div style={{ flex:1, height:1, background:C.bg4 }} />
                       <div style={{ fontSize:12, color:C.t4, fontWeight:700 }}>
                         {dayJobs.length} entrega{dayJobs.length!==1?"s":""} · Bs. {dayJobs.reduce((s,j)=>s+Number(j.price||0),0).toFixed(0)}
@@ -1739,12 +1742,12 @@ export default function App() {
               <div style={{ width:54, height:54, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:900, color:"#fff", flexShrink:0 }}>{initials(c.name)}</div>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:19, fontWeight:900, color:C.t1 }}>{c.name}</div>
-                {c.phone && <div style={{ fontSize:13, color:C.t3, marginTop:2 }}>📱 {c.phone}</div>}
+                {c.phone && <div style={{ fontSize:13, color:C.t3, marginTop:2 }}>{c.phone}</div>}
               </div>
-              {wa && <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ background:C.waBg, color:C.wa, border:`1px solid #005c1a`, borderRadius:C.rSm, padding:"10px 16px", fontSize:13, fontWeight:800, cursor:"pointer" }}>💬 WA</button>}
+              {wa && <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, padding:"10px 16px", fontSize:13, fontWeight:800, cursor:"pointer" }}>WA</button>}
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
-              {[["Pedidos",c.totalJobs],["Adelantos",totalDeposits>0?`Bs.${totalDeposits.toFixed(0)}`:"—"],["Por cobrar",totalPending>0?`Bs.${totalPending.toFixed(0)}`:"✅ 0"]].map(([l,v])=>(
+              {[["Pedidos",c.totalJobs],["Adelantos",totalDeposits>0?`Bs.${totalDeposits.toFixed(0)}`:"—"],["Por cobrar",totalPending>0?`Bs.${totalPending.toFixed(0)}`:"0"]].map(([l,v])=>(
                 <div key={l} style={{ background:C.bg3, borderRadius:C.rSm, padding:"13px 8px", textAlign:"center" }}>
                   <div style={{ fontSize:20, fontWeight:900, color:C.t1 }}>{v}</div>
                   <div style={{ fontSize:12, color:C.t3, marginTop:3, fontWeight:700 }}>{l}</div>
@@ -1752,8 +1755,8 @@ export default function App() {
               ))}
             </div>
           </div>
-          {c.active>0 && <div style={{ background:STATUS.pending.bg, border:`1px solid ${STATUS.pending.border}`, borderRadius:C.rSm, padding:"10px 14px", marginBottom:12, fontSize:12, color:C.yellow, fontWeight:700 }}>⏳ {c.active} pedido{c.active>1?"s":""} en proceso</div>}
-          <SectionLabel color={C.t3}>📋 Historial de pedidos</SectionLabel>
+          {c.active>0 && <div style={{ background:STATUS.pending.bg, border:`1px solid ${STATUS.pending.border}`, borderRadius:C.rSm, padding:"10px 14px", marginBottom:12, fontSize:12, color:C.yellow, fontWeight:700 }}>{c.active} pedido{c.active>1?"s":""} en proceso</div>}
+          <SectionLabel color={C.t3}>Historial de pedidos</SectionLabel>
           {[...c.jobs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(j=><JobCard key={j.id} job={j} compact />)}
         </div>
       );
@@ -1763,11 +1766,11 @@ export default function App() {
         <div style={{ display:"grid", gridTemplateColumns: isDesktop?"1fr 1fr 1fr":"1fr 1fr", gap:10, marginBottom:16 }}>
           <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"18px" }}>
             <div style={{ fontSize:30, fontWeight:900, color:C.t1 }}>{clients.length}</div>
-            <div style={{ fontSize:12, color:C.t3, marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>👥 Clientes</div>
+            <div style={{ fontSize:12, color:C.t3, marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Clientes</div>
           </div>
-          <div style={{ background:"linear-gradient(135deg,#060b1a,#0a1e35)", border:"1px solid #1e3a5f", borderRadius:C.r, padding:"18px" }}>
+          <div style={{ background:"linear-gradient(135deg,#221D1B,#221D1B)", border:"1px solid #372F2C", borderRadius:C.r, padding:"18px" }}>
             <div style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{fmtMoney(revenue)}</div>
-            <div style={{ fontSize:12, color:"#60a5fa", marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>💰 Total ingresos</div>
+            <div style={{ fontSize:12, color:"#F1841B", marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Total ingresos</div>
           </div>
         </div>
         {clients.length===0 ? (
@@ -1775,7 +1778,7 @@ export default function App() {
         ) : <>
           {/* Search bar */}
           <div style={{ position:"relative", marginBottom:12 }}>
-            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:16, pointerEvents:"none" }}>🔍</div>
+            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:16, pointerEvents:"none" }}><Icono e="🔍" size={18} /></div>
             <input
               style={{ ...inputSt, paddingLeft:42, background:C.bg3, borderColor:clientSearch?C.orange:C.bg5 }}
               placeholder="Buscar cliente por nombre..."
@@ -1803,8 +1806,8 @@ export default function App() {
                     </div>
                     <div style={{ textAlign:"right" }}>
                       <div style={{ fontSize:15, fontWeight:900, color:C.green }}>{c.totalRevenue>0?fmtMoney(c.totalRevenue):"—"}</div>
-                      {pend>0 ? <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:2 }}>💵 {fmtMoney(pend)}</div>
-                        : c.totalRevenue>0 ? <div style={{ fontSize:12, color:C.green, marginTop:2 }}>✅ Pagado</div>
+                      {pend>0 ? <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:2 }}>{fmtMoney(pend)}</div>
+                        : c.totalRevenue>0 ? <div style={{ fontSize:12, color:C.green, marginTop:2 }}>Pagado</div>
                         : null}
                       <div style={{ fontSize:12, color:C.t3, marginTop:2 }}>{fmtDateShort(c.lastJob)}</div>
                     </div>
@@ -1826,8 +1829,8 @@ export default function App() {
     <div className="view-pad" style={{ maxWidth:isDesktop?1100:isTablet?800:"100%", margin:"0 auto" }}>
       {/* Tab switcher */}
       <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
-        <button onClick={()=>setStatsTab('stats')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='stats'?C.orange:"transparent", color:statsTab==='stats'?"#fff":C.t3, boxShadow:statsTab==='stats'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>📊 Estadísticas</button>
-        <button onClick={()=>setStatsTab('utility')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='utility'?C.orange:"transparent", color:statsTab==='utility'?"#fff":C.t3, boxShadow:statsTab==='utility'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>💵 Utilidad</button>
+        <button onClick={()=>setStatsTab('stats')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='stats'?C.orange:"transparent", color:statsTab==='stats'?"#fff":C.t3, boxShadow:statsTab==='stats'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Estadísticas</button>
+        <button onClick={()=>setStatsTab('utility')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='utility'?C.orange:"transparent", color:statsTab==='utility'?"#fff":C.t3, boxShadow:statsTab==='utility'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Utilidad</button>
       </div>
       {statsTab==='stats' && <><div style={{ display:"flex", gap:5, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
         {[["day","Hoy"],["week","Semana"],["month","Mes"],["year","Año"]].map(([k,l])=>(
@@ -1836,13 +1839,13 @@ export default function App() {
           </button>
         ))}
       </div>
-      <div style={{ background:"linear-gradient(135deg,#060b1a,#0a2535)", border:"1px solid #1e3a5f", borderRadius:C.r, padding:"20px", marginBottom:12 }}>
-        <div style={{ fontSize:12, color:"#60a5fa", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>💰 Ingresos — {periodLabels[statPeriod]}</div>
+      <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
+        <div style={{ fontSize:12, color:"#F1841B", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Ingresos — {periodLabels[statPeriod]}</div>
         <div style={{ fontSize:38, fontWeight:900, color:C.t1, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(periodRev)}</div>
         <div style={{ fontSize:13, color:C.t3, marginTop:9 }}>{periodJobs.length} trabajo{periodJobs.length!==1?"s":""} completado{periodJobs.length!==1?"s":""}</div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:16 }}>
-        {[["📋 Trabajos",periodJobs.length,"completados"],["🚚 Entregas",shipped.filter(j=>(j.createdAt||0)>=periodStart).length,"entregados"]].map(([l,v,s])=>(
+        {[["Trabajos",periodJobs.length,"completados"],["Entregas",shipped.filter(j=>(j.createdAt||0)>=periodStart).length,"entregados"]].map(([l,v,s])=>(
           <div key={l} style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"16px" }}>
             <div style={{ fontSize:12, color:C.t3, fontWeight:700, marginBottom:7 }}>{l}</div>
             <div style={{ fontSize:28, fontWeight:900, color:C.t1 }}>{v}</div>
@@ -1852,7 +1855,7 @@ export default function App() {
       </div>
       {periodByPrinter.length>0 && showDetail && (
         <>
-          <SectionLabel color={C.t3}>🖨 Por impresora — {periodLabels[statPeriod]}</SectionLabel>
+          <SectionLabel color={C.t3}>Por impresora — {periodLabels[statPeriod]}</SectionLabel>
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
             {periodByPrinter.map((p,i)=>(
               <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:i<periodByPrinter.length-1?`1px solid ${C.bg4}`:"none" }}>
@@ -1865,7 +1868,7 @@ export default function App() {
       )}
       {topMaterials.length>0 && showDetail && (
         <>
-          <SectionLabel color={C.t3}>🧵 Materiales más usados</SectionLabel>
+          <SectionLabel color={C.t3}>Materiales más usados</SectionLabel>
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
             {topMaterials.map(([mat,count],i)=>{
               const maxC=topMaterials[0][1];
@@ -1890,7 +1893,7 @@ export default function App() {
       </button>
       {showDetail && <>
       {/* Job-by-job income detail */}
-      <SectionLabel color={C.t3}>📋 Detalle de ingresos — {periodLabels[statPeriod]}</SectionLabel>
+      <SectionLabel color={C.t3}>Detalle de ingresos — {periodLabels[statPeriod]}</SectionLabel>
       {periodJobs.length===0 ? (
         <div style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, padding:"20px", textAlign:"center", marginBottom:16 }}>
           <div style={{ fontSize:13, color:C.t3 }}>Sin pedidos en este período</div>
@@ -1916,7 +1919,7 @@ export default function App() {
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <div style={{ minWidth:0 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:2 }}>
-                    {isDesign && <span style={{ fontSize:12, background:"#2e1065", color:"#c084fc", border:"1px solid #6b21a8", borderRadius:C.rPill, padding:"1px 5px", fontWeight:800, flexShrink:0 }}>Diseño</span>}
+                    {isDesign && <span style={{ fontSize:12, background:"#2E1309", color:"#FFF0DE", border:"1px solid #6B2812", borderRadius:C.rPill, padding:"1px 5px", fontWeight:800, flexShrink:0 }}>Diseño</span>}
                     <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                   </div>
                   <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -1925,8 +1928,8 @@ export default function App() {
                   </div>
                   {dep>0 && job.status!=="shipped" && (
                     <div style={{ fontSize:12, marginTop:2 }}>
-                      <span style={{ color:"#4ade80" }}>✅ adelanto Bs.{dep.toFixed(2)}</span>
-                      {pending>0 && <span style={{ color:C.yellow, marginLeft:6 }}>💵 cobrar Bs.{pending.toFixed(2)}</span>}
+                      <span style={{ color:"#F1841B" }}>adelanto Bs.{dep.toFixed(2)}</span>
+                      {pending>0 && <span style={{ color:C.yellow, marginLeft:6 }}>cobrar Bs.{pending.toFixed(2)}</span>}
                     </div>
                   )}
                 </div>
@@ -1947,7 +1950,7 @@ export default function App() {
           </div>
         </div>
       )}
-      <SectionLabel color={C.t3}>📊 Ingresos últimos 6 meses</SectionLabel>
+      <SectionLabel color={C.t3}>Ingresos últimos 6 meses</SectionLabel>
       <div style={{ background:C.bg2, borderRadius:C.r, padding:"16px 14px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
         <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:110 }}>
           {last6.map((m,i)=>(
@@ -1997,8 +2000,8 @@ export default function App() {
             <button key={k} onClick={()=>setStatPeriod(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statPeriod===k?C.orange:"transparent", color:statPeriod===k?"#fff":C.t3, boxShadow:statPeriod===k?`0 3px 12px rgba(241,132,27,.35)`:undefined }}>{l}</button>
           ))}
         </div>
-        <div style={{ background:"linear-gradient(135deg,#060e06,#0a1f0a)", border:"1px solid #1a4a1a", borderRadius:C.r, padding:"20px", marginBottom:12 }}>
-          <div style={{ fontSize:12, color:C.green, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>💵 Utilidad neta — {periodLabels[statPeriod]}</div>
+        <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
+          <div style={{ fontSize:12, color:C.green, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Utilidad neta — {periodLabels[statPeriod]}</div>
           <div style={{ fontSize:38, fontWeight:900, color:pProfit>=0?C.green:C.red, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(pProfit)}</div>
           <div style={{ display:"flex", gap:16, marginTop:11 }}>
             {[["Vendido",fmtMoney(pRevenue),C.t1],["Costo mat.",`- ${fmtMoney(pMatCost)}`,C.red],["Margen",`${pMargin.toFixed(0)}%`,pMargin>=50?C.green:pMargin>=25?C.yellow:C.red]].map(([l,v,c])=>(
@@ -2013,19 +2016,19 @@ export default function App() {
               <span>Ganancia ({pMargin.toFixed(0)}%)</span>
             </div>
             <div style={{ height:12, background:C.bg4, borderRadius:6, overflow:"hidden", display:"flex" }}>
-              <div style={{ height:"100%", width:`${pRevenue>0?(pMatCost/pRevenue)*100:0}%`, background:`linear-gradient(90deg,#dc2626,#ef4444)` }} />
+              <div style={{ height:"100%", width:`${pRevenue>0?(pMatCost/pRevenue)*100:0}%`, background:`linear-gradient(90deg,#E53212,#E53212)` }} />
               <div style={{ height:"100%", flex:1, background:`linear-gradient(90deg,${C.greenD},${C.green})` }} />
             </div>
           </div>
         )}
-        <SectionLabel color={C.t3}>⚙️ Costo por material (Bs. por kg)</SectionLabel>
+        <SectionLabel color={C.t3}>Costo por material (Bs. por kg)</SectionLabel>
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
           {allMaterials.map((mat,i)=>(
             <div key={mat} style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 0", borderBottom:i<allMaterials.length-1?`1px solid ${C.bg4}`:"none" }}>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{mat}</div>
                 {matCosts[mat] ? <div style={{ fontSize:12, color:C.t3 }}>Bs. {matCosts[mat]} / kg · Bs. {(matCosts[mat]/1000).toFixed(3)} / g</div>
-                  : <div style={{ fontSize:12, color:C.yellow }}>⚠️ Sin configurar</div>}
+                  : <div style={{ fontSize:12, color:C.yellow }}>Sin configurar</div>}
               </div>
               {editingCost===mat ? (
                 <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -2038,15 +2041,15 @@ export default function App() {
                   <button onClick={()=>{setEditingCost(mat);setCostInput(matCosts[mat]||"");}} style={{ padding:"7px 13px", background:matCosts[mat]?C.bg3:C.orangeBg, color:matCosts[mat]?C.t2:C.orange, border:`1px solid ${matCosts[mat]?C.bg5:C.orange}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>
                     {matCosts[mat]?`Bs. ${matCosts[mat]}`:"+ Agregar"}
                   </button>
-                  {matCosts[mat] && <button onClick={()=>deleteCost(mat)} style={{ padding:"7px 9px", background:C.redBg, color:C.red, border:`1px solid #3d0018`, borderRadius:C.rSm, fontSize:12, cursor:"pointer" }}>×</button>}
+                  {matCosts[mat] && <button onClick={()=>deleteCost(mat)} style={{ padding:"7px 9px", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:12, cursor:"pointer" }}>×</button>}
                 </div>
               )}
             </div>
           ))}
         </div>
-        <SectionLabel color={C.t3}>📊 Resumen histórico</SectionLabel>
+        <SectionLabel color={C.t3}>Resumen histórico</SectionLabel>
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
-          {[["💰 Total vendido",fmtMoney(totalRevenue)],["📦 Costo materiales",`- ${fmtMoney(totalMatCost)}`],["💵 Utilidad neta",fmtMoney(totalProfit)],["📈 Margen promedio",`${avgMargin.toFixed(1)}%`]].map(([l,v],i,arr)=>(
+          {[["Total vendido",fmtMoney(totalRevenue)],["Costo materiales",`- ${fmtMoney(totalMatCost)}`],["Utilidad neta",fmtMoney(totalProfit)],["Margen promedio",`${avgMargin.toFixed(1)}%`]].map(([l,v],i,arr)=>(
             <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderBottom:i<arr.length-1?`1px solid ${C.bg4}`:"none" }}>
               <span style={{ fontSize:13, color:C.t2 }}>{l}</span>
               <span style={{ fontSize:13, fontWeight:800, color:i===2?totalProfit>=0?C.green:C.red:i===3?avgMargin>=50?C.green:avgMargin>=25?C.yellow:C.red:C.t1 }}>{v}</span>
@@ -2060,7 +2063,7 @@ export default function App() {
   // ─── PRINTERS VIEW ────────────────────────────────────────────────────────
   const PrintersView = () => (
     <div className="view-pad" style={{ maxWidth:isDesktop?900:isTablet?700:"100%", margin:"0 auto" }}>
-      <SectionLabel color={C.t3}>🖨 Tus impresoras</SectionLabel>
+      <SectionLabel color={C.t3}>Tus impresoras</SectionLabel>
       {printers.map(p=><PrinterCard key={p.id} p={p} showActions />)}
       <button onClick={()=>{setEditP(null);setPForm(P0);setShowPForm(true);}} style={{ width:"100%", padding:"16px", background:C.bg2, border:`2px dashed ${C.bg5}`, borderRadius:C.r, color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:4 }}>
         + Agregar nueva impresora
@@ -2079,10 +2082,10 @@ export default function App() {
         {/* Sub-tab switcher */}
         <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
           <button onClick={()=>setProdTab("catalogo")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="catalogo"?C.orange:"transparent", color:prodTab==="catalogo"?"#fff":C.t3, boxShadow:prodTab==="catalogo"?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
-            📦 Catálogo{products.length>0 && <span style={{ marginLeft:6, fontSize:12, opacity:.85 }}>{products.length}</span>}
+            Catálogo{products.length>0 && <span style={{ marginLeft:6, fontSize:12, opacity:.85 }}>{products.length}</span>}
           </button>
           <button onClick={()=>setProdTab("stock")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="stock"?C.orange:"transparent", color:prodTab==="stock"?"#fff":C.t3, boxShadow:prodTab==="stock"?"0 3px 12px rgba(241,132,27,.35)":undefined, position:"relative" }}>
-            🗃 Stock
+            Stock
             {totalStock>0 && <span style={{ marginLeft:6, background:prodTab==="stock"?"rgba(255,255,255,.25)":C.orange, color:"#fff", borderRadius:C.rPill, padding:"1px 7px", fontSize:12, fontWeight:900 }}>{totalStock}</span>}
           </button>
         </div>
@@ -2095,7 +2098,7 @@ export default function App() {
           </div>
           {/* Search bar */}
           <div style={{ position:"relative", marginBottom:12 }}>
-            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}>🔍</div>
+            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
             <input style={{ ...inputSt, paddingLeft:42, background:C.bg3, borderColor:prodSearch?C.orange:C.bg5 }} placeholder="Buscar producto..." value={prodSearch} onChange={e=>setProdSearch(e.target.value)} />
             {prodSearch && <button onClick={()=>setProdSearch("")} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:C.t3, fontSize:18, cursor:"pointer", lineHeight:1 }}>✕</button>}
           </div>
@@ -2133,24 +2136,24 @@ export default function App() {
                             <div style={{ display:"flex", gap:5, marginTop:4, flexWrap:"wrap", alignItems:"center" }}>
                               {prod.material && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.material}</span>}
                               {prod.color    && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.color}</span>}
-                              {prod.duration>0 && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}>⏱{Number(prod.duration)>=60?`${Math.floor(Number(prod.duration)/60)}h${Number(prod.duration)%60>0?" "+Number(prod.duration)%60+"m":""}`:prod.duration+"min"}</span>}
-                              {prod.weight>0  && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}>⚖{prod.weight}g</span>}
+                              {prod.duration>0 && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}><Icono e="⏱" size={14} style={{marginRight:3}} />{Number(prod.duration)>=60?`${Math.floor(Number(prod.duration)/60)}h${Number(prod.duration)%60>0?" "+Number(prod.duration)%60+"m":""}`:prod.duration+"min"}</span>}
+                              {prod.weight>0  && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}><Icono e="⚖" size={14} style={{marginRight:3}} />{prod.weight}g</span>}
                             </div>
                           </div>
                           <div style={{ textAlign:"right", flexShrink:0 }}>
                             {prod.price && <div style={{ fontSize:17, fontWeight:900, color:C.green }}>{Number(prod.price)>0?"Bs. "+Number(prod.price).toFixed(2):""}</div>}
-                            {stockQty>0 && <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:2 }}>🗃 {stockQty} en stock</div>}
+                            {stockQty>0 && <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:2 }}>{stockQty} en stock</div>}
                           </div>
                         </div>
                         {/* Action buttons */}
                         <div style={{ display:"flex", gap:6 }}>
                           <button onClick={()=>quickAddProduct(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)` }}>+ Cola</button>
-                          <button onClick={()=>addToStock(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(0,224,150,.25)` }}>+ Stock</button>
+                          <button onClick={()=>addToStock(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.25)` }}>+ Stock</button>
                         </div>
                       </div>
                       <div style={{ display:"flex", flexDirection:"column", borderLeft:`1px solid ${C.bg4}` }}>
-                        <button onClick={()=>{ setEditProduct(prod); setProdForm({ name:prod.name, price:prod.price||"", duration:prod.duration||"", weight:prod.weight||"", material:prod.material||"", color:prod.color||"", notes:prod.notes||"", category:prod.category||"" }); setShowProductForm(true); }} style={{ flex:1, padding:"0 12px", background:C.bg3, border:"none", borderBottom:`1px solid ${C.bg4}`, cursor:"pointer", fontSize:13, color:C.t2 }}>✏️</button>
-                        <button onClick={()=>deleteProduct(prod.id)} style={{ flex:1, padding:"0 12px", background:C.redBg, border:"none", cursor:"pointer", fontSize:13, color:C.red }}>🗑</button>
+                        <button onClick={()=>{ setEditProduct(prod); setProdForm({ name:prod.name, price:prod.price||"", duration:prod.duration||"", weight:prod.weight||"", material:prod.material||"", color:prod.color||"", notes:prod.notes||"", category:prod.category||"" }); setShowProductForm(true); }} style={{ flex:1, padding:"0 12px", background:C.bg3, border:"none", borderBottom:`1px solid ${C.bg4}`, cursor:"pointer", fontSize:13, color:C.t2 }}><Icono e="✏️" /></button>
+                        <button onClick={()=>deleteProduct(prod.id)} style={{ flex:1, padding:"0 12px", background:C.redBg, border:"none", cursor:"pointer", fontSize:13, color:C.red }}><Icono e="🗑" /></button>
                       </div>
                     </div>
                   </div>
@@ -2194,7 +2197,7 @@ export default function App() {
                             <button onClick={()=>prod&&addToStock(prod)} style={{ width:28, height:28, borderRadius:8, background:C.bg4, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:16, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
                           </div>
                           <button onClick={()=>prod&&quickAddFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)`, whiteSpace:"nowrap" }}>→ Cola</button>
-                          <button onClick={()=>sellFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(0,224,150,.25)`, whiteSpace:"nowrap" }}>💰 Vender</button>
+                          <button onClick={()=>sellFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.25)`, whiteSpace:"nowrap" }}>Vender</button>
                         </div>
                       </div>
                     </div>
@@ -2223,7 +2226,7 @@ export default function App() {
         <div onClick={()=>setCollapsed(v=>!v)} style={{ background:C.bg3, borderRadius:`${C.r}px ${C.r}px ${collapsed?C.r:0}px ${collapsed?C.r:0}px`, border:`1px solid ${anyActive?STATUS.printing.border:C.bg5}`, padding:"11px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer", borderBottom:collapsed?undefined:`1px solid ${C.bg5}` }}>
           <div style={{ width:7, height:7, borderRadius:"50%", background:anyActive?C.green:allDone?C.teal:C.orange, boxShadow:anyActive?`0 0 6px ${C.green}`:undefined, flexShrink:0 }} />
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:13, fontWeight:900, color:C.t1 }}>📦 Pedido múltiple{clientName?` · ${clientName}`:""}</div>
+            <div style={{ fontSize:13, fontWeight:900, color:C.t1 }}>Pedido múltiple{clientName?` · ${clientName}`:""}</div>
             <div style={{ fontSize:12, color:C.t3, marginTop:2, display:"flex", gap:8, flexWrap:"wrap" }}>
               <span>{groupJobs.length} producto{groupJobs.length!==1?"s":""}</span>
               {Object.entries(statusCounts).map(([s,n])=>(
@@ -2290,7 +2293,7 @@ export default function App() {
               const imprimiendo = actual?.status==="printing", pausado = actual?.status==="paused";
               const qty = Number(actual?.quantity)||1;
               const pct = actual && actual.duration>0 ? Math.max(0,Math.min(100,Math.round((1-actual.remaining/actual.duration)*100))) : 0;
-              const estado = imprimiendo ? { t:"Imprimiendo", c:C.green } : pausado ? { t:"Pausada", c:"#FF6A4D" } : { t:"Libre", c:C.t3 };
+              const estado = imprimiendo ? { t:"Imprimiendo", c:C.green } : pausado ? { t:"Pausada", c:"#E53212" } : { t:"Libre", c:C.t3 };
               return (
                 <section key={col.id} aria-label={col.nombre} style={{ background:C.bg2, border:`1.5px solid ${imprimiendo?STATUS.printing.border:pausado?STATUS.paused.border:C.bg4}`, borderRadius:C.r, overflow:"hidden" }}>
                   {/* Máquina */}
@@ -2311,11 +2314,11 @@ export default function App() {
                       </div>
                       {/* Avance en grande, legible a un metro */}
                       <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:18 }}>
-                        <span style={{ fontSize:56, fontWeight:900, color:imprimiendo?C.green:"#FF6A4D", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pct}%</span>
+                        <span style={{ fontSize:56, fontWeight:900, color:imprimiendo?C.green:"#E53212", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pct}%</span>
                         <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:22, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={20} aria-hidden="true" />{fmtTime(actual.remaining*(qty>1?qty:1))}</span>
                       </div>
                       <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${actual.fileName}`} style={{ height:14, background:C.bg4, borderRadius:10, marginTop:10, overflow:"hidden" }}>
-                        <div style={{ height:"100%", width:`${pct}%`, background:imprimiendo?`linear-gradient(90deg,${C.greenD},${C.green})`:"#FF6A4D", borderRadius:10, transition:"width 1s" }} />
+                        <div style={{ height:"100%", width:`${pct}%`, background:imprimiendo?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:10, transition:"width 1s" }} />
                       </div>
                       <div style={{ display:"flex", gap:10, marginTop:18 }}>
                         {imprimiendo
@@ -2361,7 +2364,7 @@ export default function App() {
                   <div key={j.id} style={{ flex:"0 0 260px", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.rMd, padding:14 }}>
                     <div style={{ fontSize:16, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}</div>
                     <div style={{ fontSize:14, color:C.t2, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.clientName||"Sin cliente"}</div>
-                    <button onClick={()=> j.status==="done" ? toShipJ(j.id) : shippedJ(j.id,j)} style={{ width:"100%", marginTop:10, minHeight:48, display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:j.status==="done"?C.purpleBg:C.tealBg, color:j.status==="done"?C.purple:C.teal, border:`1px solid ${j.status==="done"?"#3B2560":"#154D44"}`, borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:"pointer" }}>
+                    <button onClick={()=> j.status==="done" ? toShipJ(j.id) : shippedJ(j.id,j)} style={{ width:"100%", marginTop:10, minHeight:48, display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:j.status==="done"?C.purpleBg:C.tealBg, color:j.status==="done"?C.purple:C.teal, border:`1px solid ${j.status==="done"?"#4A3F36":"#372F2C"}`, borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:"pointer" }}>
                       {j.status==="done" ? <><PackageOpen size={18} aria-hidden="true" />Para envío</> : <><Truck size={18} aria-hidden="true" />Entregado</>}
                     </button>
                   </div>
@@ -2376,7 +2379,7 @@ export default function App() {
         {showKioskExit && (
           <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.9)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
             <div style={{ background:C.bg2, borderRadius:C.r, padding:"32px 28px", width:"100%", maxWidth:320, border:`1px solid ${C.bg4}`, textAlign:"center" }}>
-              <div style={{ fontSize:40, marginBottom:16 }}>🔒</div>
+              <div style={{ fontSize:40, marginBottom:16 }}><Icono e="🔒" size={42} /></div>
               <div style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:6 }}>Salir del modo kiosco</div>
               <div style={{ fontSize:13, color:C.t3, marginBottom:24 }}>Ingresa el PIN para continuar</div>
               {/* PIN dots */}
@@ -2415,7 +2418,8 @@ export default function App() {
   // Navegación: 4 principales + "Más" en el celu (máx. 5 abajo); en iPad/compu la barra lateral muestra todas
   const TABS = [
     { key:"dashboard",     Icon:Home,        label:"Inicio" },
-    { key:"queue",         Icon:ListOrdered, label:"Cola",      badge:pending.length+printing.length+paused.length||null },
+    // Cola: solo lo que espera turno o quedó en pausa (lo que se está imprimiendo no cuenta: ya está en marcha)
+    { key:"queue",         Icon:ListOrdered, label:"Cola",      badge:pending.filter(j=>j.jobType!=="design").length+paused.length||null },
     { key:"web",           Icon:Globe,       label:"Web",       badge:webAtencion||null, urgente:true },
     { key:"shipping_view", Icon:Truck,       label:"Envíos",    badge:shipping.length||null },
     { key:"clients",       Icon:Users,       label:"Clientes",  extra:true },
@@ -2454,7 +2458,7 @@ export default function App() {
   const CartelPedido = () => !avisoNuevo ? null : (
     <div style={{ position:"fixed", top:"calc(env(safe-area-inset-top) + 12px)", left:12, right:12, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none" }}>
       <div style={{ pointerEvents:"auto", width:"100%", maxWidth:560, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", borderRadius:C.r, padding:"16px 18px", boxShadow:"0 12px 40px rgba(0,0,0,.55)", display:"flex", alignItems:"center", gap:14, animation:"w3dEntra .35s ease-out" }}>
-        <div style={{ fontSize:34 }}>🛎</div>
+        <div style={{ fontSize:34 }}><Icono e="🛎" size={36} /></div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:13, fontWeight:800, opacity:.9, textTransform:"uppercase", letterSpacing:.8 }}>
             {avisoNuevo.estado==="pago confirmado" ? "Pedido pagado" : avisoNuevo.tipo==="cotizacion" ? "Nueva cotización" : "Pedido nuevo en la web"}
@@ -2606,22 +2610,22 @@ export default function App() {
         <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowForm(false);setEditJob(null);}}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>{editJob?"✏️ Editar trabajo":"➕ Nuevo trabajo"}</div>
+            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>{editJob?"Editar trabajo":"➕ Nuevo trabajo"}</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:16 }}>{editJob?"Modifica los datos del trabajo":"Completa los datos para agregar a la cola"}</div>
 
             {/* Job type selector */}
             <div style={{ display:"flex", gap:8, marginBottom:20 }}>
               <button onClick={()=>setForm(f=>({...f,jobType:"print"}))} style={{ flex:1, padding:"14px 0", borderRadius:C.rMd, border:`2px solid ${form.jobType==="print"?C.orange:C.bg5}`, background:form.jobType==="print"?C.orangeBg:C.bg3, cursor:"pointer", textAlign:"center" }}>
-                <div style={{ fontSize:22 }}>🖨</div>
+                <div style={{ fontSize:22 }}><Icono e="🖨" size={24} /></div>
                 <div style={{ fontSize:13, fontWeight:900, color:form.jobType==="print"?C.orange:C.t2, marginTop:4 }}>Impresión 3D</div>
               </button>
-              <button onClick={()=>setForm(f=>({...f,jobType:"design"}))} style={{ flex:1, padding:"14px 0", borderRadius:C.rMd, border:`2px solid ${form.jobType==="design"?"#9333ea":C.bg5}`, background:form.jobType==="design"?"#2e1065":C.bg3, cursor:"pointer", textAlign:"center" }}>
-                <div style={{ fontSize:22 }}>🎨</div>
-                <div style={{ fontSize:13, fontWeight:900, color:form.jobType==="design"?"#c084fc":C.t2, marginTop:4 }}>Diseño 3D</div>
+              <button onClick={()=>setForm(f=>({...f,jobType:"design"}))} style={{ flex:1, padding:"14px 0", borderRadius:C.rMd, border:`2px solid ${form.jobType==="design"?"#E9521E":C.bg5}`, background:form.jobType==="design"?"#2E1309":C.bg3, cursor:"pointer", textAlign:"center" }}>
+                <div style={{ fontSize:22 }}><Icono e="🎨" size={24} /></div>
+                <div style={{ fontSize:13, fontWeight:900, color:form.jobType==="design"?"#FFF0DE":C.t2, marginTop:4 }}>Diseño 3D</div>
               </button>
             </div>
 
-            <FormDivider label="📄 Detalles del archivo" />
+            <FormDivider label="Detalles del archivo" />
             <FormField label="Nombre del archivo *">
               <div style={{ position:"relative" }}>
                 <input style={inputSt} placeholder="ej: soporte_mesa_v2.stl" value={form.fileName} autoComplete="off"
@@ -2653,14 +2657,14 @@ export default function App() {
                         }} style={{ padding:"11px 14px", cursor:"pointer", borderTop:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:11 }}
                           onMouseEnter={e=>e.currentTarget.style.background=C.bg4}
                           onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                          <div style={{ width:36, height:36, borderRadius:10, background:C.orangeBg, border:`1px solid ${C.orange}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>📦</div>
+                          <div style={{ width:36, height:36, borderRadius:10, background:C.orangeBg, border:`1px solid ${C.orange}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}><Icono e="📦" size={20} /></div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{prod.name}</div>
                             <div style={{ fontSize:12, color:C.t3, marginTop:1 }}>
                               {prod.material&&<span>{prod.material} </span>}
                               {prod.color&&<span>· {prod.color} </span>}
-                              {prod.duration>0&&<span>· ⏱{fmtTime(Number(prod.duration))} </span>}
-                              {prod.weight>0&&<span>· ⚖{prod.weight}g</span>}
+                              {prod.duration>0&&<span>· {fmtTime(Number(prod.duration))} </span>}
+                              {prod.weight>0&&<span>· {prod.weight}g</span>}
                             </div>
                           </div>
                           {prod.price&&<div style={{ fontSize:14, fontWeight:900, color:C.green, flexShrink:0 }}>Bs. {Number(prod.price).toFixed(2)}</div>}
@@ -2671,7 +2675,7 @@ export default function App() {
                 })()}
               </div>
             </FormField>
-            {form.jobType!=="design" && <FormField label="🖨 Impresora">
+            {form.jobType!=="design" && <FormField label="Impresora">
               <select style={inputSt} value={form.printer} onChange={e=>setForm(f=>({...f,printer:e.target.value}))}>
                 {printers.map(p => {
                   const info=getPrinterQueueInfo(p.id);
@@ -2681,13 +2685,13 @@ export default function App() {
               </select>
             </FormField>}
             {form.jobType!=="design" && <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <FormField label="🧵 Material">
+              <FormField label="Material">
                 <select style={inputSt} value={form.material} onChange={e=>setForm(f=>({...f,material:e.target.value}))}>
                   <option value="">Seleccionar...</option>
                   {MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}
                 </select>
               </FormField>
-              <FormField label="🎨 Color">
+              <FormField label="Color">
                 <select style={inputSt} value={form.color} onChange={e=>setForm(f=>({...f,color:e.target.value}))}>
                   <option value="">Seleccionar...</option>
                   {COLORS.map(c=><option key={c} value={c}>{etiquetaColor(c)}</option>)}
@@ -2695,10 +2699,10 @@ export default function App() {
               </FormField>
             </div>}
             <div style={{ display:"grid", gridTemplateColumns:form.jobType==="design"?"1fr":"1fr 1fr", gap:10 }}>
-              <FormField label={form.jobType==="design"?"⏱ Tiempo estimado (min)":"⏱ Duración (min)"}>
+              <FormField label={form.jobType==="design"?"Tiempo estimado (min)":"Duración (min)"}>
                 <input style={inputSt} type="number" placeholder={form.jobType==="design"?"60":"240"} value={form.duration} onChange={e=>setForm(f=>({...f,duration:e.target.value}))} />
               </FormField>
-              {form.jobType!=="design" && <FormField label="⚖ Peso (g)">
+              {form.jobType!=="design" && <FormField label="Peso (g)">
                 <input style={inputSt} type="number" placeholder="85" value={form.weight} onChange={e=>setForm(f=>({...f,weight:e.target.value}))} />
               </FormField>}
             </div>
@@ -2712,18 +2716,18 @@ export default function App() {
               const bestReady=bestFDM?getEstimatedReady(bestFDM.id,form.duration):null;
               return (
                 <div style={{ marginBottom:16 }}>
-                  <div style={{ background:"linear-gradient(135deg,#060b1a,#0a1e35)", border:"1px solid #1e3a5f", borderRadius:C.rMd, padding:"14px 16px", marginBottom:8 }}>
-                    <div style={{ fontSize:12, color:"#60a5fa", fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6 }}>🕐 Estimado listo — {selP?.name}</div>
+                  <div style={{ background:"linear-gradient(135deg,#221D1B,#221D1B)", border:"1px solid #372F2C", borderRadius:C.rMd, padding:"14px 16px", marginBottom:8 }}>
+                    <div style={{ fontSize:12, color:"#F1841B", fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:6 }}>Estimado listo — {selP?.name}</div>
                     <div style={{ fontSize:20, fontWeight:900, color:C.t1, marginBottom:6 }}>{fmtReadyDate(readyAt)}</div>
                     <div style={{ display:"flex", gap:10, fontSize:12, color:C.t3, flexWrap:"wrap" }}>
-                      {selInfo.activeJob&&<span>🖨 Imprimiendo: {fmtTime(selInfo.activeMins)}</span>}
-                      {selInfo.queueCount>0&&<span>⏳ Cola: {selInfo.queueCount} trabajo{selInfo.queueCount>1?"s":""} ({fmtTime(selInfo.queuedMins)})</span>}
-                      {selInfo.totalWait===0&&<span style={{ color:C.green }}>✅ Libre — empieza de inmediato</span>}
+                      {selInfo.activeJob&&<span>Imprimiendo: {fmtTime(selInfo.activeMins)}</span>}
+                      {selInfo.queueCount>0&&<span>Cola: {selInfo.queueCount} trabajo{selInfo.queueCount>1?"s":""} ({fmtTime(selInfo.queuedMins)})</span>}
+                      {selInfo.totalWait===0&&<span style={{ color:C.green }}>Libre — empieza de inmediato</span>}
                     </div>
                   </div>
                   {!isBest&&bestFDM&&bestReady&&(
                     <div style={{ background:C.greenBg, border:`1px solid ${C.greenD}33`, borderRadius:C.rSm, padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
-                      <span style={{ fontSize:15 }}>💡</span>
+                      <span style={{ fontSize:15 }}><Icono e="💡" size={17} /></span>
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:12, fontWeight:800, color:C.green }}>Más rápida: {bestFDM.name}</div>
                         <div style={{ fontSize:12, color:C.t3 }}>Lista {fmtReadyDate(bestReady)}</div>
@@ -2735,18 +2739,18 @@ export default function App() {
               );
             })()}
 
-            <FormField label="🚦 Estado inicial">
+            <FormField label="Estado inicial">
               <select style={inputSt} value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
-                <option value="pending">⏳ Pendiente — en cola</option>
-                <option value="printing">🖨 Imprimiendo ahora</option>
-                <option value="paused">⏸ Pausado</option>
-                <option value="done">✅ Listo para entregar</option>
-                <option value="shipping">📦 Listo para envío</option>
-                <option value="shipped">🚚 Ya entregado</option>
+                <option value="pending">Pendiente — en cola</option>
+                <option value="printing">Imprimiendo ahora</option>
+                <option value="paused">Pausado</option>
+                <option value="done">Listo para entregar</option>
+                <option value="shipping">Listo para envío</option>
+                <option value="shipped">Ya entregado</option>
               </select>
             </FormField>
 
-            <FormDivider label="👤 Cliente" />
+            <FormDivider label="Cliente" />
             <FormField label="Nombre del cliente">
               <div style={{ position:"relative" }}>
                 <input style={inputSt} placeholder="ej: Juan Pérez" value={form.clientName} autoComplete="off" onChange={e=>{setForm(f=>({...f,clientName:e.target.value}));setClientSugOpen(true);}} onFocus={()=>setClientSugOpen(true)} onBlur={()=>setTimeout(()=>setClientSugOpen(false),150)} />
@@ -2772,22 +2776,22 @@ export default function App() {
                 })()}
               </div>
             </FormField>
-            <FormField label="📱 Teléfono (para WhatsApp)">
+            <FormField label="Teléfono (para WhatsApp)">
               <input style={inputSt} placeholder="+591 77123456" value={form.clientPhone} onChange={e=>setForm(f=>({...f,clientPhone:e.target.value}))} />
             </FormField>
 
-            <FormDivider label="📅 Fecha y hora de entrega" />
+            <FormDivider label="Fecha y hora de entrega" />
             <FormField label="¿Cuándo se lo entregas?" hint="Desliza para seleccionar el día y la hora acordada con el cliente">
               <DateTimePicker value={form.deliveryAt} onChange={v=>setForm(f=>({...f,deliveryAt:v}))} />
               {form.deliveryAt && (
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
-                  <div style={{ fontSize:12, color:"#60a5fa", fontWeight:700 }}>📅 {new Date(form.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
+                  <div style={{ fontSize:12, color:"#F1841B", fontWeight:700 }}>{new Date(form.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
                   <button onClick={()=>setForm(f=>({...f,deliveryAt:null}))} style={{ fontSize:12, color:C.t4, background:"none", border:"none", cursor:"pointer", padding:"2px 6px" }}>✕ Quitar</button>
                 </div>
               )}
             </FormField>
 
-            <FormDivider label="💰 Precio" />
+            <FormDivider label="Precio" />
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
               <FormField label="Cantidad de piezas">
                 <input style={inputSt} type="number" min="1" placeholder="1" value={form.quantity} onChange={e=>{const q=e.target.value;setForm(f=>({...f,quantity:q,price:q&&f.unitPrice?(Number(q)*Number(f.unitPrice)).toFixed(2):f.price}));}} />
@@ -2798,31 +2802,31 @@ export default function App() {
             </div>
             {Number(form.quantity)>1&&form.unitPrice&&(
               <div style={{ background:C.greenBg, border:`1px solid ${C.greenD}33`, borderRadius:C.rSm, padding:"11px 14px", marginBottom:16, fontSize:14, color:C.green, fontWeight:800, textAlign:"center" }}>
-                🧮 {form.quantity} × Bs.{Number(form.unitPrice).toFixed(2)} = Bs.{(Number(form.quantity)*Number(form.unitPrice)).toFixed(2)}
+                {form.quantity} × Bs.{Number(form.unitPrice).toFixed(2)} = Bs.{(Number(form.quantity)*Number(form.unitPrice)).toFixed(2)}
               </div>
             )}
-            <FormField label="💰 Precio total (Bs.)" hint="Calculado automáticamente, o ajústalo manualmente">
+            <FormField label="Precio total (Bs.)" hint="Calculado automáticamente, o ajústalo manualmente">
               <input style={inputSt} type="number" placeholder="0.00" value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} />
             </FormField>
-            <FormField label="💵 Adelanto recibido (Bs.)" hint="¿El cliente ya pagó algo? Déjalo en 0 si no hay adelanto">
+            <FormField label="Adelanto recibido (Bs.)" hint="¿El cliente ya pagó algo? Déjalo en 0 si no hay adelanto">
               <input style={inputSt} type="number" placeholder="0.00" value={form.deposit} onChange={e=>setForm(f=>({...f,deposit:e.target.value}))} />
             </FormField>
             {form.deposit&&Number(form.deposit)>0&&form.price&&Number(form.price)>0&&(()=>{
               const pend=Number(form.price)-Number(form.deposit);
               return (
-                <div style={{ background:pend>0?C.yellowBg:C.greenBg, border:`1px solid ${pend>0?"#4a3500":C.greenD+"33"}`, borderRadius:C.rSm, padding:"11px 14px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>Adelanto</div><div style={{ fontSize:15, fontWeight:800, color:"#4ade80" }}>{fmtMoney(Number(form.deposit))}</div></div>
+                <div style={{ background:pend>0?C.yellowBg:C.greenBg, border:`1px solid ${pend>0?"#4A3F36":C.greenD+"33"}`, borderRadius:C.rSm, padding:"11px 14px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>Adelanto</div><div style={{ fontSize:15, fontWeight:800, color:"#F1841B" }}>{fmtMoney(Number(form.deposit))}</div></div>
                   <div style={{ fontSize:18, color:C.t4 }}>→</div>
-                  <div style={{ textAlign:"right" }}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{pend>0?"Por cobrar":"Pagado"}</div><div style={{ fontSize:15, fontWeight:800, color:pend>0?C.yellow:C.green }}>{pend>0?fmtMoney(pend):"✅ Bs. 0.00"}</div></div>
+                  <div style={{ textAlign:"right" }}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{pend>0?"Por cobrar":"Pagado"}</div><div style={{ fontSize:15, fontWeight:800, color:pend>0?C.yellow:C.green }}>{pend>0?fmtMoney(pend):"Bs. 0.00"}</div></div>
                 </div>
               );
             })()}
-            <FormField label="📝 Notas">
+            <FormField label="Notas">
               <input style={inputSt} placeholder="Instrucciones especiales..." value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
             </FormField>
 
             <button onClick={submitJob} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
-              {editJob?"💾 Guardar cambios":"✅ Agregar a la cola"}
+              {editJob?"Guardar cambios":"Agregar a la cola"}
             </button>
             <button onClick={()=>{setShowForm(false);setEditJob(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
           </div>
@@ -2834,11 +2838,11 @@ export default function App() {
         <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowForm(false);setMultiMode(false);}}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>⊞ Pedido con múltiples productos</div>
+            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>Pedido con múltiples productos</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:20 }}>Agrupa varios productos en un solo pedido para un cliente</div>
 
             {/* Client section */}
-            <FormDivider label="👤 Cliente del pedido" />
+            <FormDivider label="Cliente del pedido" />
             <FormField label="Nombre del cliente">
               <div style={{ position:"relative" }}>
                 <input style={inputSt} placeholder="ej: Juan Pérez" value={orderClient.name} autoComplete="off"
@@ -2861,23 +2865,23 @@ export default function App() {
                 })()}
               </div>
             </FormField>
-            <FormField label="📱 Teléfono">
+            <FormField label="Teléfono">
               <input style={inputSt} placeholder="+591 77123456" value={orderClient.phone} onChange={e=>setOrderClient(c=>({...c,phone:e.target.value}))} />
             </FormField>
 
-            <FormDivider label="📅 Fecha de entrega" />
+            <FormDivider label="Fecha de entrega" />
             <FormField label="¿Cuándo se lo entregas?" hint="Se aplica a todos los productos del pedido">
               <DateTimePicker value={orderClient.deliveryAt} onChange={v=>setOrderClient(c=>({...c,deliveryAt:v}))} />
               {orderClient.deliveryAt && (
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
-                  <div style={{ fontSize:12, color:"#60a5fa", fontWeight:700 }}>📅 {new Date(orderClient.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
+                  <div style={{ fontSize:12, color:"#F1841B", fontWeight:700 }}>{new Date(orderClient.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"2-digit",month:"long",hour:"2-digit",minute:"2-digit"})}</div>
                   <button onClick={()=>setOrderClient(c=>({...c,deliveryAt:null}))} style={{ fontSize:12, color:C.t4, background:"none", border:"none", cursor:"pointer" }}>✕ Quitar</button>
                 </div>
               )}
             </FormField>
 
             {/* Items section */}
-            <FormDivider label="📦 Productos del pedido" />
+            <FormDivider label="Productos del pedido" />
             <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:14 }}>
               {orderItems.map((item,idx)=>(
                 <div key={item.id} style={{ background:C.bg3, borderRadius:C.rMd, border:`1px solid ${C.bg5}`, overflow:"hidden" }}>
@@ -2899,10 +2903,10 @@ export default function App() {
                           <div style={{ position:"absolute", top:"100%", left:0, right:0, background:C.bg3, border:`1.5px solid ${C.orange}55`, borderRadius:C.rMd, zIndex:99, marginTop:4, overflow:"hidden", boxShadow:"0 12px 36px rgba(0,0,0,.7)" }}>
                             {matches.slice(0,4).map(prod=>(
                               <div key={prod.id} onMouseDown={()=>{ updateOrderItem(item.id,"fileName",prod.name); updateOrderItem(item.id,"material",prod.material||""); updateOrderItem(item.id,"color",prod.color||""); updateOrderItem(item.id,"weight",prod.weight||""); updateOrderItem(item.id,"duration",prod.duration||""); updateOrderItem(item.id,"unitPrice",prod.price||""); }} style={{ padding:"9px 12px", cursor:"pointer", borderBottom:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:8 }} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                                <span style={{ fontSize:16 }}>📦</span>
+                                <span style={{ fontSize:16 }}><Icono e="📦" size={18} /></span>
                                 <div style={{ flex:1, minWidth:0 }}>
                                   <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{prod.name}</div>
-                                  <div style={{ fontSize:12, color:C.t3 }}>{prod.material} {prod.color} {prod.duration>0?`· ⏱${fmtTime(Number(prod.duration))}`:""}{prod.weight>0?` · ⚖${prod.weight}g`:""}</div>
+                                  <div style={{ fontSize:12, color:C.t3 }}>{prod.material} {prod.color} {prod.duration>0?`· ${fmtTime(Number(prod.duration))}`:""}{prod.weight>0?` · ${prod.weight}g`:""}</div>
                                 </div>
                                 {prod.price&&<span style={{ fontSize:13, color:C.green, fontWeight:900 }}>Bs.{Number(prod.price).toFixed(2)}</span>}
                               </div>
@@ -2913,13 +2917,13 @@ export default function App() {
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>🧵 Material</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Material</label>
                         <select style={inputSt} value={item.material} onChange={e=>updateOrderItem(item.id,"material",e.target.value)}>
                           <option value="">—</option>{MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>🎨 Color</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Color</label>
                         <select style={inputSt} value={item.color} onChange={e=>updateOrderItem(item.id,"color",e.target.value)}>
                           <option value="">—</option>{COLORS.map(c=><option key={c} value={c}>{etiquetaColor(c)}</option>)}
                         </select>
@@ -2935,7 +2939,7 @@ export default function App() {
                         <input style={inputSt} type="number" placeholder="0.00" value={item.unitPrice} onChange={e=>updateOrderItem(item.id,"unitPrice",e.target.value)} />
                       </div>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>⏱ min</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>min</label>
                         <input style={inputSt} type="number" placeholder="120" value={item.duration} onChange={e=>updateOrderItem(item.id,"duration",e.target.value)} />
                       </div>
                     </div>
@@ -2959,7 +2963,7 @@ export default function App() {
               const total = orderItems.reduce((s,x)=>s+(Number(x.unitPrice||0)*( Number(x.quantity)||1)),0);
               if(total<=0) return null;
               return (
-                <div style={{ background:`linear-gradient(135deg,${C.greenBg},#002018)`, border:`1px solid ${C.greenD}44`, borderRadius:C.rMd, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div style={{ background:C.greenBg, border:`1px solid ${C.greenD}44`, borderRadius:C.rMd, padding:"14px 16px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <div>
                     <div style={{ fontSize:12, color:C.t3, fontWeight:700, textTransform:"uppercase", letterSpacing:.6 }}>Total del pedido</div>
                     <div style={{ fontSize:12, color:C.t4, marginTop:2 }}>{orderItems.filter(x=>x.fileName).length} producto{orderItems.filter(x=>x.fileName).length!==1?"s":""}</div>
@@ -2969,12 +2973,12 @@ export default function App() {
               );
             })()}
 
-            <FormField label="📝 Notas del pedido">
+            <FormField label="Notas del pedido">
               <input style={inputSt} placeholder="Instrucciones generales del pedido..." value={orderClient.notes} onChange={e=>setOrderClient(c=>({...c,notes:e.target.value}))} />
             </FormField>
 
             <button onClick={submitOrder} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
-              ✅ Crear pedido ({orderItems.filter(x=>x.fileName.trim()).length} producto{orderItems.filter(x=>x.fileName.trim()).length!==1?"s":""})
+              Crear pedido ({orderItems.filter(x=>x.fileName.trim()).length} producto{orderItems.filter(x=>x.fileName.trim()).length!==1?"s":""})
             </button>
             <button onClick={()=>{setShowForm(false);setMultiMode(false);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
           </div>
@@ -2986,31 +2990,31 @@ export default function App() {
         <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowPForm(false);setEditP(null);}}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:22 }}>{editP?"✏️ Editar impresora":"➕ Nueva impresora"}</div>
+            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:22 }}>{editP?"Editar impresora":"➕ Nueva impresora"}</div>
             <FormField label="Nombre de la impresora"><input style={inputSt} placeholder="ej: Creality K1 Max" value={pForm.name} onChange={e=>setPForm(f=>({...f,name:e.target.value}))} /></FormField>
             <FormField label="Marca"><input style={inputSt} placeholder="ej: Creality, Bambu Lab..." value={pForm.brand} onChange={e=>setPForm(f=>({...f,brand:e.target.value}))} /></FormField>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
               <FormField label="Tipo">
                 <select style={inputSt} value={pForm.type} onChange={e=>setPForm(f=>({...f,type:e.target.value}))}>
-                  <option value="FDM">🧵 FDM</option><option value="Resina">🧪 Resina</option><option value="SLA">SLA</option><option value="DLP">DLP</option>
+                  <option value="FDM">FDM</option><option value="Resina">Resina</option><option value="SLA">SLA</option><option value="DLP">DLP</option>
                 </select>
               </FormField>
               <FormField label="Estado">
                 <select style={inputSt} value={pForm.connected?"1":"0"} onChange={e=>setPForm(f=>({...f,connected:e.target.value==="1"}))}>
-                  <option value="1">🟢 En línea</option><option value="0">⚫ Offline</option>
+                  <option value="1">En línea</option><option value="0">⚫ Offline</option>
                 </select>
               </FormField>
             </div>
             <FormField label="URL de imagen (opcional)"><input style={inputSt} placeholder="https://..." value={pForm.img} onChange={e=>setPForm(f=>({...f,img:e.target.value}))} /></FormField>
             <FormField label="Color de fondo">
               <div style={{ display:"flex", gap:10 }}>
-                {["#1e1e1e","#000000","#ffffff","#1a1a2e"].map(col=>(
+                {["#1e1e1e","#000000","#ffffff","#221D1B"].map(col=>(
                   <div key={col} onClick={()=>setPForm(f=>({...f,imgBg:col}))} style={{ width:38, height:38, borderRadius:11, background:col, cursor:"pointer", border:`2.5px solid ${pForm.imgBg===col?C.orange:C.bg5}` }} />
                 ))}
               </div>
             </FormField>
             <button onClick={submitP} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:6, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
-              {editP?"💾 Guardar cambios":"✅ Agregar impresora"}
+              {editP?"Guardar cambios":"Agregar impresora"}
             </button>
             <button onClick={()=>{setShowPForm(false);setEditP(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
           </div>
@@ -3023,40 +3027,40 @@ export default function App() {
         <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowProductForm(false);setEditProduct(null);}}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>{editProduct?"✏️ Editar producto":"📦 Nuevo producto"}</div>
+            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>{editProduct?"Editar producto":"Nuevo producto"}</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:22 }}>Guarda un producto frecuente para añadirlo rápido a la cola</div>
             <FormField label="Nombre del producto *">
               <input style={inputSt} placeholder="ej: Mango DJI Mini" value={prodForm.name} onChange={e=>setProdForm(f=>({...f,name:e.target.value}))} />
             </FormField>
-            <FormField label="💰 Precio (Bs.)">
+            <FormField label="Precio (Bs.)">
               <input style={inputSt} type="number" placeholder="0.00" value={prodForm.price} onChange={e=>setProdForm(f=>({...f,price:e.target.value}))} />
             </FormField>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <FormField label="⏱ Duración (min)">
+              <FormField label="Duración (min)">
                 <input style={inputSt} type="number" placeholder="120" value={prodForm.duration} onChange={e=>setProdForm(f=>({...f,duration:e.target.value}))} />
               </FormField>
-              <FormField label="⚖ Peso (g)">
+              <FormField label="Peso (g)">
                 <input style={inputSt} type="number" placeholder="40" value={prodForm.weight} onChange={e=>setProdForm(f=>({...f,weight:e.target.value}))} />
               </FormField>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              <FormField label="🧵 Material">
+              <FormField label="Material">
                 <select style={inputSt} value={prodForm.material} onChange={e=>setProdForm(f=>({...f,material:e.target.value}))}>
                   <option value="">Seleccionar...</option>
                   {MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}
                 </select>
               </FormField>
-              <FormField label="🎨 Color">
+              <FormField label="Color">
                 <select style={inputSt} value={prodForm.color} onChange={e=>setProdForm(f=>({...f,color:e.target.value}))}>
                   <option value="">Seleccionar...</option>
                   {COLORS.map(c=><option key={c} value={c}>{etiquetaColor(c)}</option>)}
                 </select>
               </FormField>
             </div>
-            <FormField label="📝 Notas">
+            <FormField label="Notas">
               <input style={inputSt} placeholder="Instrucciones especiales..." value={prodForm.notes} onChange={e=>setProdForm(f=>({...f,notes:e.target.value}))} />
             </FormField>
-            <FormField label="🏷 Categoría" hint="Ej: Cafetería, Llaveros, Porta mandos, Gaming...">
+            <FormField label="Categoría" hint="Ej: Cafetería, Llaveros, Porta mandos, Gaming...">
               {(()=>{
                 const existingCats = Array.from(new Set(products.map(p=>p.category).filter(Boolean))).sort();
                 return (
@@ -3077,7 +3081,7 @@ export default function App() {
               })()}
             </FormField>
             <button onClick={submitProduct} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
-              {editProduct?"💾 Guardar cambios":"✅ Guardar producto"}
+              {editProduct?"Guardar cambios":"Guardar producto"}
             </button>
             <button onClick={()=>{setShowProductForm(false);setEditProduct(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
           </div>
@@ -3088,12 +3092,12 @@ export default function App() {
       {confirmDel && (
         <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.88)", zIndex:60, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"26px 22px", width:"100%", maxWidth:320, border:`1px solid ${C.bg4}`, textAlign:"center" }}>
-            <div style={{ fontSize:42, marginBottom:12 }}>🗑️</div>
+            <div style={{ fontSize:42, marginBottom:12 }}><Icono e="🗑️" size={44} /></div>
             <div style={{ fontSize:17, fontWeight:900, color:C.t1, marginBottom:7 }}>¿Eliminar este trabajo?</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:24 }}>Esta acción no se puede deshacer</div>
             <div style={{ display:"flex", gap:10 }}>
               <button onClick={()=>setConfirmDel(null)} style={{ flex:1, padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
-              <button onClick={()=>deleteJ(confirmDel)} style={{ flex:1, padding:"14px", background:C.redBg, color:C.red, border:`1px solid #3d0018`, borderRadius:C.rSm, fontSize:14, fontWeight:800, cursor:"pointer" }}>Eliminar</button>
+              <button onClick={()=>deleteJ(confirmDel)} style={{ flex:1, padding:"14px", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:14, fontWeight:800, cursor:"pointer" }}>Eliminar</button>
             </div>
           </div>
         </div>
@@ -3102,7 +3106,7 @@ export default function App() {
       {/* ── TOAST ── */}
       <CartelPedido />
       {toast && (
-        <div role="status" aria-live="polite" key={toast.id} style={{ position:"fixed", bottom: isMobile?"calc(env(safe-area-inset-bottom) + 84px)":24, left:"50%", transform:"translateX(-50%)", width:"max-content", maxWidth:"calc(100vw - 24px)", display:"flex", alignItems:"center", gap:14, background:toast.type==="err"?"#3A1510":"#12301E", border:`1px solid ${toast.type==="err"?"#6B2A1F":"#1F5A35"}`, color:C.t1, padding: toast.deshacer?"8px 8px 8px 20px":"13px 22px", borderRadius:C.rPill, fontSize:15, fontWeight:700, zIndex:100, boxShadow:"0 10px 30px rgba(0,0,0,.5)", animation:"w3dSubeT .2s ease-out" }}>
+        <div role="status" aria-live="polite" key={toast.id} style={{ position:"fixed", bottom: isMobile?"calc(env(safe-area-inset-bottom) + 84px)":24, left:"50%", transform:"translateX(-50%)", width:"max-content", maxWidth:"calc(100vw - 24px)", display:"flex", alignItems:"center", gap:14, background:toast.type==="err"?"#3A1510":"#2E1A0B", border:`1px solid ${toast.type==="err"?"#6B2A1F":"#6B3A12"}`, color:C.t1, padding: toast.deshacer?"8px 8px 8px 20px":"13px 22px", borderRadius:C.rPill, fontSize:15, fontWeight:700, zIndex:100, boxShadow:"0 10px 30px rgba(0,0,0,.5)", animation:"w3dSubeT .2s ease-out" }}>
           <span>{toast.msg}</span>
           {toast.deshacer && <button onClick={()=>{ const f=toast.deshacer; setToast(null); clearTimeout(toastTimer.current); f(); }} style={{ background:C.orange, color:"#fff", border:"none", borderRadius:C.rPill, padding:"0 16px", minHeight:40, fontSize:14, fontWeight:900, cursor:"pointer" }}>Deshacer</button>}
           <style>{`@keyframes w3dSubeT{from{transform:translate(-50%,12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}`}</style>
