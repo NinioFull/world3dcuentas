@@ -1110,7 +1110,7 @@ export default function App() {
       <div>
         <div className="stats-row" style={{ marginBottom:8 }}>
           {[
-            { status:"printing", Icon:Printer,   label:"Imprimiendo", count:printing.length, sub:printing[0]&&`${printing[0].fileName} · quedan ${fmtTime(printing[0].remaining)}`, color:C.green },
+            { status:"printing", Icon:Printer,   label:"Imprimiendo", count:printing.length, sub:printing[0]&&`${printing[0].fileName} · quedan ${fmtTime(printing[0].remaining*Math.max(1,Number(printing[0].quantity)||1))}`, color:C.green },
             { status:"pending",  Icon:Hourglass, label:"En cola",     count:pending.length,  sub:pending[0]&&`Sigue: ${pending[0].fileName}`, color:C.yellow },
           ].map(({ status, Icon, label, count, sub, color }) => (
             <button key={status} onClick={()=>{setView("queue");setFStatus(status);}} style={{ textAlign:"left", background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"16px", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
