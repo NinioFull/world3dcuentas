@@ -79,7 +79,7 @@ export default function WebView({ pedidos, cargando, error, recargar, jobs, prin
               <span style={{ fontSize: 15, fontWeight: 900, color: C.t1 }}>{numPedido(p)}</span>
               <span style={{ fontSize: 12, fontWeight: 800, color: C.orange, background: C.orangeBg, border: `1px solid ${C.orange}44`, borderRadius: C.rPill, padding: "2px 9px" }}>{e.label}</span>
               {p.tipo === "cotizacion" && <span style={{ fontSize: 12, fontWeight: 800, color: C.purple, background: C.purpleBg, borderRadius: C.rPill, padding: "2px 9px" }}>Cotización</span>}
-              {vale && <span style={{ fontSize: 12, fontWeight: 800, color: C.yellow, background: C.yellowBg, borderRadius: C.rPill, padding: "2px 9px" }}>🎟 Vale</span>}
+              {vale && <span style={{ fontSize: 12, fontWeight: 800, color: C.yellow, background: C.yellowBg, borderRadius: C.rPill, padding: "2px 9px" }}>Vale</span>}
             </div>
             <div style={{ fontSize: 14, fontWeight: 800, color: C.t1, marginTop: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.cliente_nombre || "Sin nombre"}</div>
             <div style={{ fontSize: 12, color: C.t3 }}>{p.cliente_telefono || "sin teléfono"} · {fecha(p.creado)} ({hace(p.creado)})</div>
@@ -100,8 +100,8 @@ export default function WebView({ pedidos, cargando, error, recargar, jobs, prin
               <div style={{ color: C.t3, flexShrink: 0 }}>{bs((Number(it.precio) || 0) * (it.cant || 1))}</div>
             </div>
           ))}
-          {p.recepcion && <div style={{ fontSize: 12, color: envio ? C.purple : C.t3, marginTop: 6 }}>📍 {p.recepcion}</div>}
-          {p.nota && <div style={{ fontSize: 12, color: C.t3, marginTop: 3, whiteSpace: "pre-wrap" }}>📝 {p.nota}</div>}
+          {p.recepcion && <div style={{ fontSize: 12, color: envio ? C.purple : C.t3, marginTop: 6 }}>{p.recepcion}</div>}
+          {p.nota && <div style={{ fontSize: 12, color: C.t3, marginTop: 3, whiteSpace: "pre-wrap" }}>{p.nota}</div>}
           {p.aviso && <div style={{ fontSize: 12, color: C.t4, marginTop: 3 }}>Aviso: {p.aviso}</div>}
         </div>
 
