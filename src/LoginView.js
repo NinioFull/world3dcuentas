@@ -2,7 +2,7 @@
 import { C, ISOTIPO, FUENTE_TITULO } from "./tema";
 import { entrarConGoogle, salir } from "./web";
 
-export default function LoginView({ sesion, revisando, sinPermiso }) {
+export default function LoginView({ sesion, revisando, sinPermiso, reconectar, error }) {
   return (
     <div style={{ minHeight: "100vh", background: C.bg1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ width: "100%", maxWidth: 380, textAlign: "center" }}>
@@ -14,6 +14,17 @@ export default function LoginView({ sesion, revisando, sinPermiso }) {
 
         {revisando ? (
           <div style={{ fontSize: 14, color: C.t2, fontWeight: 700 }}>Revisando tu cuenta…</div>
+        ) : reconectar ? (
+          <div>
+            <div style={{ background: C.bg2, border: `1px solid ${C.bg4}`, borderRadius: C.rMd, padding: 16, fontSize: 14, color: C.t2, lineHeight: 1.5, marginBottom: 14 }}>
+              Falta conectar la cola de impresión con tu cuenta. Es una sola vez por dispositivo.
+              {error && <div style={{ fontSize: 12, color: C.red, marginTop: 8 }}>Error: {error}</div>}
+            </div>
+            <button onClick={reconectar} style={{ background: "#fff", border: "none", color: "#191513", borderRadius: C.rMd, padding: "14px 20px", fontSize: 15, fontWeight: 800, cursor: "pointer", width: "100%" }}>
+              Conectar con Google
+            </button>
+            <button onClick={salir} style={{ background: "transparent", border: "none", color: C.t3, fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 12 }}>Salir</button>
+          </div>
         ) : sinPermiso ? (
           <div>
             <div style={{ background: C.redBg, border: `1px solid ${C.red}66`, borderRadius: C.rMd, padding: 16, fontSize: 14, color: C.t2, lineHeight: 1.5, marginBottom: 14 }}>

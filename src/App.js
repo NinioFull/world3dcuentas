@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, onSnapshot, addDoc, updateDoc,
   deleteDoc, doc, setDoc,
 } from "firebase/firestore";
+import { getAuth, onAuthStateChanged, signInWithCredential, GoogleAuthProvider, signOut } from "firebase/auth";
 import * as XLSX from "xlsx";
 import { C, STATUS, COLORS, ISOTIPO, FUENTES_URL, FUENTE_TEXTO, etiquetaColor } from "./tema";
-import { sb, DEMO, esAdmin, salir, cargarPedidos, cambiarEstadoPedido, numPedido, partirNombre } from "./web";
+import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedidos, cambiarEstadoPedido, numPedido, partirNombre } from "./web";
 import WebView from "./WebView";
 import LoginView from "./LoginView";
+import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCZ2MG8VEPL7WcLQCojJk4Ola3SUkkud70",
@@ -20,6 +22,10 @@ const firebaseConfig = {
 };
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
+// La cola en Firebase solo la puede leer/escribir la cuenta admin (ver firestore.rules).
+// Se entra a Firebase con la misma cuenta de Google que a Supabase: no hay que iniciar sesión dos veces.
+const fbAuth = getAuth(fbApp);
+const salir = () => Promise.all([salirSupabase(), signOut(fbAuth)]);
 
 // ─── RESPONSIVE HOOK ─────────────────────────────────────────────────────────
 const useBreakpoint = () => {
@@ -221,7 +227,14 @@ const Chip = ({ children, color=C.t3, bg=C.bg4 }) => (
 export default function App() {
   const { w, isMobile, isTablet, isDesktop } = useBreakpoint();
   const [view, setView] = useState("dashboard");
-  const [jobs, setJobs] = useState([]);
+  // jobsDb: tal cual vienen de Firebase. jobs: con el tiempo restante calculado al momento (ver más abajo)
+  const [jobsDb, setJobs] = useState([]);
+  const [ahora, setAhora] = useState(Date.now());
+  const jobs = useMemo(() => jobsDb.map(j => {
+    if (j.status !== "printing" || !j.runStart) return j;
+    const pasados = Math.floor((ahora - j.runStart) / 60000);
+    return { ...j, remaining: Math.max(0, (Number(j.remaining) || 0) - pasados) };
+  }), [jobsDb, ahora]);
   const [kioskMode, setKioskMode] = useState(false);
   const [kioskPinInput, setKioskPinInput] = useState("");
   const [showKioskExit, setShowKioskExit] = useState(false);
@@ -271,6 +284,7 @@ export default function App() {
   const [pedidos, setPedidos] = useState([]);
   const [pedidosCargando, setPedidosCargando] = useState(false);
   const [pedidosError, setPedidosError] = useState("");
+  const pedidosListos = useRef(false);
 
   useEffect(() => {
     if (DEMO) { setSesion({ user: { id: "demo", email: "demo@world3d.com.bo" } }); return; }
@@ -278,6 +292,22 @@ export default function App() {
     const { data: sub } = sb.auth.onAuthStateChange((_ev, s) => setSesion(s || null));
     return () => sub.subscription.unsubscribe();
   }, []);
+  // ── Firebase: se conecta con el token de Google que trae la sesión de Supabase justo después de entrar ──
+  const [fbUser, setFbUser] = useState(DEMO ? { email: "demo" } : undefined); // undefined = revisando
+  const [fbError, setFbError] = useState("");
+  useEffect(() => { if (DEMO) return; return onAuthStateChanged(fbAuth, u => setFbUser(u || null)); }, []);
+  useEffect(() => {
+    if (DEMO || !sesion || fbUser !== null || !sesion.provider_token) return;
+    signInWithCredential(fbAuth, GoogleAuthProvider.credential(null, sesion.provider_token))
+      .then(() => setFbError(""))
+      .catch(e => setFbError(e.code || e.message || String(e)));
+  }, [sesion, fbUser]);
+  // Si la cuenta de Firebase no es la misma que la de Supabase (cambiaste de cuenta), se vuelve a conectar
+  useEffect(() => {
+    if (DEMO || !sesion || !fbUser || !fbUser.email || !sesion.user?.email) return;
+    if (fbUser.email.toLowerCase() !== sesion.user.email.toLowerCase()) signOut(fbAuth);
+  }, [sesion, fbUser]);
+
   useEffect(() => {
     if (!sesion) { setAdmin(null); return; }
     let vivo = true;
@@ -288,7 +318,7 @@ export default function App() {
   const recargarPedidos = async () => {
     if (!admin) return;
     setPedidosCargando(true);
-    try { setPedidos(await cargarPedidos()); setPedidosError(""); }
+    try { setPedidos(await cargarPedidos()); setPedidosError(""); pedidosListos.current = true; }
     catch (e) { setPedidosError(e.message || String(e)); }
     setPedidosCargando(false);
   };
@@ -296,12 +326,40 @@ export default function App() {
   useEffect(() => {
     if (!admin) return;
     recargarPedidos();
-    const t = setInterval(recargarPedidos, 60000);
+    const t = setInterval(recargarPedidos, 30000);
     const alVolver = () => { if (document.visibilityState === "visible") recargarPedidos(); };
     document.addEventListener("visibilitychange", alVolver);
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", alVolver); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin]);
+
+  // ── Aviso de pedido nuevo (con la app abierta en el iPad) ──
+  const [avisoNuevo, setAvisoNuevo] = useState(null); // pedido que se muestra en el cartel
+  const avisados = useRef(null);
+  useEffect(() => {
+    const desbloquear = () => desbloquearSonido();
+    window.addEventListener("pointerdown", desbloquear);
+    return () => window.removeEventListener("pointerdown", desbloquear);
+  }, []);
+  useEffect(() => {
+    if (!admin) return;
+    const atender = pedidos.filter(p => p.estado === "enviado" || p.estado === "pago confirmado");
+    ponerNumerito(atender.length);
+    if (!pedidosListos.current) return;          // todavía no llegó la primera carga
+    if (avisados.current === null) {
+      const previos = leerAvisados();
+      if (!previos || !previos.size) {           // primera vez en este dispositivo: se toma lo que hay como ya visto, sin sonar
+        avisados.current = new Set(atender.map(p => p.id)); guardarAvisados(avisados.current); return;
+      }
+      avisados.current = previos;
+    }
+    const nuevos = atender.filter(p => !avisados.current.has(p.id));
+    if (!nuevos.length) return;
+    nuevos.forEach(p => avisados.current.add(p.id));
+    guardarAvisados(avisados.current);
+    sonarCampana();
+    setAvisoNuevo({ ...nuevos[0], otros: nuevos.length - 1 });
+  }, [pedidos, admin]);
 
   const cambiarEstadoWeb = async (p, estado) => {
     try {
@@ -414,9 +472,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!fbUser) return;
     const unsubC = onSnapshot(collection(db,"config"),(snap) => { snap.docs.forEach(d => { if(d.id==="matCosts") setMatCosts(d.data()||{}); }); });
     return () => unsubC();
-  }, []);
+  }, [fbUser]);
 
   const saveCost = async (material, value) => {
     const val = Number(value); if(isNaN(val)||val<=0) return;
@@ -431,24 +490,35 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!fbUser) return;
     const unsubJ = onSnapshot(collection(db,"jobs"),(snap) => { setJobs(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false); }, ()=>setLoading(false));
     const unsubProd = onSnapshot(collection(db,"products"),(snap)=>{ setProducts(snap.docs.map(d=>({id:d.id,...d.data()}))); });
     const unsubStock = onSnapshot(collection(db,"stock"),(snap)=>{ const s={}; snap.docs.forEach(d=>{s[d.id]=d.data();}); setStock(s); });
     const unsubP = onSnapshot(collection(db,"printers"),(snap) => { const data=snap.docs.map(d=>({id:d.id,...d.data()})); if(data.length===0) DEFAULT_PRINTERS.forEach(p=>setDoc(doc(db,"printers",p.id),p)); else setPrinters(data); });
     return () => { unsubJ(); unsubP(); unsubProd(); unsubStock(); };
-  }, []);
+  }, [fbUser]);
 
+  // ── Contador de impresión ──
+  // Antes cada pantalla abierta restaba 1 minuto por su cuenta: con iPad + celu + compu el tiempo corría 3 veces más rápido.
+  // Ahora se guarda cuándo arrancó el tramo actual (runStart) y lo que faltaba en ese momento (remaining);
+  // cada pantalla calcula lo que falta con el reloj, sin escribir nada mientras imprime.
   useEffect(() => {
-    timerRef.current = setInterval(() => {
-      jobs.forEach(j => {
-        if(j.status==="printing") {
-          if(j.remaining>0) updateDoc(doc(db,"jobs",j.id),{remaining:Math.max(0,j.remaining-1)});
-          else updateDoc(doc(db,"jobs",j.id),{status:"done",endedAt:Date.now()});
-        }
-      });
-    },60000);
+    timerRef.current = setInterval(() => setAhora(Date.now()), 20000);
     return () => clearInterval(timerRef.current);
-  }, [jobs]);
+  }, []);
+  const cerrando = useRef(new Set());
+  useEffect(() => {
+    jobsDb.forEach(j => {
+      if (j.status !== "printing" || cerrando.current.has(j.id)) return;
+      // Trabajos que ya imprimían con la versión anterior: arrancan a contar desde ahora con lo que les quedaba
+      if (!j.runStart) { cerrando.current.add(j.id); updateDoc(doc(db,"jobs",j.id),{runStart:Date.now()}).finally(()=>cerrando.current.delete(j.id)); return; }
+      const dur = Number(j.duration) || 0, falta = (Number(j.remaining) || 0) - Math.floor((ahora - j.runStart) / 60000);
+      if (dur > 0 && falta <= 0) {
+        cerrando.current.add(j.id);
+        updateDoc(doc(db,"jobs",j.id),{status:"done",endedAt:Date.now(),remaining:0,runStart:null}).finally(()=>cerrando.current.delete(j.id));
+      }
+    });
+  }, [jobsDb, ahora]);
 
   const toast_ = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
@@ -631,7 +701,7 @@ export default function App() {
     const pid = form.printer||(printers[0]?.id??"");
     const data = {...form, printer:form.jobType==="design"?"":pid, duration:Number(form.duration), weight:Number(form.weight), quantity:Number(form.quantity)||1};
     if(editJob) {
-      await updateDoc(doc(db,"jobs",editJob.id),{...data,remaining:editJob.status==="printing"?editJob.remaining:Number(form.duration)});
+      await updateDoc(doc(db,"jobs",editJob.id),{...data,...(editJob.status==="printing"&&data.status==="printing"?{remaining:editJob.remaining,runStart:Date.now()}:{remaining:Number(form.duration),runStart:data.status==="printing"?Date.now():null})});
       toast_("✅ Trabajo actualizado");
     } else {
       await addDoc(collection(db,"jobs"),{...data,remaining:Number(form.duration),createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,priority:Date.now()});
@@ -663,10 +733,11 @@ export default function App() {
     setPForm(P0); setShowPForm(false); setEditP(null);
   };
 
-  const startJ  = (j)  => { updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:Date.now(),remaining:j.duration}); toast_("🖨 Impresión iniciada"); };
-  const pauseJ  = (id) => { updateDoc(doc(db,"jobs",id),{status:"paused"}); toast_("⏸ Trabajo pausado"); };
-  const resumeJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"printing"}); toast_("▶ Impresión reanudada"); };
-  const completeJ= (id) => { updateDoc(doc(db,"jobs",id),{status:"done",endedAt:Date.now(),remaining:0}); toast_("✅ Listo para entregar"); };
+  const startJ  = (j)  => { const t=Date.now(); updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:t,runStart:t,remaining:Number(j.duration)||0}); toast_("🖨 Impresión iniciada"); };
+  // Al pausar se congela lo que falta; al reanudar arranca un tramo nuevo
+  const pauseJ  = (id) => { const j=jobs.find(x=>x.id===id); updateDoc(doc(db,"jobs",id),{status:"paused",remaining:j?Number(j.remaining)||0:0,runStart:null}); toast_("⏸ Trabajo pausado"); };
+  const resumeJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"printing",runStart:Date.now()}); toast_("▶ Impresión reanudada"); };
+  const completeJ= (id) => { updateDoc(doc(db,"jobs",id),{status:"done",endedAt:Date.now(),remaining:0,runStart:null}); toast_("✅ Listo para entregar"); };
   const toShipJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"shipping"}); toast_("📦 Marcado para envío"); };
   const shippedJ= (id,job) => {
     updateDoc(doc(db,"jobs",id),{status:"shipped",shippedAt:Date.now()});
@@ -678,7 +749,7 @@ export default function App() {
   const deleteP = (id) => { deleteDoc(doc(db,"printers",id)); toast_("Impresora eliminada","err"); };
   const duplicateJ = async (job) => {
     const {id,...rest} = job;
-    await addDoc(collection(db,"jobs"),{...rest,fileName:job.fileName+" (copia)",createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,status:"pending",remaining:job.duration,priority:Date.now()});
+    await addDoc(collection(db,"jobs"),{...rest,fileName:job.fileName+" (copia)",createdAt:Date.now(),startedAt:null,endedAt:null,shippedAt:null,status:"pending",remaining:job.duration,runStart:null,webPedido:null,webItem:null,priority:Date.now()});
     toast_("📋 Trabajo duplicado");
   };
   const openEJ = (job) => {
@@ -2348,9 +2419,31 @@ export default function App() {
   if (!sesion) return <LoginView />;
   if (admin === null) return <LoginView sesion={sesion} revisando />;
   if (!admin) return <LoginView sesion={sesion} sinPermiso />;
+  if (fbUser === undefined) return <LoginView sesion={sesion} revisando />;
+  if (!fbUser) return <LoginView sesion={sesion} reconectar={entrarConGoogle} error={fbError} />;
+
+  const CartelPedido = () => !avisoNuevo ? null : (
+    <div style={{ position:"fixed", top:"calc(env(safe-area-inset-top) + 12px)", left:12, right:12, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none" }}>
+      <div style={{ pointerEvents:"auto", width:"100%", maxWidth:560, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", borderRadius:C.r, padding:"16px 18px", boxShadow:"0 12px 40px rgba(0,0,0,.55)", display:"flex", alignItems:"center", gap:14, animation:"w3dEntra .35s ease-out" }}>
+        <div style={{ fontSize:34 }}>🛎</div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:13, fontWeight:800, opacity:.9, textTransform:"uppercase", letterSpacing:.8 }}>
+            {avisoNuevo.estado==="pago confirmado" ? "Pedido pagado" : avisoNuevo.tipo==="cotizacion" ? "Nueva cotización" : "Pedido nuevo en la web"}
+          </div>
+          <div style={{ fontSize:17, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            {numPedido(avisoNuevo)} · {avisoNuevo.cliente_nombre || "Sin nombre"}{Number(avisoNuevo.total)>0 ? ` · Bs. ${Number(avisoNuevo.total).toFixed(2)}` : ""}
+          </div>
+          {avisoNuevo.otros>0 && <div style={{ fontSize:12, fontWeight:700, opacity:.9 }}>y {avisoNuevo.otros} más</div>}
+        </div>
+        <button onClick={()=>{ setAvisoNuevo(null); setKioskMode(false); setView("web"); }} style={{ background:"#fff", color:C.orangeD, border:"none", borderRadius:C.rSm, padding:"10px 14px", fontSize:14, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap" }}>Ver</button>
+        <button onClick={()=>setAvisoNuevo(null)} aria-label="Cerrar" style={{ background:"transparent", color:"#fff", border:"none", fontSize:22, cursor:"pointer", padding:"0 4px" }}>×</button>
+      </div>
+      <style>{`@keyframes w3dEntra{from{transform:translateY(-30px);opacity:0}to{transform:none;opacity:1}}`}</style>
+    </div>
+  );
 
   return (
-    kioskMode ? <KioskView /> :
+    kioskMode ? <><KioskView /><CartelPedido /></> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
       <div style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
@@ -2958,6 +3051,7 @@ export default function App() {
       )}
 
       {/* ── TOAST ── */}
+      <CartelPedido />
       {toast && (
         <div style={{ position:"fixed", bottom:96, left:"50%", transform:"translateX(-50%)", background:toast.type==="err"?"#3d0018":"#001811", color:"#fff", padding:"13px 24px", borderRadius:C.rPill, fontSize:14, fontWeight:800, zIndex:100, boxShadow:"0 10px 36px rgba(0,0,0,.7)", whiteSpace:"nowrap", border:`1px solid ${toast.type==="err"?"#7d0030":"#005c30"}` }}>
           {toast.msg}

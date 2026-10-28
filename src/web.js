@@ -19,6 +19,8 @@ const PEDIDOS_DEMO = [
   { id: 115, tipo: "cotizacion", origen: "formulario", estado: "enviado", total: 0, recepcion: "", nota: "", creado: new Date(Date.now() - 4 * 86400000).toISOString(), cliente_nombre: "Luis Vaca", cliente_telefono: "71234567", items: [{ nombre: "Trofeo de pádel con nombre grabado, 20 cm, dorado", precio: 0, cant: 1 }] },
   { id: 110, tipo: "compra", origen: "carrito", estado: "entregado", total: 120, recepcion: "Recojo en el taller", creado: new Date(Date.now() - 9 * 86400000).toISOString(), cliente_nombre: "María Pérez", cliente_telefono: "76543210", items: [{ nombre: "Figura de capibara de 12cm (Café)", precio: 60, cant: 2 }] },
 ];
+// En demo se pueden agregar pedidos desde la consola para probar el aviso: window.__w3dDemo.push({...})
+if (DEMO && typeof window !== "undefined") window.__w3dDemo = PEDIDOS_DEMO;
 
 export const ESTADOS_WEB = ["enviado", "pago confirmado", "en produccion", "listo", "entregado", "cancelado"];
 export const ESTADO_WEB = {
