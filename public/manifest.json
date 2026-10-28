@@ -1,0 +1,17 @@
+{
+  "name": "WORLD3D Manager",
+  "short_name": "WORLD3D",
+  "description": "Cola de impresión, pedidos web y máquinas de WORLD3D",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#191513",
+  "theme_color": "#191513",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
