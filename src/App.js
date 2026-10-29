@@ -1592,8 +1592,25 @@ export default function App() {
 
   // ─── DASHBOARD ────────────────────────────────────────────────────────────
   const DashboardView = () => {
+    // Borradores sin terminar (trabajo nuevo o pedido múltiple), visibles para retomarlos
+    const bT = !showForm && leerBorr(BORR.trabajo), bP = !showForm && leerBorr(BORR.pedido);
+    const borradores = [
+      bT && bT.form && { k:"t", titulo:bT.form.fileName||"Trabajo sin nombre", sub:bT.form.clientName, at:bT.at, seguir:()=>abrirNuevoTrabajo(), borrar:()=>{ borrarBorr(BORR.trabajo); setAhora(Date.now()); toast_("Borrador descartado"); } },
+      bP && bP.orderItems && { k:"p", titulo:`Pedido de ${bP.orderItems.filter(i=>i.fileName).length||1} producto${bP.orderItems.filter(i=>i.fileName).length>1?"s":""}`, sub:bP.orderClient?.name, at:bP.at, seguir:openMultiForm, borrar:()=>{ borrarBorr(BORR.pedido); setAhora(Date.now()); toast_("Borrador descartado"); } },
+    ].filter(Boolean);
     const statsLeft = (
       <div>
+        {borradores.map(d=>(
+          <div key={d.k} style={{ display:"flex", alignItems:"center", gap:10, background:C.orangeBg, border:`1px solid ${C.orange}66`, borderRadius:C.r, padding:"12px 12px 12px 16px", marginBottom:12 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:12, color:C.orange, fontWeight:900, textTransform:"uppercase", letterSpacing:.7 }}>Borrador sin terminar</div>
+              <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.titulo}{d.sub?` · ${d.sub}`:""}</div>
+              <div style={{ fontSize:12, color:C.t3 }}>Guardado a las {new Date(d.at).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}{Date.now()-d.at>DIA?` · ${haceDias(d.at)}`:""}</div>
+            </div>
+            <button onClick={d.borrar} style={{ minHeight:44, padding:"0 12px", background:"transparent", color:C.t3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}>Descartar</button>
+            <button onClick={d.seguir} style={{ minHeight:44, padding:"0 16px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:900, cursor:"pointer", flexShrink:0 }}>Seguir</button>
+          </div>
+        ))}
         <div className="stats-row" style={{ marginBottom:8 }}>
           {[
             { status:"printing", Icon:Printer,   label:"Imprimiendo", count:enMarcha.length, sub:enMarcha[0]&&`${enMarcha[0].fileName} · ${enMarcha[0].status==="paused"?"en pausa":`quedan ${fmtTime(enMarcha[0].remaining)}`}`, color:C.green },
@@ -3407,9 +3424,9 @@ export default function App() {
           <div style={{ display:"flex", gap:8 }}>
             <button onClick={()=>{ setBuscarQ(""); setShowBuscar(true); }} aria-label="Buscar" title="Buscar ( / )" style={{ width:42, height:38, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, color:C.t1, cursor:"pointer" }}><Search size={20} aria-hidden="true" /></button>
             <div style={{ display:"flex", borderRadius:C.rSm, overflow:"hidden", boxShadow:`0 3px 16px rgba(241,132,27,.4)` }}>
-              <button onClick={()=>abrirNuevoTrabajo()} aria-label="Nuevo trabajo" style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
+              <button onClick={()=>abrirNuevoTrabajo()} aria-label={leerBorr(BORR.trabajo)?"Nuevo trabajo (tenés un borrador)":"Nuevo trabajo"} style={{ position:"relative", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+{!showForm && leerBorr(BORR.trabajo) && <span aria-hidden="true" style={{ position:"absolute", top:5, right:5, width:9, height:9, borderRadius:"50%", background:"#191513", boxShadow:"0 0 0 2px #FFF7F3" }} />}</button>
               <div style={{ width:1, background:"rgba(0,0,0,.3)" }} />
-              <button onClick={openMultiForm} title="Pedido con múltiples productos" style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 13px", height:38, fontSize:16, fontWeight:800, cursor:"pointer", lineHeight:1 }}>⊞</button>
+              <button onClick={openMultiForm} title="Pedido con múltiples productos" style={{ position:"relative", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 13px", height:38, fontSize:16, fontWeight:800, cursor:"pointer", lineHeight:1 }}>⊞{!showForm && leerBorr(BORR.pedido) && <span aria-hidden="true" style={{ position:"absolute", top:5, right:5, width:9, height:9, borderRadius:"50%", background:"#191513", boxShadow:"0 0 0 2px #FFF7F3" }} />}</button>
             </div>
           </div>
         </div>
