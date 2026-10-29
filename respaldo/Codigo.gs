@@ -3,7 +3,8 @@
 //   en la carpeta "WORLD3D · Respaldos del Manager". Guarda las últimas 8 y manda las viejas a la papelera.
 // - resumen(): calcula cobrado, vendido, por cobrar y atrasados de la semana pasada y lo manda al Telegram del
 //   negocio (función resumen-semanal de Supabase). Si Telegram falla, llega por correo.
-// - instalar(): programa semanal() todos los lunes a las 8:00 (hora de Bolivia).
+// - avisos(): cada 5 minutos revisa si terminó una impresión y avisa por Telegram (una sola vez por trabajo).
+// - instalar(): programa semanal() todos los lunes a las 8:00 (hora de Bolivia) y avisos() cada 5 minutos.
 // La clave RESUMEN_SECRETO va en Configuración del proyecto > Propiedades del script.
 
 const PROYECTO = 'printmanager-dae85';
@@ -23,6 +24,80 @@ function semanal() {
 function instalar() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('semanal').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
+  ScriptApp.newTrigger('avisos').timeBased().everyMinutes(5).create();
+}
+
+// ── Telegram (función resumen-semanal de Supabase, mismo bot del sitio) ──
+function telegram_(texto) {
+  const secreto = PropertiesService.getScriptProperties().getProperty('RESUMEN_SECRETO');
+  if (!secreto) return false;
+  const r = UrlFetchApp.fetch(FUNCION_TELEGRAM, { method: 'post', contentType: 'application/json', headers: { 'x-resumen-secreto': secreto }, payload: JSON.stringify({ texto: texto }), muteHttpExceptions: true });
+  return r.getResponseCode() === 200;
+}
+
+// ── Aviso de impresión terminada ──
+// El contador vive en el Manager (runStart + remaining). Si ninguna pantalla está abierta, este script cierra el
+// trabajo igual que el Manager (status done, finAuto = endedAt). Avisa una vez por cada trabajo que terminó solo.
+function avisos() {
+  const ahora = Date.now();
+  const docs = consulta_('jobs', 'status', ['printing', 'done']);
+  const props = PropertiesService.getScriptProperties();
+  let avisados = {};
+  try { avisados = JSON.parse(props.getProperty('AVISADOS') || '{}'); } catch (e) {}
+  const terminados = [];
+  docs.forEach(d => {
+    const j = d.datos;
+    if (j.jobType === 'design') return;
+    if (j.status === 'printing') {
+      const dur = num_(j.duration), resto = num_(j.remaining), inicio = num_(j.runStart);
+      if (!dur || !inicio) return;
+      if (resto - Math.floor((ahora - inicio) / 60000) > 0) return;
+      const fin = inicio + resto * 60000;
+      if (!cerrar_(d.nombre, d.updateTime, fin)) return;   // alguien lo cambió recién: se revisa en 5 min
+      j.status = 'done'; j.endedAt = fin; j.finAuto = fin;
+    }
+    if (j.status === 'done' && j.finAuto && num_(j.finAuto) === num_(j.endedAt) && ahora - num_(j.endedAt) < 6 * 3600000 && avisados[j.id] !== num_(j.endedAt)) {
+      terminados.push(j);
+    }
+  });
+  if (!terminados.length) return;
+  const impresoras = {}; leer_('printers').forEach(p => impresoras[p.id] = p.name || p.id);
+  const cola = consulta_('jobs', 'status', ['pending']).map(d => d.datos).filter(j => j.jobType !== 'design');
+  const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  terminados.forEach(j => {
+    const sigue = cola.filter(x => x.printer === j.printer).sort((a, b) => num_(a.priority || a.createdAt) - num_(b.priority || b.createdAt))[0];
+    const hora = Utilities.formatDate(new Date(num_(j.endedAt)), 'America/La_Paz', 'HH:mm');
+    const texto = [
+      '🖨 <b>Terminó: ' + esc(j.fileName) + '</b>' + (num_(j.quantity) > 1 ? ' (×' + num_(j.quantity) + ')' : ''),
+      'En ' + esc(impresoras[j.printer] || 'la impresora') + ' a las ' + hora + (j.clientName ? ' · ' + esc(j.clientName) : ''),
+      sigue ? '➡️ Sigue en esa impresora: ' + esc(sigue.fileName) : '✅ No hay nada más en cola para esa impresora',
+    ].join('\n');
+    if (telegram_(texto)) avisados[j.id] = num_(j.endedAt);
+  });
+  Object.keys(avisados).forEach(k => { if (ahora - avisados[k] > 2 * 86400000) delete avisados[k]; });
+  props.setProperty('AVISADOS', JSON.stringify(avisados));
+}
+
+// Trabajos con un campo dentro de una lista de valores (runQuery). Devuelve nombre, updateTime y datos.
+function consulta_(col, campo, valores) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + PROYECTO + '/databases/(default)/documents:runQuery';
+  const cuerpo = { structuredQuery: { from: [{ collectionId: col }], where: { fieldFilter: { field: { fieldPath: campo }, op: 'IN', value: { arrayValue: { values: valores.map(v => ({ stringValue: v })) } } } } } };
+  const r = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: JSON.stringify(cuerpo), headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'x-goog-user-project': PROYECTO }, muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('consulta ' + col + ' (' + r.getResponseCode() + '): ' + r.getContentText().slice(0, 300));
+  return JSON.parse(r.getContentText()).filter(x => x.document).map(x => {
+    const d = x.document, o = { id: d.name.split('/').pop() };
+    Object.keys(d.fields || {}).forEach(k => o[k] = valor_(d.fields[k]));
+    return { nombre: d.name, updateTime: d.updateTime, datos: o };
+  });
+}
+
+// Cierra un trabajo que terminó de imprimir, solo si nadie lo tocó desde que se leyó (updateTime)
+function cerrar_(nombre, updateTime, fin) {
+  const campos = ['status', 'endedAt', 'finAuto', 'remaining', 'runStart'];
+  const url = 'https://firestore.googleapis.com/v1/' + nombre + '?' + campos.map(c => 'updateMask.fieldPaths=' + c).join('&') + '&currentDocument.updateTime=' + encodeURIComponent(updateTime);
+  const cuerpo = { fields: { status: { stringValue: 'done' }, endedAt: { integerValue: String(fin) }, finAuto: { integerValue: String(fin) }, remaining: { integerValue: '0' }, runStart: { nullValue: null } } };
+  const r = UrlFetchApp.fetch(url, { method: 'patch', contentType: 'application/json', payload: JSON.stringify(cuerpo), headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'x-goog-user-project': PROYECTO }, muteHttpExceptions: true });
+  return r.getResponseCode() === 200;
 }
 
 // ── Leer Firestore con la cuenta dueña del proyecto ──
@@ -103,12 +178,15 @@ function resumen(enlace, errores) {
   jobs.forEach(j => {
     const precio = num_(j.price), adel = Math.min(num_(j.deposit), precio || Infinity);
     if (adel > 0 && enRango(j.createdAt)) cobrado += adel;
-    if (j.status === 'shipped' && precio > adel && enRango(j.shippedAt || j.endedAt || j.createdAt)) cobrado += precio - adel;
+    if (j.status === 'shipped' && !j.debe && precio > adel && enRango(j.saldoCobradoAt || j.shippedAt || j.endedAt || j.createdAt)) cobrado += precio - adel;
   });
   const pedidos = jobs.filter(j => enRango(j.createdAt));
   const vendido = pedidos.reduce((s, j) => s + num_(j.price), 0);
   const entregados = jobs.filter(j => j.status === 'shipped' && enRango(j.shippedAt));
-  const porCobrar = jobs.filter(j => j.status !== 'shipped').reduce((s, j) => s + Math.max(0, num_(j.price) - num_(j.deposit)), 0);
+  const saldo = (j) => Math.max(0, num_(j.price) - num_(j.deposit));
+  const porCobrar = jobs.filter(j => j.status !== 'shipped' || j.debe).reduce((s, j) => s + saldo(j), 0);
+  const deben = jobs.filter(j => j.status === 'shipped' && j.debe && saldo(j) > 0);
+  const sinRecoger = jobs.filter(j => ['done', 'shipping'].includes(j.status) && j.jobType !== 'design' && j.endedAt && Date.now() - num_(j.endedAt) > 3 * 86400000);
   const atrasados = jobs.filter(j => ['pending', 'printing', 'paused'].includes(j.status) && j.deliveryAt && num_(j.deliveryAt) < Date.now());
   const enCola = jobs.filter(j => ['pending', 'printing', 'paused'].includes(j.status));
   const listos = jobs.filter(j => ['done', 'shipping'].includes(j.status));
@@ -123,23 +201,20 @@ function resumen(enlace, errores) {
     '💰 Cobrado: <b>' + bs(cobrado) + '</b>',
     '🧾 Vendido: ' + bs(vendido) + ' (' + pedidos.length + ' pedidos)',
     '🚚 Entregados: ' + entregados.length,
-    '⏳ Por cobrar (todo lo no entregado): ' + bs(porCobrar),
+    '⏳ Por cobrar (incluye lo que quedó debiendo): ' + bs(porCobrar),
     '',
     '🖨 En cola o imprimiendo: ' + enCola.length + ' · 📦 Listos para entregar: ' + listos.length,
     atrasados.length ? '⚠️ Atrasados: ' + atrasados.length + ' — ' + esc(atrasados.slice(0, 5).map(j => j.fileName + (j.clientName ? ' (' + j.clientName + ')' : '')).join(', ')) : '✅ Nada atrasado',
   ];
+  if (deben.length) lineas.push('💸 Te deben: ' + bs(deben.reduce((s, j) => s + saldo(j), 0)) + ' — ' + esc(deben.slice(0, 5).map(j => j.clientName || j.fileName).join(', ')));
+  if (sinRecoger.length) lineas.push('📦 Listos hace más de 3 días sin recoger: ' + sinRecoger.length + ' — ' + esc(sinRecoger.slice(0, 5).map(j => j.fileName + (j.clientName ? ' (' + j.clientName + ')' : '')).join(', ')));
   if (top.length) lineas.push('', '🏆 Lo más pedido: ' + esc(top.map(n => n + ' ×' + cuenta[n]).join(', ')));
   if (enlace) lineas.push('', '🗂 Respaldo de la cola: ' + enlace);
   if (errores && errores.length) lineas.push('', '⚠️ ' + esc(errores.join(' · ')));
   const texto = lineas.join('\n');
 
-  const secreto = PropertiesService.getScriptProperties().getProperty('RESUMEN_SECRETO');
-  let ok = false;
-  if (secreto) {
-    const r = UrlFetchApp.fetch(FUNCION_TELEGRAM, { method: 'post', contentType: 'application/json', headers: { 'x-resumen-secreto': secreto }, payload: JSON.stringify({ texto: texto }), muteHttpExceptions: true });
-    ok = r.getResponseCode() === 200;
-    if (!ok && errores) errores.push('Telegram respondió ' + r.getResponseCode() + ': ' + r.getContentText().slice(0, 200));
-  }
+  const ok = telegram_(texto);
+  if (!ok && errores) errores.push('No se pudo mandar el resumen por Telegram');
   if (!ok) MailApp.sendEmail({ to: CORREO, subject: 'WORLD3D · Resumen semanal', htmlBody: texto.replace(/\n/g, '<br>') });
   return texto;
 }

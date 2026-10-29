@@ -40,9 +40,18 @@ La cola se guarda en el dispositivo (caché de Firestore en IndexedDB). Si se co
 
 ## Plata
 
-- **Cobrado**: adelantos (el día que se tomó el pedido) + saldos (el día que se entregó).
+- **Cobrado**: adelantos (el día que se tomó el pedido) + saldos (el día que se cobraron: al entregar, o después si quedó debiendo).
 - **Vendido**: suma de los pedidos por fecha en que se tomaron, cobrados o no.
-- **Por cobrar**: precio − adelanto de lo que todavía no se entregó.
+- **Por cobrar**: precio − adelanto de lo que todavía no se entregó, más lo que se entregó y quedó debiendo.
+
+Al marcar *Entregado* un trabajo con saldo, el Manager pregunta si se cobró en **efectivo**, por **QR / transferencia**, o si **queda debiendo** (`debe: true`). Lo que se debe aparece en Inicio (*Para hacer seguimiento*), en Envíos (*Te deben*) y en la ficha del cliente, con el botón *Cobrar*.
+
+## Uso diario
+
+- **Buscador**: la lupa del encabezado (o la tecla `/`) busca clientes, teléfonos, productos, notas y pedidos web.
+- **Ficha del cliente**: tocá el nombre del cliente en cualquier tarjeta. Muestra lo que gastó, lo que debe, desde cuándo es cliente y lo que más pide, con *Nuevo pedido* y *WhatsApp*.
+- **Sin recoger**: lo que está listo hace más de 3 días aparece en Inicio con *Recordar* (WhatsApp con el mensaje armado; queda anotado cuándo se le recordó).
+- **Deslizar** (celu/iPad): una tarjeta a la derecha hace la acción principal (iniciar, listo, entregar…); a la izquierda pausa la impresión. Todo con *Deshacer*.
 
 ## Respaldo y resumen semanal
 
@@ -50,6 +59,8 @@ Todos los lunes a las 8:00 (hora de Bolivia), un Apps Script en la cuenta dueña
 
 - **Respaldo**: copia trabajos, productos, impresoras y stock a una hoja de cálculo nueva en Drive, carpeta *WORLD3D · Respaldos del Manager*. Quedan las últimas 8 semanas; las más viejas van a la papelera.
 - **Resumen por Telegram**: cobrado, vendido, entregados, por cobrar, cola, listos, atrasados y lo más pedido de la semana pasada, con el enlace al respaldo. Lo manda la función `resumen-semanal` de Supabase con el mismo bot del sitio. Si Telegram falla, llega por correo.
+
+Además, cada 5 minutos revisa si terminó una impresión y manda un Telegram (*Terminó: … · Sigue en esa impresora: …*). Si no hay ninguna pantalla abierta, cierra el trabajo como lo haría el Manager. Solo avisa de lo que terminó solo por el contador (`finAuto`), no de lo que marcás a mano.
 
 El código está en `respaldo/` (`Codigo.gs` y `appsscript.json`). Para reinstalarlo: pegar ambos archivos en un proyecto de Apps Script, agregar la propiedad de script `RESUMEN_SECRETO` (la misma clave que el secreto homónimo de Supabase) y ejecutar `instalar()` una vez. Para probar sin esperar al lunes, ejecutar `semanal()`.
 
