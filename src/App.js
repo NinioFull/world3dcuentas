@@ -71,6 +71,22 @@ const FLOW_DESIGN = [
 ];
 
 
+// Costo de máquina por hora (editable en Stats > Utilidad). Luz: ~Bs 225/mes con 4 máquinas. Desgaste: K1 Max Bs 12.000 en ~6.000 h.
+const OP0 = { luzHora: 0.15, desgasteHora: 2, margenMin: 30 };
+// Mantenimiento por horas impresas (se puede cambiar cada intervalo en Máquinas)
+const MANT_FDM = [
+  { id:"cama",     nombre:"Lavar la cama (agua y jabón)",  cada:50  },
+  { id:"lubricar", nombre:"Limpiar y lubricar ejes",       cada:200 },
+  { id:"correas",  nombre:"Revisar correas y tornillos",   cada:300 },
+  { id:"boquilla", nombre:"Cambiar boquilla",              cada:600 },
+];
+const MANT_RESINA = [
+  { id:"fep",        nombre:"Revisar y limpiar el FEP",     cada:40  },
+  { id:"filtrar",    nombre:"Filtrar la resina del tanque", cada:60  },
+  { id:"plataforma", nombre:"Nivelar la plataforma",        cada:150 },
+];
+const MOTIVOS_FALLA = ["Se despegó / warping", "Atasco o sin extrusión", "Capas corridas", "Se cortó la luz", "Problema del archivo", "Otro"];
+
 const MATERIALS = ["PLA","PLA+","PETG","ABS","ASA","TPU","Nylon","Resina","Resina ABS-Like","Resina Water Wash"];
 
 const fmtTime = (m) => { if (!m || m <= 0) return "—"; const h = Math.floor(m/60), r = m%60; return h===0?`${r}min`:r===0?`${h}h`:`${h}h ${r}m`; };
@@ -350,6 +366,9 @@ export default function App() {
   const alternarTarjeta = (id) => setAbiertas(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [statPeriod, setStatPeriod] = useState("month");
   const [matCosts, setMatCosts] = useState({});
+  const [operacion, setOperacion] = useState(OP0);
+  const [recontactos, setRecontactos] = useState({});   // clave de cliente → cuándo se le escribió
+  const [fallas, setFallas] = useState([]);
   const [editingCost, setEditingCost] = useState(null);
   const [costInput, setCostInput] = useState("");
   const timerRef = useRef(null);
@@ -574,7 +593,7 @@ export default function App() {
 
   useEffect(() => {
     if (!fbUser) return;
-    const unsubC = onSnapshot(collection(db,"config"),(snap) => { snap.docs.forEach(d => { if(d.id==="matCosts") setMatCosts(d.data()||{}); }); });
+    const unsubC = onSnapshot(collection(db,"config"),(snap) => { snap.docs.forEach(d => { if(d.id==="matCosts") setMatCosts(d.data()||{}); if(d.id==="operacion") setOperacion({...OP0, ...(d.data()||{})}); if(d.id==="recontactos") setRecontactos(d.data()||{}); }); });
     return () => unsubC();
   }, [fbUser]);
 
@@ -595,8 +614,9 @@ export default function App() {
     const unsubJ = onSnapshot(collection(db,"jobs"),(snap) => { setJobs(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false); }, ()=>setLoading(false));
     const unsubProd = onSnapshot(collection(db,"products"),(snap)=>{ setProducts(snap.docs.map(d=>({id:d.id,...d.data()}))); });
     const unsubStock = onSnapshot(collection(db,"stock"),(snap)=>{ const s={}; snap.docs.forEach(d=>{s[d.id]=d.data();}); setStock(s); });
+    const unsubF = onSnapshot(collection(db,"fallas"),(snap)=>setFallas(snap.docs.map(d=>({id:d.id,...d.data()}))));
     const unsubP = onSnapshot(collection(db,"printers"),(snap) => { const data=snap.docs.map(d=>({id:d.id,...d.data()})); if(data.length===0) DEFAULT_PRINTERS.forEach(p=>setDoc(doc(db,"printers",p.id),p)); else setPrinters(data); });
-    return () => { unsubJ(); unsubP(); unsubProd(); unsubStock(); };
+    return () => { unsubJ(); unsubP(); unsubProd(); unsubStock(); unsubF(); };
   }, [fbUser]);
 
   // ── Contador de impresión ──
@@ -867,7 +887,7 @@ export default function App() {
   });
 
   // Cambio de estado con Deshacer (5 s): se guarda cómo estaba el trabajo y Deshacer lo deja igual
-  const CAMPOS_ESTADO = ["status","remaining","runStart","startedAt","endedAt","shippedAt","debe","pagoSaldo","saldoCobradoAt","finAuto"];
+  const CAMPOS_ESTADO = ["status","remaining","runStart","startedAt","endedAt","shippedAt","debe","pagoSaldo","saldoCobradoAt","finAuto","fallas"];
   const cambiarEstadoJ = (id, cambios, msg) => {
     const antes = jobsDb.find(x=>x.id===id);
     updateDoc(doc(db,"jobs",id), cambios);
@@ -889,6 +909,21 @@ export default function App() {
     cambiarEstadoJ(id, {status:"shipped",shippedAt:Date.now(),debe:false}, "Entregado");
   };
   const cobrarDeuda = (job) => setCobro({ job, modo:"deuda" });
+  // ── Fallas: se anota motivo y filamento perdido, y el trabajo vuelve a la cola ──
+  const [falla, setFalla] = useState(null);   // { job, motivo, gramos, minutos }
+  const abrirFalla = (job) => {
+    const hecho = job.status==="done" ? 1 : avanceJob(job)/100;
+    setFalla({ job, motivo:"", gramos:String(Math.round((Number(job.weight)||0)*unidades(job)*hecho)), minutos:Math.round(minutosTotales(job)*hecho) });
+  };
+  const registrarFalla = async () => {
+    if (!falla || !falla.motivo) return;
+    const { job, motivo, minutos } = falla, gramos = Math.max(0, Number(falla.gramos)||0);
+    const kg = matCosts[job.material]||0, porHora = (Number(operacion.luzHora)||0)+(Number(operacion.desgasteHora)||0);
+    const costo = Math.round((gramos/1000*kg + minutos/60*porHora)*100)/100;
+    setFalla(null);
+    await addDoc(collection(db,"fallas"), { jobId:job.id, fileName:job.fileName||"", clientName:job.clientName||"", printer:job.printer||"", material:job.material||"", motivo, gramos, minutos, costo, at:Date.now() });
+    cambiarEstadoJ(job.id, {status:"pending",remaining:minutosTotales(job),runStart:null,startedAt:null,endedAt:null,finAuto:null,fallas:(Number(job.fallas)||0)+1}, `Falla anotada (${fmtMoney(costo)}) · volvió a la cola`);
+  };
   const resolverCobro = (metodo) => {   // metodo: "efectivo" | "qr" | null (queda debiendo)
     if (!cobro) return;
     const { job, modo } = cobro, t = Date.now(), monto = fmtMoney(saldoDe(job));
@@ -994,8 +1029,135 @@ export default function App() {
     window.open(`https://wa.me/${job.clientPhone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank","noopener,noreferrer");
     updateDoc(doc(db,"jobs",job.id),{recordadoAt:Date.now()});
   };
+  // ── Nota de entrega: imagen con el logo para mandar por WhatsApp (en iPad/celu se comparte directo) ──
+  const notaEntrega = async (job) => {
+    try {
+      const grupo = job.orderId ? jobs.filter(x=>x.orderId===job.orderId) : job.webPedido ? jobs.filter(x=>x.webPedido===job.webPedido) : [job];
+      const total = grupo.reduce((t,j)=>t+(Number(j.price)||0),0), adel = grupo.reduce((t,j)=>t+Math.min(Number(j.deposit)||0, Number(j.price)||0),0);
+      const debe = grupo.reduce((t,j)=>t+porCobrarDe(j),0), cobradoAhora = total-adel-debe;
+      const fecha = new Date(Math.max(...grupo.map(j=>Number(j.shippedAt)||Number(j.endedAt)||Date.now())));
+      const numero = job.webPedido ? `Pedido web #${String(job.webPedido).padStart(5,"0")}` : `N.º ${String(job.id).slice(-6).toUpperCase()}`;
+      try { await document.fonts.ready; } catch (e) {}
+      const W = 1080, filaH = 92, H = 448 + grupo.length*filaH + 80 + 60 + (adel>0?52:0) + (cobradoAhora>0.004?52:0) + 16 + 92 + 150;
+      const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+      const x = cv.getContext("2d");
+      const F = (peso, tam, fam="Outfit") => `${peso} ${tam}px '${fam}', system-ui, sans-serif`;
+      x.fillStyle = "#191513"; x.fillRect(0,0,W,H);
+      x.fillStyle = "#F1841B"; x.fillRect(0,0,W,14);
+      const logo = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = ISOTIPO; });
+      if (logo) x.drawImage(logo, 70, 70, 86, 108);
+      x.fillStyle = "#FFF7F3"; x.font = F(900, 58, "Rubik"); x.fillText("WORLD", 180, 140);
+      const wW = x.measureText("WORLD").width; x.fillStyle = "#F1841B"; x.fillText("3D", 180+wW, 140);
+      x.fillStyle = "#D9CCC4"; x.font = F(600, 26); x.fillText("Impresión y diseño 3D · Santa Cruz", 182, 176);
+      x.textAlign = "right"; x.fillStyle = "#FFF7F3"; x.font = F(900, 34); x.fillText("NOTA DE ENTREGA", W-70, 118);
+      x.fillStyle = "#D9CCC4"; x.font = F(600, 26); x.fillText(numero, W-70, 156);
+      x.fillText(fecha.toLocaleDateString("es-ES",{day:"numeric",month:"long",year:"numeric"}), W-70, 190); x.textAlign = "left";
+      let y = 260;
+      x.fillStyle = "#2A2421"; x.fillRect(70, y, W-140, 110);
+      x.fillStyle = "#A8998F"; x.font = F(700, 22); x.fillText("CLIENTE", 100, y+42);
+      x.fillStyle = "#FFF7F3"; x.font = F(800, 34); x.fillText(job.clientName||"—", 100, y+86);
+      if (job.clientPhone) { x.textAlign = "right"; x.fillStyle = "#D9CCC4"; x.font = F(600, 28); x.fillText(job.clientPhone, W-100, y+86); x.textAlign = "left"; }
+      y += 170;
+      x.fillStyle = "#A8998F"; x.font = F(700, 22); x.fillText("PRODUCTO", 70, y); x.textAlign = "right"; x.fillText("CANT.", W-300, y); x.fillText("IMPORTE", W-70, y); x.textAlign = "left";
+      y += 18; x.fillStyle = "#3A322E"; x.fillRect(70, y, W-140, 2);
+      const corta = (t, max) => { let r = t; while (x.measureText(r).width > max && r.length > 3) r = r.slice(0,-2); return r===t ? t : r+"…"; };
+      grupo.forEach(j => {
+        y += filaH;
+        x.fillStyle = "#FFF7F3"; x.font = F(700, 32); x.fillText(corta(j.fileName||"", W-520), 70, y-30);
+        const det = [j.material, j.color].filter(Boolean).join(" · ");
+        if (det) { x.fillStyle = "#A8998F"; x.font = F(500, 22); x.fillText(det, 70, y-2); }
+        x.textAlign = "right"; x.fillStyle = "#D9CCC4"; x.font = F(700, 30); x.fillText(String(unidades(j)), W-300, y-30);
+        x.fillStyle = "#FFF7F3"; x.fillText(`Bs ${(Number(j.price)||0).toFixed(2)}`, W-70, y-30); x.textAlign = "left";
+        x.fillStyle = "#2A2421"; x.fillRect(70, y+10, W-140, 1);
+      });
+      y += 80;
+      const linea = (l, v, color="#D9CCC4", tam=30, peso=700) => { x.font = F(peso, tam); x.fillStyle = "#A8998F"; x.fillText(l, W-520, y); x.textAlign = "right"; x.fillStyle = color; x.fillText(v, W-70, y); x.textAlign = "left"; y += tam+22; };
+      linea("Total", `Bs ${total.toFixed(2)}`, "#FFF7F3", 38, 900);
+      if (adel > 0) linea("Adelanto", `Bs ${adel.toFixed(2)}`);
+      if (cobradoAhora > 0.004) linea("Pagado al entregar", `Bs ${cobradoAhora.toFixed(2)}`);
+      y += 16;
+      const pagado = debe < 0.005;
+      x.fillStyle = pagado ? "#F1841B" : "#3A1510"; x.fillRect(70, y, W-140, 92);
+      x.textAlign = "center"; x.font = F(900, 40); x.fillStyle = pagado ? "#191513" : "#FF8A6B";
+      x.fillText(pagado ? "PAGADO ✓" : `SALDO PENDIENTE: Bs ${debe.toFixed(2)}`, W/2, y+60); x.textAlign = "left";
+      x.textAlign = "center"; x.fillStyle = "#D9CCC4"; x.font = F(600, 28); x.fillText("¡Gracias por confiar en WORLD3D!", W/2, H-70); x.textAlign = "left";
+      const blob = await new Promise(r => cv.toBlob(r, "image/png"));
+      const nombreArchivo = `nota-world3d-${(job.clientName||"cliente").replace(/\s+/g,"-").toLowerCase()}.png`;
+      const archivo = new File([blob], nombreArchivo, { type:"image/png" });
+      const texto = `Hola ${job.clientName||""}! Te enviamos la nota de entrega de tu pedido. ¡Gracias por tu compra! — WORLD3D`;
+      if (navigator.canShare && navigator.canShare({ files:[archivo] })) {
+        try { await navigator.share({ files:[archivo], text:texto }); return; } catch (e) { if (e && e.name === "AbortError") return; }
+      }
+      const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = nombreArchivo; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      toast_(job.clientPhone ? "Nota descargada · adjuntala en el chat que se abrió" : "Nota descargada");
+      if (job.clientPhone) window.open(`https://wa.me/${job.clientPhone.replace(/\D/g,"")}?text=${encodeURIComponent(texto)}`,"_blank","noopener,noreferrer");
+    } catch (e) { toast_("No se pudo armar la nota: " + (e.message||e), "err"); }
+  };
   const listosSinRecoger = jobs.filter(sinRecoger).sort((a,b)=>(a.endedAt||0)-(b.endedAt||0));
   const deudores = jobs.filter(j=>j.status==="shipped"&&j.debe&&saldoDe(j)>0).sort((a,b)=>(a.shippedAt||0)-(b.shippedAt||0));
+
+  // ── Costo real de un trabajo: filamento + horas de máquina (luz + desgaste). Los diseños no gastan máquina. ──
+  const porHoraMaq = (Number(operacion.luzHora)||0) + (Number(operacion.desgasteHora)||0);
+  const costoDe = (j) => {
+    if (j.jobType==="design") return { mat:0, maq:0, total:0, sinMat:false, sinDatos:true };
+    const g = (Number(j.weight)||0)*unidades(j), kg = matCosts[j.material]||0, horas = minutosTotales(j)/60;
+    const mat = kg>0 ? g/1000*kg : 0, maq = horas*porHoraMaq;
+    return { mat, maq, total:mat+maq, sinMat:g>0&&!kg, sinDatos:!g&&!horas };
+  };
+  const precioSugerido = (j) => { const m = Math.min(90, Number(operacion.margenMin)||30)/100; return costoDe(j).total/(1-m); };
+
+  // ── Horas impresas por máquina (trabajos terminados, lo que va del actual y lo que se imprimió antes de fallar) ──
+  const horasDe = (pid) => {
+    let min = 0;
+    jobs.forEach(j => {
+      if (j.printer!==pid || j.jobType==="design") return;
+      if (["done","shipping","shipped"].includes(j.status)) min += minutosTotales(j);
+      else if (["printing","paused"].includes(j.status)) min += Math.max(0, minutosTotales(j)-(Number(j.remaining)||0));
+    });
+    fallas.forEach(f => { if (f.printer===pid) min += Number(f.minutos)||0; });
+    return min/60;
+  };
+  const tareasDe = (p) => (p.mant || (p.type==="FDM"?MANT_FDM:MANT_RESINA).map(t=>({...t, ultima:0}))).map(t => {
+    const horas = horasDe(p.id), uso = horas-(Number(t.ultima)||0), faltan = (Number(t.cada)||0)-uso;
+    return { ...t, horas, uso, faltan, vencida:faltan<=0, pronto:faltan>0&&faltan<=Math.max(5,(Number(t.cada)||0)*0.1) };
+  });
+  const mantPendiente = printers.flatMap(p => p.mant ? tareasDe(p).filter(t=>t.vencida).map(t=>({p,t})) : []);
+  const mantHecho = (p, tid) => {
+    const lista = tareasDe(p).map(({horas,uso,faltan,vencida,pronto,...t}) => t.id===tid ? {...t, ultima:Math.round(horas*10)/10, hechoAt:Date.now()} : t);
+    updateDoc(doc(db,"printers",p.id), { mant:lista }); toast_("Mantenimiento anotado");
+  };
+  const mantCada = (p, tid, cada) => {
+    const n = Number(cada); if (!n || n<=0) return;
+    const lista = tareasDe(p).map(({horas,uso,faltan,vencida,pronto,...t}) => t.id===tid ? {...t, cada:n} : t);
+    updateDoc(doc(db,"printers",p.id), { mant:lista });
+  };
+
+  // Primera vez: cada máquina arranca su plan de mantenimiento desde las horas que ya lleva (no todo "vencido")
+  const mantIniciado = useRef(new Set());
+  useEffect(() => {
+    if (loading || !jobsDb.length) return;
+    printers.forEach(p => {
+      if (p.mant || mantIniciado.current.has(p.id)) return;
+      mantIniciado.current.add(p.id);
+      const h = Math.round(horasDe(p.id)*10)/10;
+      updateDoc(doc(db,"printers",p.id), { mant:(p.type==="FDM"?MANT_FDM:MANT_RESINA).map(t=>({...t, ultima:h})) });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, printers, jobsDb.length]);
+
+  // ── Clientes para recontactar: compraron, no piden hace 60+ días y no se les escribió en los últimos 30 ──
+  const paraRecontactar = clients.filter(c => c.phone && c.completed>0 && !c.jobs.some(j=>j.status!=="shipped")
+    && Date.now()-c.lastJob > 60*DIA && Date.now()-(Number(recontactos[c.key])||0) > 30*DIA)
+    .sort((a,b)=>b.totalRevenue-a.totalRevenue);
+  const marcarRecontacto = (c) => setDoc(doc(db,"config","recontactos"), { ...recontactos, [c.key]:Date.now() });
+  const recontactar = (c) => {
+    const ultimo = [...c.jobs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];
+    const nombre = (c.name||"").split(" ")[0];
+    const msg = `Hola ${nombre}! Te saluda WORLD3D 👋 Hace un tiempo te hicimos *${ultimo?.fileName||"tu pedido"}*. ¿Necesitas algo más? Tenemos diseños nuevos y podemos imprimir en 3D lo que imagines 🖨✨`;
+    window.open(`https://wa.me/${c.phone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank","noopener,noreferrer");
+    marcarRecontacto(c);
+  };
 
   const todayDeliveries = (() => { const dayStart=startOfDay(); return jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=dayStart&&j.deliveryAt<dayStart+86400000&&j.status!=="shipped").sort((a,b)=>a.deliveryAt-b.deliveryAt); })();
   const upcomingDeliveries = (() => { const dayEnd=startOfDay()+86400000; return jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=dayEnd&&j.deliveryAt<startOfDay()+7*86400000&&j.status!=="shipped").sort((a,b)=>a.deliveryAt-b.deliveryAt); })();
@@ -1169,6 +1331,22 @@ export default function App() {
                 })()}
               </div>
             )}
+            {/* Ganancia real: precio − (filamento + luz + desgaste) */}
+            {!compact && !resumida && Number(job.price)>0 && !isDesign && (()=>{
+              const c = costoDe(job); if (c.sinDatos) return null;
+              const total = Number(job.price)||0, gan = total-c.total, margen = total>0 ? gan/total*100 : 0, bajo = margen < (Number(operacion.margenMin)||30);
+              return (
+                <div style={{ background:bajo?C.redBg:C.bg3, border:`1px solid ${bajo?"#5C1F14":C.bg5}`, borderRadius:C.rSm, padding:"9px 13px", marginBottom:12, fontSize:12, color:C.t2 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
+                    <span>Costo {fmtMoney(c.total)} <span style={{ color:C.t3 }}>(filamento {fmtMoney(c.mat)} · máquina {fmtMoney(c.maq)})</span></span>
+                    <span style={{ fontWeight:900, color:gan<0?"#FF8A6B":bajo?C.yellow:C.green }}>Ganás {fmtMoney(gan)} · {margen.toFixed(0)}%</span>
+                  </div>
+                  {c.sinMat && <div style={{ color:C.yellow, marginTop:3 }}>Falta el costo del {job.material||"material"} en Stats › Utilidad</div>}
+                  {bajo && <div style={{ color:"#FF8A6B", fontWeight:800, marginTop:3 }}>Precio bajo: con {Number(operacion.margenMin)||30}% de margen sería {fmtMoney(precioSugerido(job))}</div>}
+                  {Number(job.fallas)>0 && <div style={{ color:C.t3, marginTop:3 }}>Falló {job.fallas} {Number(job.fallas)===1?"vez":"veces"}</div>}
+                </div>
+              );
+            })()}
             {(compact||resumida)&&(job.price||job.clientName)&&(()=>{
               const total=Number(job.price)||0,dep=Number(job.deposit)||0,pend=porCobrarDe(job);
               return (
@@ -1254,12 +1432,14 @@ export default function App() {
                 {resumida?"Ver detalle":"Ocultar detalle"}<ChevronDown size={16} aria-hidden="true" style={{ transform:resumida?"none":"rotate(180deg)", transition:"transform .2s" }} />
               </button>
             )}
-            {!resumida && <div style={{ display:"flex", gap:6 }}>
+            {!resumida && <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
               {wa && (
                 <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ flex:1, padding:"9px 4px", background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>
                   WhatsApp
                 </button>
               )}
+              {!isDesign && ["printing","paused","done"].includes(job.status) && <button onClick={()=>abrirFalla(job)} style={{ flex:1, padding:"9px 4px", background:C.redBg, color:"#FF8A6B", border:`1px solid #5C1F14`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>Falló</button>}
+              {["done","shipping","shipped"].includes(job.status) && Number(job.price)>0 && <button onClick={()=>notaEntrega(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>Nota</button>}
               <button onClick={()=>duplicateJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Duplicar</button>
               {!compact && <button onClick={()=>openEJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Editar</button>}
               {!compact && <button onClick={()=>setConfirmDel(job.id)} style={{ width:38, padding:"9px 0", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:14, cursor:"pointer" }}><Icono e="🗑" /></button>}
@@ -1386,7 +1566,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        {(listosSinRecoger.length>0||deudores.length>0) && (<>
+        {(listosSinRecoger.length>0||deudores.length>0||mantPendiente.length>0) && (<>
           {SectionLabel({color:C.yellow, dot:C.yellow, children:<>Para hacer seguimiento</>})}
           <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:18 }}>
             {[...listosSinRecoger.map(j=>({j, tipo:"recoger"})), ...deudores.map(j=>({j, tipo:"deuda"}))].slice(0, lim("seguimiento")).map(({j, tipo})=>(
@@ -1403,6 +1583,15 @@ export default function App() {
                 {tipo==="recoger"
                   ? (j.clientPhone && <button onClick={()=>recordarRecojo(j)} style={{ display:"flex", alignItems:"center", gap:6, background:C.waBg, color:C.wa, border:"1px solid #6B3A12", borderRadius:C.rSm, padding:"0 12px", minHeight:40, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}><MessageCircle size={16} aria-hidden="true" />Recordar</button>)
                   : <button onClick={()=>cobrarDeuda(j)} style={{ display:"flex", alignItems:"center", gap:6, background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, padding:"0 12px", minHeight:40, fontSize:13, fontWeight:900, cursor:"pointer", flexShrink:0 }}><Banknote size={16} aria-hidden="true" />Cobrar</button>}
+              </div>
+            ))}
+            {mantPendiente.map(({p,t})=>(
+              <div key={p.id+t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 10px 10px 14px", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.rSm }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{t.nombre}</div>
+                  <div style={{ fontSize:12, color:C.yellow }}>{p.name} · mantenimiento cada {t.cada} h</div>
+                </div>
+                <button onClick={()=>mantHecho(p,t.id)} style={{ minHeight:40, padding:"0 12px", background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", flexShrink:0 }}>Hecho</button>
               </div>
             ))}
             {VerMas("seguimiento", listosSinRecoger.length+deudores.length)}
@@ -2058,6 +2247,23 @@ export default function App() {
         {clients.length===0 ? (
           <Empty icon="👥" title="Sin clientes aún" sub="Agrega el nombre del cliente al crear un trabajo y aparecerá aquí automáticamente" />
         ) : <>
+          {paraRecontactar.length>0 && (
+            <div style={{ background:C.bg2, border:`1px solid ${C.orange}44`, borderRadius:C.r, padding:"14px 16px", marginBottom:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:14, fontWeight:900, color:C.orange, marginBottom:4 }}><MessageCircle size={18} aria-hidden="true" />Para recontactar · {paraRecontactar.length}</div>
+              <div style={{ fontSize:12, color:C.t3, marginBottom:8 }}>Te compraron y no piden hace más de 2 meses. Primero los que más gastaron.</div>
+              {paraRecontactar.slice(0, lim("recontactar")).map(c=>(
+                <div key={c.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderTop:`1px solid ${C.bg4}` }}>
+                  <button onClick={()=>setSelectedClient(c.key)} style={{ flex:1, minWidth:0, textAlign:"left", background:"none", border:"none", padding:0, cursor:"pointer", color:"inherit", fontFamily:"inherit" }}>
+                    <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{c.name}</div>
+                    <div style={{ fontSize:12, color:C.t3 }}>Último pedido {haceDias(c.lastJob)} · gastó {fmtMoney(c.totalRevenue)}</div>
+                  </button>
+                  <button onClick={()=>marcarRecontacto(c)} title="Ocultar por 30 días" style={{ minHeight:40, padding:"0 10px", background:"transparent", color:C.t3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer", flexShrink:0 }}>Ahora no</button>
+                  <button onClick={()=>recontactar(c)} style={{ display:"flex", alignItems:"center", gap:6, minHeight:40, padding:"0 12px", background:C.waBg, color:C.wa, border:"1px solid #6B3A12", borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}><MessageCircle size={16} aria-hidden="true" />Escribir</button>
+                </div>
+              ))}
+              {VerMas("recontactar", paraRecontactar.length)}
+            </div>
+          )}
           {/* Search bar */}
           <div style={{ position:"relative", marginBottom:12 }}>
             <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:16, pointerEvents:"none" }}><Icono e="🔍" size={18} /></div>
@@ -2252,25 +2458,25 @@ export default function App() {
 
   // ─── UTILITY CONTENT ────────────────────────────────────────────────────────
   const UtilityContent = () => {
-    const jobsWithCost = jobs.map(job => {
-      const costPerKg = matCosts[job.material]||0;
-      const grams = Number(job.weight)||0;
-      const matCost = costPerKg>0&&grams>0 ? (grams/1000)*costPerKg*unidades(job) : 0;  // el peso es por unidad
-      const rev = Number(job.price)||0;
-      const profit = rev-matCost;
-      const margin = rev>0?(profit/rev)*100:0;
-      return {...job,matCost,profit,margin};
-    });
+    // Costo real: filamento + máquina (luz + desgaste) de cada trabajo, y aparte lo que se perdió en fallas
+    const jobsWithCost = jobs.map(job => { const c = costoDe(job); return {...job, matCost:c.mat, maqCost:c.maq}; });
     const totalRevenue = jobsWithCost.filter(j=>j.price).reduce((s,j)=>s+Number(j.price),0);
-    const totalMatCost = jobsWithCost.reduce((s,j)=>s+j.matCost,0);
+    const totalFallas = fallas.reduce((s,f)=>s+(Number(f.costo)||0),0);
+    const totalMatCost = jobsWithCost.reduce((s,j)=>s+j.matCost+j.maqCost,0)+totalFallas;
     const totalProfit = totalRevenue-totalMatCost;
     const avgMargin = totalRevenue>0?(totalProfit/totalRevenue)*100:0;
     const periodStart2=getPeriodStart(statPeriod);
     const periodJobs2=jobsWithCost.filter(j=>(j.createdAt||0)>=periodStart2);
+    const fallasP = fallas.filter(f=>(f.at||0)>=periodStart2);
     const pRevenue=periodJobs2.filter(j=>j.price).reduce((s,j)=>s+Number(j.price),0);
-    const pMatCost=periodJobs2.reduce((s,j)=>s+j.matCost,0);
+    const pMat=periodJobs2.reduce((s,j)=>s+j.matCost,0), pMaq=periodJobs2.reduce((s,j)=>s+j.maqCost,0), pFallas=fallasP.reduce((s,f)=>s+(Number(f.costo)||0),0);
+    const pMatCost=pMat+pMaq+pFallas;
     const pProfit=pRevenue-pMatCost;
     const pMargin=pRevenue>0?(pProfit/pRevenue)*100:0;
+    const bajos = periodJobs2.filter(j=>Number(j.price)>0 && j.jobType!=="design" && !costoDe(j).sinDatos && (Number(j.price)-j.matCost-j.maqCost)/Number(j.price)*100 < (Number(operacion.margenMin)||30)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    const porMotivo = {}; fallasP.forEach(f=>{ porMotivo[f.motivo]=(porMotivo[f.motivo]||0)+1; });
+    const porImpresora = {}; fallasP.forEach(f=>{ const n=printers.find(x=>x.id===f.printer)?.name||"Sin máquina"; porImpresora[n]=(porImpresora[n]||0)+1; });
+    const guardarOp = (campo, valor) => { const v = Number(valor); if (isNaN(v) || v<0) return; setDoc(doc(db,"config","operacion"), { ...operacion, [campo]:v }); };
     const usedMaterials=[...new Set(jobs.map(j=>j.material).filter(Boolean))];
     const allMaterials=[...new Set([...MATERIALS,...Object.keys(matCosts),...usedMaterials])];
     return (
@@ -2283,8 +2489,8 @@ export default function App() {
         <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
           <div style={{ fontSize:12, color:C.green, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Utilidad neta — {periodLabels[statPeriod]}</div>
           <div style={{ fontSize:38, fontWeight:900, color:pProfit>=0?C.green:C.red, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(pProfit)}</div>
-          <div style={{ display:"flex", gap:16, marginTop:11 }}>
-            {[["Vendido",fmtMoney(pRevenue),C.t1],["Costo mat.",`- ${fmtMoney(pMatCost)}`,C.red],["Margen",`${pMargin.toFixed(0)}%`,pMargin>=50?C.green:pMargin>=25?C.yellow:C.red]].map(([l,v,c])=>(
+          <div style={{ display:"flex", gap:16, marginTop:11, flexWrap:"wrap" }}>
+            {[["Vendido",fmtMoney(pRevenue),C.t1],["Filamento",`- ${fmtMoney(pMat)}`,C.red],["Máquina",`- ${fmtMoney(pMaq)}`,C.red],...(pFallas>0?[["Fallas",`- ${fmtMoney(pFallas)}`,C.red]]:[]),["Margen",`${pMargin.toFixed(0)}%`,pMargin>=50?C.green:pMargin>=25?C.yellow:C.red]].map(([l,v,c])=>(
               <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:800, color:c }}>{v}</div></div>
             ))}
           </div>
@@ -2301,6 +2507,44 @@ export default function App() {
             </div>
           </div>
         )}
+        {bajos.length>0 && (<>
+          {SectionLabel({color:C.yellow, children:<>Con margen bajo ({bajos.length}) · menos de {Number(operacion.margenMin)||30}%</>})}
+          <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
+            {bajos.slice(0, lim("bajos")).map((j,i)=>{ const gan = Number(j.price)-j.matCost-j.maqCost; return (
+              <div key={j.id} onClick={()=>goToJob(j.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 0", borderTop:i?`1px solid ${C.bg4}`:"none", cursor:"pointer" }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}{unidades(j)>1?` ×${unidades(j)}`:""}</div>
+                  <div style={{ fontSize:12, color:C.t3 }}>Cobraste {fmtMoney(j.price)} · costo {fmtMoney(j.matCost+j.maqCost)} · sugerido {fmtMoney(precioSugerido(j))}</div>
+                </div>
+                <span style={{ fontSize:13, fontWeight:900, color:gan<0?"#FF8A6B":C.yellow, flexShrink:0 }}>{(gan/Number(j.price)*100).toFixed(0)}%</span>
+              </div>); })}
+            {VerMas("bajos", bajos.length)}
+          </div>
+        </>)}
+        {fallasP.length>0 && (<>
+          {SectionLabel({color:"#FF8A6B", children:<>Fallas · {periodLabels[statPeriod]}</>})}
+          <div style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
+            <div style={{ display:"flex", gap:20, flexWrap:"wrap", marginBottom:10 }}>
+              {[["Fallas",fallasP.length],["Filamento perdido",`${Math.round(fallasP.reduce((s,f)=>s+(Number(f.gramos)||0),0))} g`],["Te costaron",fmtMoney(pFallas)]].map(([l,v])=>(
+                <div key={l}><div style={{ fontSize:12, color:C.t3 }}>{l}</div><div style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{v}</div></div>
+              ))}
+            </div>
+            <div style={{ fontSize:13, color:C.t2, lineHeight:1.7 }}>
+              <div><b style={{ color:C.t3 }}>Por motivo:</b> {Object.entries(porMotivo).sort((a,b)=>b[1]-a[1]).map(([m,n])=>`${m} (${n})`).join(" · ")}</div>
+              <div><b style={{ color:C.t3 }}>Por máquina:</b> {Object.entries(porImpresora).sort((a,b)=>b[1]-a[1]).map(([m,n])=>`${m} (${n})`).join(" · ")}</div>
+            </div>
+          </div>
+        </>)}
+        {SectionLabel({color:C.t3, children:<>Costo de máquina y margen</>})}
+        <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
+          {[["luzHora","Luz por hora de impresión","Bs","Con ~Bs 225/mes y 4 máquinas sale ~Bs 0.15 por hora"],["desgasteHora","Desgaste por hora","Bs","Lo que pierde la máquina por hora (precio ÷ horas de vida)"],["margenMin","Margen mínimo","%","Debajo de esto el trabajo se marca como precio bajo"]].map(([k,l,u,ayuda],i)=>(
+            <div key={k} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 0", borderTop:i?`1px solid ${C.bg4}`:"none" }}>
+              <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{l}</div><div style={{ fontSize:12, color:C.t3 }}>{ayuda}</div></div>
+              <input key={k+":"+operacion[k]} type="number" step="0.01" defaultValue={operacion[k]} onBlur={e=>guardarOp(k,e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") e.currentTarget.blur(); }} aria-label={l} style={{ ...inputSt, width:90, padding:"7px 10px", textAlign:"right" }} />
+              <span style={{ fontSize:13, color:C.t3, width:20 }}>{u}</span>
+            </div>
+          ))}
+        </div>
         {SectionLabel({color:C.t3, children:<>Costo por material (Bs. por kg)</>})}
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
           {allMaterials.map((mat,i)=>(
@@ -2329,7 +2573,7 @@ export default function App() {
         </div>
         {SectionLabel({color:C.t3, children:<>Resumen histórico</>})}
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
-          {[["Total vendido",fmtMoney(totalRevenue)],["Costo materiales",`- ${fmtMoney(totalMatCost)}`],["Utilidad neta",fmtMoney(totalProfit)],["Margen promedio",`${avgMargin.toFixed(1)}%`]].map(([l,v],i,arr)=>(
+          {[["Total vendido",fmtMoney(totalRevenue)],["Costos (filamento, máquina y fallas)",`- ${fmtMoney(totalMatCost)}`],["Utilidad neta",fmtMoney(totalProfit)],["Margen promedio",`${avgMargin.toFixed(1)}%`]].map(([l,v],i,arr)=>(
             <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderBottom:i<arr.length-1?`1px solid ${C.bg4}`:"none" }}>
               <span style={{ fontSize:13, color:C.t2 }}>{l}</span>
               <span style={{ fontSize:13, fontWeight:800, color:i===2?totalProfit>=0?C.green:C.red:i===3?avgMargin>=50?C.green:avgMargin>=25?C.yellow:C.red:C.t1 }}>{v}</span>
@@ -2340,11 +2584,51 @@ export default function App() {
     );
   };
 
+  // Mantenimiento de una máquina: horas impresas y cada tarea con cuánto falta
+  const [editMant, setEditMant] = useState(null);   // "pid:tid" del intervalo que se está cambiando
+  const [editMantVal, setEditMantVal] = useState("");
+  const PanelMant = (p) => {
+    const tareas = tareasDe(p), horas = horasDe(p.id), fallasP = fallas.filter(f=>f.printer===p.id);
+    return (
+      <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"14px 16px", marginTop:-4, marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8, marginBottom:10, flexWrap:"wrap" }}>
+          <div style={{ fontSize:13, fontWeight:900, color:C.t2, textTransform:"uppercase", letterSpacing:.7 }}>Mantenimiento</div>
+          <div style={{ fontSize:13, color:C.t3 }}><b style={{ color:C.t1 }}>{Math.round(horas)} h</b> impresas{fallasP.length?` · ${fallasP.length} falla${fallasP.length>1?"s":""}`:""}</div>
+        </div>
+        {tareas.map(t => {
+          const k = p.id+":"+t.id, pct = Math.max(0, Math.min(100, t.uso/(Number(t.cada)||1)*100));
+          const color = t.vencida ? "#E53212" : t.pronto ? C.yellow : C.green;
+          return (
+            <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderTop:`1px solid ${C.bg4}` }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{t.nombre}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:C.t3, marginTop:2, flexWrap:"wrap" }}>
+                  {editMant===k ? (
+                    <span style={{ display:"inline-flex", gap:6, alignItems:"center" }}>cada
+                      <input autoFocus type="number" value={editMantVal} onChange={e=>setEditMantVal(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ mantCada(p,t.id,editMantVal); setEditMant(null);} if(e.key==="Escape") setEditMant(null); }} style={{ ...inputSt, width:80, padding:"4px 8px", fontSize:13 }} /> h
+                      <button onClick={()=>{ mantCada(p,t.id,editMantVal); setEditMant(null); }} style={{ background:C.orange, color:"#191513", border:"none", borderRadius:8, padding:"4px 10px", fontWeight:900, cursor:"pointer", minHeight:32 }}>OK</button>
+                    </span>
+                  ) : (
+                    <button onClick={()=>{ setEditMant(k); setEditMantVal(String(t.cada)); }} title="Cambiar intervalo" style={{ background:"none", border:"none", padding:0, minHeight:0, minWidth:0, color:C.t3, fontSize:12, cursor:"pointer", textDecoration:"underline", textDecorationColor:C.bg5, textUnderlineOffset:3 }}>cada {t.cada} h</button>
+                  )}
+                  <span style={{ color, fontWeight:800 }}>{t.vencida ? `toca ahora (pasó ${Math.round(-t.faltan)} h)` : `faltan ${Math.round(t.faltan)} h`}</span>
+                  {t.hechoAt && <span>· hecho {haceDias(t.hechoAt)}</span>}
+                </div>
+                <div style={{ height:5, background:C.bg4, borderRadius:4, marginTop:6, overflow:"hidden" }}><div style={{ height:"100%", width:`${pct}%`, background:color }} /></div>
+              </div>
+              <button onClick={()=>mantHecho(p,t.id)} style={{ minHeight:40, padding:"0 14px", borderRadius:C.rSm, border:`1px solid ${t.vencida?C.orange:C.bg5}`, background:t.vencida?C.orange:C.bg3, color:t.vencida?"#191513":C.t2, fontSize:13, fontWeight:900, cursor:"pointer", flexShrink:0 }}>Hecho</button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   // ─── PRINTERS VIEW ────────────────────────────────────────────────────────
   const PrintersView = () => (
     <div className="view-pad" style={{ maxWidth:isDesktop?900:isTablet?700:"100%", margin:"0 auto" }}>
       {SectionLabel({color:C.t3, children:<>Tus impresoras</>})}
-      {printers.map(p=><Fragment key={p.id}>{PrinterCard({p:p, showActions:true})}</Fragment>)}
+      {printers.map(p=><Fragment key={p.id}>{PrinterCard({p:p, showActions:true})}{PanelMant(p)}</Fragment>)}
       <button onClick={()=>{setEditP(null);setPForm(P0);setShowPForm(true);}} style={{ width:"100%", padding:"16px", background:C.bg2, border:`2px dashed ${C.bg5}`, borderRadius:C.r, color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:4 }}>
         + Agregar nueva impresora
       </button>
@@ -2719,6 +3003,7 @@ export default function App() {
                   <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 18px", borderBottom:`1px solid ${C.bg4}`, background:C.bg1 }}>
                     <Printer size={20} color={C.t2} aria-hidden="true" />
                     <div style={{ flex:1, minWidth:0, fontSize:17, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{col.nombre}</div>
+                    {mantPendiente.some(m=>m.p.id===col.id) && <span title={mantPendiente.filter(m=>m.p.id===col.id).map(m=>m.t.nombre).join(", ")} style={{ fontSize:12, fontWeight:900, color:"#191513", background:C.yellow, borderRadius:C.rPill, padding:"3px 9px", whiteSpace:"nowrap" }}>Mantenimiento</span>}
                     <span style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, fontWeight:800, color:estado.c }}>
                       <span style={{ width:10, height:10, borderRadius:"50%", background:estado.c, boxShadow:imprimiendo?`0 0 10px ${estado.c}`:undefined }} />{estado.t}
                     </span>
@@ -2744,6 +3029,7 @@ export default function App() {
                           ? <BotonGrande onClick={()=>completeJ(actual.id)} bg={C.blueD}><CheckCircle2 size={24} aria-hidden="true" />Terminado</BotonGrande>
                           : <BotonGrande onClick={()=>resumeJ(actual.id)} bg={C.greenD}><Play size={24} aria-hidden="true" />Reanudar</BotonGrande>}
                         {imprimiendo && <button onClick={()=>pauseJ(actual.id)} aria-label="Pausar" style={{ width:64, minHeight:64, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rMd, cursor:"pointer" }}><Pause size={24} aria-hidden="true" /></button>}
+                        {col.id!=="__diseno" && <button onClick={()=>abrirFalla(actual)} style={{ minWidth:80, minHeight:64, padding:"0 12px", background:C.redBg, color:"#FF8A6B", border:"1px solid #5C1F14", borderRadius:C.rMd, fontSize:16, fontWeight:900, cursor:"pointer" }}>Falló</button>}
                       </div>
                     </>) : siguiente ? (<>
                       <div style={{ fontSize:14, fontWeight:800, color:C.yellow, textTransform:"uppercase", letterSpacing:.8 }}>Sigue</div>
@@ -2921,6 +3207,33 @@ export default function App() {
     );
   };
 
+  // ── Anotar una falla ──
+  const ModalFalla = () => {
+    if (!falla) return null;
+    const { job } = falla, kg = matCosts[job.material]||0;
+    const costo = (Number(falla.gramos)||0)/1000*kg + falla.minutos/60*porHoraMaq;
+    return (
+      <div onClick={e=>{ if(e.target===e.currentTarget) setFalla(null); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:70, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+        <div role="dialog" aria-modal="true" aria-labelledby="falla-titulo" style={{ background:C.bg2, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:440, border:`1px solid ${C.bg4}`, maxHeight:"92vh", overflowY:"auto" }}>
+          <div style={{ fontSize:12, color:"#FF8A6B", fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:4 }}>Anotar falla</div>
+          <div id="falla-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{job.fileName}</div>
+          <div style={{ fontSize:13, color:C.t3, marginTop:2 }}>{printers.find(x=>x.id===job.printer)?.name||""}</div>
+          <div style={{ fontSize:14, color:C.t2, fontWeight:800, margin:"16px 0 8px" }}>¿Qué pasó?</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {MOTIVOS_FALLA.map(m=>(
+              <button key={m} onClick={()=>setFalla(f=>({...f, motivo:m}))} aria-pressed={falla.motivo===m} style={{ minHeight:52, padding:"8px 10px", borderRadius:C.rSm, fontSize:14, fontWeight:800, cursor:"pointer", background:falla.motivo===m?C.orange:C.bg3, color:falla.motivo===m?"#191513":C.t1, border:`1px solid ${falla.motivo===m?C.orange:C.bg5}` }}>{m}</button>
+            ))}
+          </div>
+          <div style={{ fontSize:14, color:C.t2, fontWeight:800, margin:"16px 0 8px" }}>Filamento perdido (gramos)</div>
+          <input type="number" inputMode="numeric" value={falla.gramos} onChange={e=>setFalla(f=>({...f, gramos:e.target.value}))} style={{ ...inputSt, fontSize:18 }} />
+          <div style={{ fontSize:13, color:C.t3, marginTop:6 }}>Calculado según lo que llevaba impreso ({fmtTime(falla.minutos)}). Pérdida: <b style={{ color:"#FF8A6B" }}>{fmtMoney(costo)}</b></div>
+          <button onClick={registrarFalla} disabled={!falla.motivo} style={{ width:"100%", marginTop:18, minHeight:54, background:falla.motivo?`linear-gradient(135deg,${C.orange},${C.orangeD})`:C.bg4, color:falla.motivo?"#191513":C.t3, border:"none", borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:falla.motivo?"pointer":"not-allowed" }}>Anotar y volver a la cola</button>
+          <button onClick={()=>setFalla(null)} style={{ width:"100%", minHeight:44, background:"transparent", color:C.t3, border:"none", fontSize:14, fontWeight:700, cursor:"pointer", marginTop:4 }}>Cancelar</button>
+        </div>
+      </div>
+    );
+  };
+
   // ── Buscador rápido: clientes, trabajos y pedidos web ──
   const BuscadorRapido = () => {
     if (!showBuscar) return null;
@@ -2981,7 +3294,7 @@ export default function App() {
   };
 
   return (
-    kioskMode ? <>{KioskView()}{DetalleKiosco()}{CartelPedido()}{ModalCobro()}</> :
+    kioskMode ? <>{KioskView()}{DetalleKiosco()}{CartelPedido()}{ModalCobro()}{ModalFalla()}</> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
       <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
@@ -3621,6 +3934,7 @@ export default function App() {
 
       {BuscadorRapido()}
       {ModalCobro()}
+      {ModalFalla()}
       {/* ── TOAST ── */}
       {CartelPedido()}
       {toast && (
