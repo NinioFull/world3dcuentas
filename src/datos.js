@@ -31,12 +31,13 @@ const memoria = {
     pr2: { name: "Soporte de mando de Pikachu", price: "80", duration: "70", weight: "30", material: "PLA", color: "Amarillo", category: "Gamer" },
   },
   stock: {},
+  fallas: { f1: { jobId: "j2", fileName: "Soporte de mando de Pikachu", printer: "p1", material: "PLA", motivo: "Se despegó / warping", gramos: 35, minutos: 50, costo: 7.37, at: Date.now() - 26 * 3600000 } },
   config: { matCosts: { PLA: 160, PETG: 180 } },
 };
 // Historial grande como el real (unos 380 entregados) para probar que las listas largas no traben
 for (let i = 0; i < 380; i++) {
   const t = ahora - (i + 3) * 20 * h;
-  memoria.jobs["h" + i] = { fileName: ["Trofeo", "Llavero", "Soporte de mando", "Organizador", "Figura"][i % 5] + " #" + i, printer: ["p1", "p2", "p3"][i % 3], material: "PLA", color: "Negro", weight: 20, duration: 60, remaining: 0, status: "shipped", quantity: 1 + (i % 4), price: 50 + (i % 7) * 10, unitPrice: 50, deposit: 50, clientName: "Cliente " + (i % 60), clientPhone: "7" + String(1000000 + (i % 60)), createdAt: t, endedAt: t + h, shippedAt: t + 2 * h, priority: 100 + i };
+  memoria.jobs["h" + i] = { fileName: ["Trofeo", "Llavero", "Soporte de mando", "Organizador", "Figura"][i % 5] + " #" + i, printer: ["p1", "p2", "p3"][i % 3], material: "PLA", color: "Negro", weight: 20, duration: 60, remaining: 0, status: "shipped", quantity: 1 + (i % 4), price: 50 + (i % 7) * 10, unitPrice: 50, deposit: 50, clientName: i < 300 ? "Cliente " + (i % 60) : "Antiguo " + (i % 8), clientPhone: i < 300 ? "7" + String(1000000 + (i % 60)) : "6" + String(1000000 + (i % 8)), createdAt: t, endedAt: t + h, shippedAt: t + 2 * h, priority: 100 + i };
 }
 let sec = 100;
 const oyentes = [];

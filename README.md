@@ -50,6 +50,14 @@ La cola se guarda en el dispositivo (caché de Firestore en IndexedDB). Si se co
 
 Al marcar *Entregado* un trabajo con saldo, el Manager pregunta si se cobró en **efectivo**, por **QR / transferencia**, o si **queda debiendo** (`debe: true`). Lo que se debe aparece en Inicio (*Para hacer seguimiento*), en Envíos (*Te deben*) y en la ficha del cliente, con el botón *Cobrar*.
 
+## Ganancia, mantenimiento y fallas
+
+- **Ganancia real**: cada trabajo calcula su costo (filamento según el costo por kg del material + horas de máquina × (luz + desgaste)) y muestra *Ganás Bs X · %*. Si el margen queda debajo del mínimo, avisa *Precio bajo* con el precio sugerido. En Stats › Utilidad se ve la utilidad neta del período (filamento, máquina y fallas aparte), la lista de trabajos con margen bajo y se editan luz/hora, desgaste/hora y margen mínimo (`config/operacion`).
+- **Mantenimiento**: en Máquinas, cada impresora muestra las horas impresas y sus tareas (cada X horas). *Hecho* reinicia la cuenta; tocando "cada X h" se cambia el intervalo. Lo vencido aparece en Inicio y en el kiosco. Se guarda en el campo `mant` de cada impresora; la primera vez arranca desde las horas que ya tenía.
+- **Fallas**: botón *Falló* en lo que se imprime, está pausado o recién terminado (también en el kiosco). Se anota el motivo y el filamento perdido (colección `fallas`) y el trabajo vuelve a la cola. Las horas impresas antes de fallar cuentan para el mantenimiento.
+- **Nota de entrega**: botón *Nota* en lo listo o entregado. Arma una imagen con el logo (productos, total, adelanto, pagado o saldo). En iPad/celu se comparte directo a WhatsApp; en la compu se descarga y abre el chat del cliente.
+- **Para recontactar** (Clientes): quienes compraron y no piden hace más de 2 meses, ordenados por lo que gastaron, con *Escribir* (WhatsApp con mensaje armado) o *Ahora no*. No vuelven a aparecer por 30 días (`config/recontactos`).
+
 ## Uso diario
 
 - **Buscador**: la lupa del encabezado (o la tecla `/`) busca clientes, teléfonos, productos, notas y pedidos web.
