@@ -367,7 +367,10 @@ export default function App() {
   const [statPeriod, setStatPeriod] = useState("month");
   const [matCosts, setMatCosts] = useState({});
   const [operacion, setOperacion] = useState(OP0);
-  const [recontactos, setRecontactos] = useState({});   // clave de cliente → cuándo se le escribió
+  const [recontactos, setRecontactos] = useState({});
+  // Colores que agregás desde el Manager (se suman a los del catálogo). config/colores = { lista: [{ nombre, recargo }] }
+  const [coloresExtra, setColoresExtra] = useState([]);
+  const [nuevoColor, setNuevoColor] = useState(null);   // { aplicar: (nombre) => ..., nombre, recargo }   // clave de cliente → cuándo se le escribió
   const [fallas, setFallas] = useState([]);
   const [editingCost, setEditingCost] = useState(null);
   const [costInput, setCostInput] = useState("");
@@ -533,6 +536,27 @@ export default function App() {
 
   const goToJob = (jobId) => { setView("queue"); setFStatus("all"); setFPrinter("all"); setHighlightJob(jobId); setTimeout(()=>setHighlightJob(null),3000); };
 
+  const todosColores = [...COLORS, ...coloresExtra.map(c=>c.nombre).filter(n=>n&&!COLORS.includes(n))];
+  const etiquetaCol = (n) => { const x = coloresExtra.find(c=>c.nombre===n); return x && Number(x.recargo)>0 ? `${n} (+${x.recargo} Bs)` : etiquetaColor(n); };
+  // Opciones del selector de color: catálogo + agregados + el color actual si vino de otro lado (pedido web viejo) + "Agregar otro"
+  const opcionesColor = (actual) => (<>
+    {todosColores.map(c=><option key={c} value={c}>{etiquetaCol(c)}</option>)}
+    {actual && !todosColores.includes(actual) && <option value={actual}>{actual}</option>}
+    <option value="__nuevo">+ Agregar otro color…</option>
+  </>);
+  const elegirColor = (valor, aplicar) => { if (valor === "__nuevo") setNuevoColor({ aplicar, nombre:"", recargo:"" }); else aplicar(valor); };
+  const guardarColorNuevo = async () => {
+    const nombre = (nuevoColor?.nombre||"").trim().replace(/\s+/g," ");
+    if (!nombre) return;
+    const nom = nombre.charAt(0).toUpperCase()+nombre.slice(1);
+    const existe = todosColores.find(c=>c.toLowerCase()===nom.toLowerCase());
+    if (!existe) await setDoc(doc(db,"config","colores"), { lista:[...coloresExtra, { nombre:nom, recargo:Math.max(0, Number(nuevoColor.recargo)||0) }] });
+    nuevoColor.aplicar(existe || nom);
+    setNuevoColor(null);
+    toast_(existe ? `"${existe}" ya estaba en la lista` : `Color "${nom}" agregado`);
+  };
+  const borrarColorExtra = (nombre) => setDoc(doc(db,"config","colores"), { lista:coloresExtra.filter(c=>c.nombre!==nombre) });
+
   const J0 = { fileName:"", printer:"", material:"", weight:"", duration:"", notes:"", status:"pending", color:"", clientName:"", clientPhone:"", price:"", quantity:"1", unitPrice:"", deliveryAt:null, deposit:"", jobType:"print" };
   const P0 = { name:"", type:"FDM", brand:"", connected:true, img:"", imgBg:"#1e1e1e" };
   const [form, setForm] = useState(J0);
@@ -593,7 +617,7 @@ export default function App() {
 
   useEffect(() => {
     if (!fbUser) return;
-    const unsubC = onSnapshot(collection(db,"config"),(snap) => { snap.docs.forEach(d => { if(d.id==="matCosts") setMatCosts(d.data()||{}); if(d.id==="operacion") setOperacion({...OP0, ...(d.data()||{})}); if(d.id==="recontactos") setRecontactos(d.data()||{}); }); });
+    const unsubC = onSnapshot(collection(db,"config"),(snap) => { snap.docs.forEach(d => { if(d.id==="matCosts") setMatCosts(d.data()||{}); if(d.id==="operacion") setOperacion({...OP0, ...(d.data()||{})}); if(d.id==="recontactos") setRecontactos(d.data()||{}); if(d.id==="colores") setColoresExtra(Array.isArray(d.data()?.lista)?d.data().lista:[]); }); });
     return () => unsubC();
   }, [fbUser]);
 
@@ -3532,9 +3556,9 @@ export default function App() {
                 </select>
               </FormField>
               <FormField label="Color">
-                <select style={inputSt} value={form.color} onChange={e=>setForm(f=>({...f,color:e.target.value}))}>
+                <select style={inputSt} value={form.color} onChange={e=>elegirColor(e.target.value, v=>setForm(f=>({...f,color:v})))}>
                   <option value="">Seleccionar...</option>
-                  {COLORS.map(c=><option key={c} value={c}>{etiquetaColor(c)}</option>)}
+                  {opcionesColor(form.color)}
                 </select>
               </FormField>
             </div>}
@@ -3768,8 +3792,8 @@ export default function App() {
                       </div>
                       <div>
                         <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Color</label>
-                        <select style={inputSt} value={item.color} onChange={e=>updateOrderItem(item.id,"color",e.target.value)}>
-                          <option value="">—</option>{COLORS.map(c=><option key={c} value={c}>{etiquetaColor(c)}</option>)}
+                        <select style={inputSt} value={item.color} onChange={e=>elegirColor(e.target.value, v=>updateOrderItem(item.id,"color",v))}>
+                          <option value="">—</option>{opcionesColor(item.color)}
                         </select>
                       </div>
                     </div>
@@ -3895,9 +3919,9 @@ export default function App() {
                 </select>
               </FormField>
               <FormField label="Color">
-                <select style={inputSt} value={prodForm.color} onChange={e=>setProdForm(f=>({...f,color:e.target.value}))}>
+                <select style={inputSt} value={prodForm.color} onChange={e=>elegirColor(e.target.value, v=>setProdForm(f=>({...f,color:v})))}>
                   <option value="">Seleccionar...</option>
-                  {COLORS.map(c=><option key={c} value={c}>{etiquetaColor(c)}</option>)}
+                  {opcionesColor(prodForm.color)}
                 </select>
               </FormField>
             </div>
@@ -3950,6 +3974,36 @@ export default function App() {
       {BuscadorRapido()}
       {ModalCobro()}
       {ModalFalla()}
+      {nuevoColor && (
+        <div onClick={e=>{ if(e.target===e.currentTarget) setNuevoColor(null); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:80, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="color-titulo" style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:380 }}>
+            <div id="color-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:14 }}>Agregar color</div>
+            <FormField label="Nombre del color">
+              <input autoFocus style={inputSt} placeholder="Ej: Plateado seda" value={nuevoColor.nombre} onChange={e=>setNuevoColor(n=>({...n, nombre:e.target.value}))} onKeyDown={e=>{ if(e.key==="Enter") guardarColorNuevo(); }} />
+            </FormField>
+            <FormField label="Recargo (Bs)" hint="Opcional: si este color cuesta más. Déjalo vacío si no.">
+              <input style={inputSt} type="number" inputMode="numeric" placeholder="0" value={nuevoColor.recargo} onChange={e=>setNuevoColor(n=>({...n, recargo:e.target.value}))} />
+            </FormField>
+            {coloresExtra.length>0 && (
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:12, color:C.t3, fontWeight:700, marginBottom:6 }}>Colores que agregaste</div>
+                <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                  {coloresExtra.map(c=>(
+                    <span key={c.nombre} style={{ display:"inline-flex", alignItems:"center", gap:4, background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rPill, padding:"2px 4px 2px 10px", fontSize:13, color:C.t1 }}>
+                      {etiquetaCol(c.nombre)}
+                      <button onClick={()=>borrarColorExtra(c.nombre)} aria-label={`Quitar ${c.nombre}`} style={{ background:"none", border:"none", color:C.t3, cursor:"pointer", minHeight:28, minWidth:28, fontSize:16 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>setNuevoColor(null)} style={{ flex:1, minHeight:48, background:C.bg4, color:C.t2, border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+              <button onClick={guardarColorNuevo} disabled={!nuevoColor.nombre.trim()} style={{ flex:1, minHeight:48, background:nuevoColor.nombre.trim()?C.orange:C.bg4, color:nuevoColor.nombre.trim()?"#191513":C.t3, border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:900, cursor:"pointer" }}>Agregar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── TOAST ── */}
       {CartelPedido()}
       {toast && (
