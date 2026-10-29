@@ -26,13 +26,23 @@ Abrir el Manager en Safari > Compartir > *Agregar a pantalla de inicio*. Queda c
 
 ## Aviso de pedido nuevo
 
-Con el Manager abierto (por ejemplo en el iPad, en modo kiosco), cuando entra un pedido o un pago nuevo en la web suena una campanita, aparece un cartel arriba y el ícono muestra cuántos pedidos esperan algo de vos. Los pedidos se revisan cada 30 segundos. En iPad hay que tocar la pantalla una vez después de abrir la app para que el sonido quede habilitado (regla de iOS).
+Con el Manager abierto (por ejemplo en el iPad, en modo kiosco), cuando entra un pedido o un pago nuevo en la web suena una campanita, aparece un cartel arriba y el ícono muestra cuántos pedidos esperan algo de vos. Los pedidos llegan en vivo (Supabase Realtime sobre la tabla `pedidos`, activado con `alter publication supabase_realtime add table public.pedidos;`) y además se revisan cada 60 segundos por las dudas. En iPad hay que tocar la pantalla una vez después de abrir la app para que el sonido quede habilitado (regla de iOS).
 
 Con la pantalla apagada o la app cerrada, el aviso que llega es el de **Telegram** (el bot del sitio): instalá Telegram en el iPad con la misma cuenta.
 
 ## Contador de impresión
 
 Cada trabajo guarda cuándo arrancó el tramo actual (`runStart`) y cuánto faltaba en ese momento (`remaining`). Cada pantalla calcula lo que falta con el reloj, sin escribir en la base, así tener varias pantallas abiertas ya no acelera el contador. Al pausar se congela lo que falta.
+
+## Sin conexión
+
+La cola se guarda en el dispositivo (caché de Firestore en IndexedDB). Si se corta el internet se sigue viendo todo y lo que tocás se guarda al instante; se sube solo cuando vuelve la señal. Arriba aparece un aviso mientras no hay conexión. La pestaña Web sí necesita internet.
+
+## Plata
+
+- **Cobrado**: adelantos (el día que se tomó el pedido) + saldos (el día que se entregó).
+- **Vendido**: suma de los pedidos por fecha en que se tomaron, cobrados o no.
+- **Por cobrar**: precio − adelanto de lo que todavía no se entregó.
 
 ## Seguridad
 

@@ -11,7 +11,7 @@ import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedid
 import WebView from "./WebView";
 import LoginView from "./LoginView";
 import Icono from "./Icono";
-import { Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, Wallet } from "lucide-react";
+import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, Wallet } from "lucide-react";
 import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
 const firebaseConfig = {
@@ -293,6 +293,13 @@ export default function App() {
   const [fStatus, setFStatus] = useState("all");
   const [fPrinter, setFPrinter] = useState("all");
   const [toast, setToast] = useState(null);
+  // Conexión: sin internet la cola sigue funcionando desde el dispositivo (ver datos.js)
+  const [enLinea, setEnLinea] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  useEffect(() => {
+    const on = () => setEnLinea(true), off = () => setEnLinea(false);
+    window.addEventListener("online", on); window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
   const [selectedClient, setSelectedClient] = useState(null);
   const [sortMode, setSortMode] = useState(false);
   const [queueViewMode, setQueueViewMode] = useState("detail"); // "detail" | "summary" | "calendar"
@@ -304,6 +311,9 @@ export default function App() {
   const [prodSugOpen, setProdSugOpen] = useState(false);
   const [showAllWeek, setShowAllWeek] = useState(false);
   const [highlightJob, setHighlightJob] = useState(null);
+  // Tarjetas de trabajo: resumidas por defecto; las que abrís quedan abiertas
+  const [abiertas, setAbiertas] = useState(() => new Set());
+  const alternarTarjeta = (id) => setAbiertas(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [statPeriod, setStatPeriod] = useState("month");
   const [matCosts, setMatCosts] = useState({});
   const [editingCost, setEditingCost] = useState(null);
@@ -359,10 +369,18 @@ export default function App() {
   useEffect(() => {
     if (!admin) return;
     recargarPedidos();
-    const t = setInterval(recargarPedidos, 30000);
+    // En vivo: Supabase avisa apenas cambia un pedido (nuevo, pagado, cancelado) y recargamos.
+    // Respaldo: igual se revisa cada 60 s por si la conexión en vivo se corta.
+    let canal = null;
+    if (!DEMO) {
+      canal = sb.channel("pedidos-manager")
+        .on("postgres_changes", { event: "*", schema: "public", table: "pedidos" }, () => recargarPedidos())
+        .subscribe();
+    }
+    const t = setInterval(recargarPedidos, 60000);
     const alVolver = () => { if (document.visibilityState === "visible") recargarPedidos(); };
     document.addEventListener("visibilitychange", alVolver);
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", alVolver); };
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", alVolver); if (canal) sb.removeChannel(canal); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [admin]);
 
@@ -804,17 +822,24 @@ export default function App() {
     setPForm(P0); setShowPForm(false); setEditP(null);
   });
 
-  const startJ  = (j)  => { const t=Date.now(); updateDoc(doc(db,"jobs",j.id),{status:"printing",startedAt:t,runStart:t,remaining:minutosTotales(j)}); toast_("Impresión iniciada"); };
+  // Cambio de estado con Deshacer (5 s): se guarda cómo estaba el trabajo y Deshacer lo deja igual
+  const CAMPOS_ESTADO = ["status","remaining","runStart","startedAt","endedAt","shippedAt"];
+  const cambiarEstadoJ = (id, cambios, msg) => {
+    const antes = jobsDb.find(x=>x.id===id);
+    updateDoc(doc(db,"jobs",id), cambios);
+    if (!antes) { toast_(msg); return; }
+    const previo = {}; CAMPOS_ESTADO.forEach(k => { previo[k] = antes[k] ?? null; });
+    toast_(msg, "ok", () => { updateDoc(doc(db,"jobs",id), previo); toast_("Se deshizo el cambio"); });
+  };
+  const startJ  = (j)  => { const t=Date.now(); cambiarEstadoJ(j.id, {status:"printing",startedAt:t,runStart:t,remaining:minutosTotales(j)}, "Impresión iniciada"); };
   // Al pausar se congela lo que falta; al reanudar arranca un tramo nuevo
-  const pauseJ  = (id) => { const j=jobs.find(x=>x.id===id); updateDoc(doc(db,"jobs",id),{status:"paused",remaining:j?Number(j.remaining)||0:0,runStart:null}); toast_("Trabajo pausado"); };
-  const resumeJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"printing",runStart:Date.now()}); toast_("Impresión reanudada"); };
-  const completeJ= (id) => { updateDoc(doc(db,"jobs",id),{status:"done",endedAt:Date.now(),remaining:0,runStart:null}); toast_("Listo para entregar"); };
-  const toShipJ = (id) => { updateDoc(doc(db,"jobs",id),{status:"shipping"}); toast_("Marcado para envío"); };
+  const pauseJ  = (id) => { const j=jobs.find(x=>x.id===id); cambiarEstadoJ(id, {status:"paused",remaining:j?Number(j.remaining)||0:0,runStart:null}, "Trabajo pausado"); };
+  const resumeJ = (id) => cambiarEstadoJ(id, {status:"printing",runStart:Date.now()}, "Impresión reanudada");
+  const completeJ= (id) => cambiarEstadoJ(id, {status:"done",endedAt:Date.now(),remaining:0,runStart:null}, "Listo para entregar");
+  const toShipJ = (id) => cambiarEstadoJ(id, {status:"shipping"}, "Marcado para envío");
   const shippedJ= (id,job) => {
-    updateDoc(doc(db,"jobs",id),{status:"shipped",shippedAt:Date.now()});
     const total=Number(job?.price)||0,dep=Number(job?.deposit)||0,pend=total-dep;
-    if(dep>0&&pend>0) toast_(`Entregado! Cobrar ${fmtMoney(pend)}`);
-    else toast_("Entregado");
+    cambiarEstadoJ(id, {status:"shipped",shippedAt:Date.now()}, dep>0&&pend>0 ? `Entregado · cobrar ${fmtMoney(pend)}` : "Entregado");
   };
   // jobsDb guarda los datos tal cual (sin el tiempo restante recalculado)
   const deleteJ = (id) => { borrarConDeshacer("jobs", id, jobsDb.find(x=>x.id===id), "Trabajo eliminado"); setConfirmDel(null); };
@@ -852,6 +877,16 @@ export default function App() {
   const monthRev  = jobs.filter(j=>j.price&&j.createdAt>=startOfMonth()).reduce((s,j)=>s+Number(j.price),0);
   const last6 = Array.from({length:6},(_,i)=>{ const hoy=new Date(); const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1); const ms=startOfMonth(d),me=startOfMonth(new Date(d.getFullYear(),d.getMonth()+1,1)),mj=jobs.filter(j=>j.price&&(j.createdAt||0)>=ms&&(j.createdAt||0)<me); return {label:monthLabel(d),jobs:mj.length,rev:mj.reduce((s,j)=>s+Number(j.price),0)}; }).reverse();
   const maxRev = Math.max(...last6.map(m=>m.rev),1);
+  // ── Cobrado: la plata que entró de verdad ──
+  // El adelanto se cuenta el día que se tomó el pedido; el saldo (precio − adelanto), el día que se entregó.
+  const cobradoEntre = (desde, hasta = Infinity) => jobs.reduce((s,j) => {
+    const precio = Number(j.price)||0, adel = Math.min(Number(j.deposit)||0, precio || Infinity);
+    const tPedido = j.createdAt||0, tEntrega = j.shippedAt||j.endedAt||j.createdAt||0;
+    if (adel>0 && tPedido>=desde && tPedido<hasta) s += adel;
+    if (j.status==="shipped" && precio>adel && tEntrega>=desde && tEntrega<hasta) s += precio-adel;
+    return s;
+  }, 0);
+  const cobradoHoy = cobradoEntre(startOfDay()), cobradoMes = cobradoEntre(startOfMonth());
 
   const getPeriodStart = (period) => {
     const now=new Date();
@@ -870,8 +905,21 @@ export default function App() {
   const topMaterials = Object.entries(periodByMaterial).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const periodLabels = {day:"Hoy",week:"Esta semana",month:"Este mes",year:"Este año"};
 
+  // Clientes: el mismo teléfono es la misma persona aunque el nombre esté escrito distinto;
+  // sin teléfono, se compara el nombre sin tildes, mayúsculas ni espacios de más ("Juan Pérez" = "juan  perez")
+  const normNombre = (n) => (n||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+  const normTel = (t) => { const d=(t||"").replace(/\D/g,""); return d.length>=7 ? d.slice(-8) : ""; };
+  const telDeNombre = {};
+  jobs.forEach(j=>{ const t=normTel(j.clientPhone), n=normNombre(j.clientName); if(t&&n&&!telDeNombre[n]) telDeNombre[n]=t; });
   const clientMap = {};
-  jobs.forEach(j=>{ if(!j.clientName?.trim()) return; const k=j.clientName.toLowerCase().trim(); if(!clientMap[k]) clientMap[k]={name:j.clientName,phone:j.clientPhone||"",jobs:[]}; clientMap[k].jobs.push(j); if(!clientMap[k].phone&&j.clientPhone) clientMap[k].phone=j.clientPhone; });
+  [...jobs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).forEach(j=>{
+    const n=normNombre(j.clientName); if(!n) return;
+    const t=normTel(j.clientPhone)||telDeNombre[n]||"";
+    const k=t?"tel:"+t:"nom:"+n;
+    if(!clientMap[k]) clientMap[k]={key:k,name:j.clientName.trim(),phone:j.clientPhone||"",jobs:[]};   // nombre y teléfono del pedido más reciente
+    clientMap[k].jobs.push(j);
+    if(!clientMap[k].phone&&j.clientPhone) clientMap[k].phone=j.clientPhone;
+  });
   const clients = Object.values(clientMap).map(c=>({...c,totalJobs:c.jobs.length,totalRevenue:c.jobs.filter(j=>j.price).reduce((s,j)=>s+Number(j.price),0),completed:c.jobs.filter(j=>j.status==="shipped").length,active:c.jobs.filter(j=>["pending","printing","paused"].includes(j.status)).length,lastJob:Math.max(...c.jobs.map(j=>j.createdAt||0))})).sort((a,b)=>b.lastJob-a.lastJob);
 
   const todayDeliveries = (() => { const dayStart=startOfDay(); return jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=dayStart&&j.deliveryAt<dayStart+86400000&&j.status!=="shipped").sort((a,b)=>a.deliveryAt-b.deliveryAt); })();
@@ -902,12 +950,14 @@ export default function App() {
     const isPaused = job.status==="paused";
     const isHighlighted = highlightJob===job.id;
     const isDesign = job.jobType==="design";
+    // Resumida: nombre, avance, cliente y plata en una línea y la acción principal. El resto, al tocar "Ver detalle".
+    const resumida = !compact && !abiertas.has(job.id) && !isHighlighted;
 
     // Acción principal de cada trabajo, solo con colores de la marca
     const primaryAction = () => {
       const naranja = `linear-gradient(135deg,${C.orange},${C.orangeD})`, sombra = "0 4px 20px rgba(241,132,27,0.30)";
       if(job.status==="pending")   return {label:isDesign?"Iniciar diseño":"Iniciar impresión",fn:()=>startJ(job),bg:naranja,shadow:sombra};
-      if(job.status==="printing")  return {label:isDesign?"Diseño terminado":"Marcar como listo",fn:()=>completeJ(job.id),bg:"#E9521E",shadow:"0 4px 20px rgba(233,82,30,0.30)"};
+      if(job.status==="printing")  return {label:isDesign?"Diseño terminado":"Marcar como listo",fn:()=>completeJ(job.id),bg:"#E9521E",color:"#191513",shadow:"0 4px 20px rgba(233,82,30,0.30)"};
       if(job.status==="paused")    return {label:"Reanudar",fn:()=>resumeJ(job.id),bg:naranja,shadow:sombra};
       if(job.status==="done")      return {label:"Listo para envío",fn:()=>toShipJ(job.id),bg:"#FFF0DE",color:"#191513",shadow:"none"};
       if(job.status==="shipping")  return {label:"Marcar como entregado",fn:()=>shippedJ(job.id,job),bg:"#FFF7F3",color:"#191513",shadow:"none"};
@@ -971,7 +1021,7 @@ export default function App() {
             {isPaused && <div style={{ fontSize:12, color:STATUS.paused.color, marginBottom:8 }}>En pausa — toca Reanudar para continuar</div>}
 
             {/* Client + price */}
-            {!compact&&(job.clientName||job.price) && (
+            {!compact&&!resumida&&(job.clientName||job.price) && (
               <div style={{ background:C.bg3, borderRadius:C.rSm, padding:"11px 14px", marginBottom:12, border:`1px solid ${C.bg5}`, display:"flex", gap:14, flexWrap:"wrap", alignItems:"center" }}>
                 {job.clientName && (
                   <div>
@@ -999,10 +1049,11 @@ export default function App() {
                 })()}
               </div>
             )}
-            {compact&&job.price&&(()=>{
+            {(compact||resumida)&&(job.price||job.clientName)&&(()=>{
               const total=Number(job.price)||0,dep=Number(job.deposit)||0,pend=job.status==="shipped"?0:total-dep;
               return (
-                <div style={{ marginBottom:8 }}>
+                <div style={{ marginBottom:8, display:"flex", flexWrap:"wrap", alignItems:"baseline", columnGap:8 }}>
+                  {resumida && job.clientName && <span style={{ fontSize:14, color:C.t1, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"55%" }}>{job.clientName}</span>}
                   <span style={{ fontSize:14,color:C.green,fontWeight:800 }}>{fmtMoney(total)}{qty>1?` (×${qty})`:""}</span>
                   {job.status==="shipped"?<span style={{ fontSize:12,color:C.green,fontWeight:700,marginLeft:8 }}>Cobrado</span>
                     :pend>0?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>Cobrar: {fmtMoney(pend)}</span>
@@ -1012,12 +1063,12 @@ export default function App() {
             })()}
 
             {/* Pedido web */}
-            {job.webPedido && <button onClick={()=>setView("web")} style={{ fontSize:12, fontWeight:800, color:C.orange, background:C.orangeBg, border:`1px solid ${C.orange}44`, borderRadius:C.rPill, padding:"3px 10px", marginBottom:10, cursor:"pointer" }}>Pedido web #{String(job.webPedido).padStart(5,"0")}</button>}
+            {!resumida && job.webPedido && <button onClick={()=>setView("web")} style={{ fontSize:12, fontWeight:800, color:C.orange, background:C.orangeBg, border:`1px solid ${C.orange}44`, borderRadius:C.rPill, padding:"3px 10px", marginBottom:10, cursor:"pointer" }}>Pedido web #{String(job.webPedido).padStart(5,"0")}</button>}
             {/* Notes */}
-            {job.notes && <div style={{ fontSize:12, color:C.t2, background:C.bg3, borderRadius:C.rSm, padding:"8px 12px", marginBottom:12, borderLeft:`3px solid ${C.orange}`, whiteSpace:"pre-wrap" }}>{job.notes}</div>}
+            {!resumida && job.notes && <div style={{ fontSize:12, color:C.t2, background:C.bg3, borderRadius:C.rSm, padding:"8px 12px", marginBottom:12, borderLeft:`3px solid ${C.orange}`, whiteSpace:"pre-wrap" }}>{job.notes}</div>}
 
             {/* Delivery date */}
-            {job.deliveryAt&&job.status!=="shipped"&&(()=>{
+            {job.deliveryAt&&job.status!=="shipped"&&(!resumida||esAtrasado(job)||esParaHoy(job))&&(()=>{
               const diff=job.deliveryAt-Date.now(); const diffH=Math.floor(diff/3600000); const diffD=Math.floor(diff/86400000);
               const isLate=esAtrasado(job); const dDel=new Date(job.deliveryAt); const dNow=new Date();
               const isToday=dDel.toDateString()===dNow.toDateString();
@@ -1028,7 +1079,8 @@ export default function App() {
               const bdColor=isLate?"#4A1A10":isToday?"#4A3F36":isTomorrow?"#6B2812":"#372F2C";
               const pasada=diff<0; // ya pasó la fecha (si está listo, solo falta entregarlo: no es "vencida")
               const title=isLate?"Entrega vencida":pasada?"Listo · fecha acordada":isToday?"Entrega HOY":isTomorrow?"Mañana":"Entrega acordada";
-              const timeLeft=pasada?`hace ${Math.abs(diffD)>0?`${Math.abs(diffD)}d`:`${Math.abs(diffH)}h`}`:diffH<1?"en menos de 1h":isToday?`en ${diffH}h`:isTomorrow?`en ${diffH}h`:`en ${diffD}d`;
+              const atrasoH=Math.floor(-diff/3600000), atrasoD=Math.floor(-diff/86400000);  // horas/días que pasaron (sin redondear negativos)
+              const timeLeft=pasada?`hace ${atrasoD>0?`${atrasoD}d`:atrasoH>0?`${atrasoH}h`:`${Math.max(1,Math.floor(-diff/60000))}min`}`:diffH<1?"en menos de 1h":isToday?`en ${diffH}h`:isTomorrow?`en ${diffH}h`:`en ${diffD}d`;
               const fmtDel=new Date(job.deliveryAt).toLocaleDateString("es-ES",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
               return (
                 <div style={{ background:bgColor, border:`1px solid ${bdColor}`, borderRadius:C.rSm, padding:"9px 13px", marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
@@ -1041,7 +1093,7 @@ export default function App() {
             })()}
 
             {/* Flow tracker */}
-            {!compact && (
+            {!compact && !resumida && (
               <div role="list" aria-label="Etapas del trabajo" style={{ display:"flex", alignItems:"flex-start", marginBottom:14, paddingBottom:2 }}>
                 {(isDesign?FLOW_DESIGN:FLOW).map((step,i,arr) => {
                   const isActive=i===flowStep, isDone=i<flowStep;
@@ -1060,20 +1112,28 @@ export default function App() {
               </div>
             )}
 
-            {/* PRIMARY ACTION */}
+            {/* PRIMARY ACTION (resumida: con Pausar al lado) */}
             {action && (
-              <button onClick={action.fn} style={{ width:"100%", padding:"14px 0", background:action.bg, color:action.color||"#fff", border:"none", borderRadius:C.rSm, fontSize:15, fontWeight:800, cursor:"pointer", marginBottom:8, letterSpacing:.2, boxShadow:action.shadow }}>
+              <div style={{ display:"flex", gap:8 }}>
+              <button onClick={action.fn} style={{ flex:1, width:"100%", padding:"14px 0", background:action.bg, color:action.color||"#191513", border:"none", borderRadius:C.rSm, fontSize:15, fontWeight:800, cursor:"pointer", marginBottom:8, letterSpacing:.2, boxShadow:action.shadow }}>
                 {action.label}
               </button>
+              {resumida && isPrinting && <button onClick={()=>pauseJ(job.id)} aria-label="Pausar impresión" title="Pausar" style={{ width:52, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, cursor:"pointer" }}><Pause size={20} aria-hidden="true" /></button>}
+              </div>
             )}
-            {isPrinting && (
+            {!resumida && isPrinting && (
               <button onClick={()=>pauseJ(job.id)} style={{ width:"100%", padding:"10px 0", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:8 }}>
                 Pausar impresión
               </button>
             )}
 
             {/* SECONDARY ACTIONS */}
-            <div style={{ display:"flex", gap:6 }}>
+            {!compact && (
+              <button onClick={()=>alternarTarjeta(job.id)} aria-expanded={!resumida} style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"8px 0", marginBottom:resumida?0:8, background:"transparent", border:"none", color:C.t3, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+                {resumida?"Ver detalle":"Ocultar detalle"}<ChevronDown size={16} aria-hidden="true" style={{ transform:resumida?"none":"rotate(180deg)", transition:"transform .2s" }} />
+              </button>
+            )}
+            {!resumida && <div style={{ display:"flex", gap:6 }}>
               {wa && (
                 <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ flex:1, padding:"9px 4px", background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>
                   WhatsApp
@@ -1082,7 +1142,7 @@ export default function App() {
               <button onClick={()=>duplicateJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Duplicar</button>
               {!compact && <button onClick={()=>openEJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Editar</button>}
               {!compact && <button onClick={()=>setConfirmDel(job.id)} style={{ width:38, padding:"9px 0", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:14, cursor:"pointer" }}><Icono e="🗑" /></button>}
-            </div>
+            </div>}
           </div>
         </div>
       </div>
@@ -1187,17 +1247,18 @@ export default function App() {
           <div style={{ filter:showRevenue?"none":"blur(10px)", userSelect:showRevenue?"auto":"none", transition:"filter .25s", pointerEvents:showRevenue?"auto":"none" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
               <div>
-                <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}><Wallet size={16} aria-hidden="true" />Vendido en total</div>
-                <div style={{ fontSize:32, fontWeight:900, color:C.t1, letterSpacing:-1 }}>Bs. {revenue.toFixed(2)}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}><Wallet size={16} aria-hidden="true" />Cobrado este mes</div>
+                <div style={{ fontSize:32, fontWeight:900, color:C.t1, letterSpacing:-1 }}>{fmtMoney(cobradoMes)}</div>
+                <div style={{ fontSize:12, color:C.t3, marginTop:2 }}>adelantos + saldos cobrados al entregar</div>
               </div>
               <div style={{ textAlign:"right", paddingRight:40 }}>
-                <div style={{ fontSize:12, color:C.t3, marginBottom:4 }}>Hoy</div>
-                <div style={{ fontSize:18, fontWeight:900, color:C.green }}>{fmtMoney(todayRev)}</div>
+                <div style={{ fontSize:12, color:C.t3, marginBottom:4 }}>Cobrado hoy</div>
+                <div style={{ fontSize:18, fontWeight:900, color:C.green }}>{fmtMoney(cobradoHoy)}</div>
               </div>
             </div>
             <div style={{ height:1, background:C.bg4, margin:"13px 0" }} />
             <div style={{ display:"flex", gap:20 }}>
-              {[["Este mes",fmtMoney(monthRev)],["Clientes",clients.length],["Trabajos",jobs.length]].map(([l,v])=>(
+              {[["Vendido este mes",fmtMoney(monthRev)],["Vendido hoy",fmtMoney(todayRev)],["Por cobrar",fmtMoney(jobs.filter(j=>j.status!=="shipped").reduce((t,j)=>t+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0))]].map(([l,v])=>(
                 <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{v}</div></div>
               ))}
             </div>
@@ -1216,7 +1277,7 @@ export default function App() {
             <div style={{ fontSize:60, marginBottom:16 }}><Icono e="🖨" size={48} /></div>
             <div style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:8 }}>Todo listo para empezar</div>
             <div style={{ fontSize:13, color:C.t3, lineHeight:1.7, marginBottom:24 }}>Agrega tu primer trabajo tocando el botón <strong style={{ color:C.t1 }}>+ Nuevo</strong> arriba</div>
-            <button onClick={()=>{setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ padding:"14px 32px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:800, cursor:"pointer", boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={()=>{setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ padding:"14px 32px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:800, cursor:"pointer", boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               + Agregar primer trabajo
             </button>
           </div>
@@ -1329,7 +1390,7 @@ export default function App() {
     const quickAction = (job) => {
       const isDes = job.jobType==="design";
       if(job.status==="pending")  return {label:"Iniciar",   fn:()=>startJ(job),           bg:C.orange,  color:"#191513"};
-      if(job.status==="printing") return {label:isDes?"Terminado":"Listo", fn:()=>completeJ(job.id), bg:"#E9521E", color:"#fff"};
+      if(job.status==="printing") return {label:isDes?"Terminado":"Listo", fn:()=>completeJ(job.id), bg:"#E9521E", color:"#191513"};
       if(job.status==="paused")   return {label:"Reanudar",  fn:()=>resumeJ(job.id),       bg:C.orange,  color:"#191513"};
       if(job.status==="done")     return {label:"Enviar",    fn:()=>toShipJ(job.id),       bg:"#FFF0DE", color:"#191513"};
       if(job.status==="shipping") return {label:"Entregado", fn:()=>shippedJ(job.id,job),  bg:"#FFF7F3", color:"#191513"};
@@ -1377,7 +1438,7 @@ export default function App() {
         {/* ── STATUS FILTERS ── */}
         <div style={{ display:"flex", gap:6, marginBottom:8, overflowX:"auto", paddingBottom:4 }}>
           {filters.map(f=>(
-            <button key={f.key} onClick={()=>{setFStatus(f.key);setSortMode(false);}} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", background:fStatus===f.key?(f.alerta?C.red:f.purple?"#6B2812":C.orange):(f.alerta?C.redBg:C.bg3), color:fStatus===f.key?"#fff":C.t3, boxShadow:fStatus===f.key?`0 3px 12px rgba(${f.purple?"107,33,168":"255,87,34"},.35)`:undefined }}>
+            <button key={f.key} onClick={()=>{setFStatus(f.key);setSortMode(false);}} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", background:fStatus===f.key?(f.alerta?C.red:f.purple?"#6B2812":C.orange):(f.alerta?C.redBg:C.bg3), color:fStatus===f.key?(f.alerta?"#fff":"#191513"):C.t3, boxShadow:fStatus===f.key?`0 3px 12px rgba(${f.purple?"107,33,168":"255,87,34"},.35)`:undefined }}>
               {f.label}{f.count>0?` ${f.count}`:""}
             </button>
           ))}
@@ -1401,7 +1462,7 @@ export default function App() {
         {/* ── REORDER MODE (detail only) ── */}
         {showSortBtn && (
           <div style={{ marginBottom:12 }}>
-            <button onClick={()=>setSortMode(v=>!v)} style={{ padding:"9px 18px", borderRadius:C.rPill, border:`1.5px solid ${sortMode?C.orange:C.bg5}`, fontSize:12, fontWeight:800, cursor:"pointer", background:sortMode?C.orange:"transparent", color:sortMode?"#fff":C.t2 }}>
+            <button onClick={()=>setSortMode(v=>!v)} style={{ padding:"9px 18px", borderRadius:C.rPill, border:`1.5px solid ${sortMode?C.orange:C.bg5}`, fontSize:12, fontWeight:800, cursor:"pointer", background:sortMode?C.orange:"transparent", color:sortMode?"#191513":C.t2 }}>
               {sortMode?"✓ Reordenando prioridad":"↕ Reordenar cola"}
             </button>
             {sortMode && <div style={{ marginTop:8, background:C.orangeBg, borderRadius:C.rSm, padding:"10px 14px", border:`1px solid ${C.orange}33`, fontSize:12, color:"#E53212" }}>El trabajo #1 será el próximo en imprimirse. Usa ▲▼ para reordenar.</div>}
@@ -1569,7 +1630,7 @@ export default function App() {
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                           <div style={{ fontSize:12, color:"#E53212" }}>{job.clientName||"Sin cliente"} · hace {days>0?`${days}d`:`${hours}h`}</div>
                         </div>
-                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
+                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
                       </div>
                     );
                   })}
@@ -1770,7 +1831,7 @@ export default function App() {
   const ClientsView = () => {
     const [clientSearch, setClientSearch] = useState("");
     if (selectedClient) {
-      const c = clients.find(x=>x.name.toLowerCase()===selectedClient);
+      const c = clients.find(x=>x.key===selectedClient);
       if (!c) return null;
       const wa = c.phone ? `https://wa.me/${c.phone.replace(/\D/g,"")}` : null;
       const totalDeposits = c.jobs.filter(j=>j.deposit).reduce((s,j)=>s+Number(j.deposit),0);
@@ -1780,7 +1841,7 @@ export default function App() {
           <button onClick={()=>setSelectedClient(null)} style={{ background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:16 }}>← Volver</button>
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"20px", marginBottom:14, border:`1px solid ${C.bg4}` }}>
             <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:18 }}>
-              <div style={{ width:54, height:54, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:900, color:"#fff", flexShrink:0 }}>{initials(c.name)}</div>
+              <div style={{ width:54, height:54, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:900, color:"#191513", flexShrink:0 }}>{initials(c.name)}</div>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:19, fontWeight:900, color:C.t1 }}>{c.name}</div>
                 {c.phone && <div style={{ fontSize:13, color:C.t3, marginTop:2 }}>{c.phone}</div>}
@@ -1837,7 +1898,7 @@ export default function App() {
               const dep = c.jobs.filter(j=>j.deposit).reduce((s,j)=>s+Number(j.deposit),0);
               const pend = c.jobs.filter(j=>j.status!=="shipped").reduce((s,j)=>s+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0);
               return (
-                <div key={c.name} onClick={()=>setSelectedClient(c.name.toLowerCase())} style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${C.bg4}`, cursor:"pointer" }}>
+                <div key={c.key} onClick={()=>setSelectedClient(c.key)} style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${C.bg4}`, cursor:"pointer" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:12 }}>
                     <div style={{ width:48, height:48, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange}88,${C.orangeD}88)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:900, color:"#fff", flexShrink:0 }}>{initials(c.name)}</div>
                     <div style={{ flex:1, minWidth:0 }}>
@@ -1869,12 +1930,12 @@ export default function App() {
     <div className="view-pad" style={{ maxWidth:isDesktop?1100:isTablet?800:"100%", margin:"0 auto" }}>
       {/* Tab switcher */}
       <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
-        <button onClick={()=>setStatsTab('stats')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='stats'?C.orange:"transparent", color:statsTab==='stats'?"#fff":C.t3, boxShadow:statsTab==='stats'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Estadísticas</button>
-        <button onClick={()=>setStatsTab('utility')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='utility'?C.orange:"transparent", color:statsTab==='utility'?"#fff":C.t3, boxShadow:statsTab==='utility'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Utilidad</button>
+        <button onClick={()=>setStatsTab('stats')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='stats'?C.orange:"transparent", color:statsTab==='stats'?"#191513":C.t3, boxShadow:statsTab==='stats'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Estadísticas</button>
+        <button onClick={()=>setStatsTab('utility')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='utility'?C.orange:"transparent", color:statsTab==='utility'?"#191513":C.t3, boxShadow:statsTab==='utility'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Utilidad</button>
       </div>
       {statsTab==='stats' && <><div style={{ display:"flex", gap:5, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
         {[["day","Hoy"],["week","Semana"],["month","Mes"],["year","Año"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setStatPeriod(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statPeriod===k?C.orange:"transparent", color:statPeriod===k?"#fff":C.t3, transition:"all .15s", boxShadow:statPeriod===k?`0 3px 12px rgba(241,132,27,.35)`:undefined }}>
+          <button key={k} onClick={()=>setStatPeriod(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statPeriod===k?C.orange:"transparent", color:statPeriod===k?"#191513":C.t3, transition:"all .15s", boxShadow:statPeriod===k?`0 3px 12px rgba(241,132,27,.35)`:undefined }}>
             {l}
           </button>
         ))}
@@ -1882,7 +1943,7 @@ export default function App() {
       <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
         <div style={{ fontSize:12, color:"#F1841B", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Vendido — {periodLabels[statPeriod]}</div>
         <div style={{ fontSize:38, fontWeight:900, color:C.t1, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(periodRev)}</div>
-        <div style={{ fontSize:13, color:C.t3, marginTop:9 }}>{periodJobs.length} trabajo{periodJobs.length!==1?"s":""} completado{periodJobs.length!==1?"s":""}</div>
+        <div style={{ fontSize:13, color:C.t3, marginTop:9 }}>{periodJobs.length} pedido{periodJobs.length!==1?"s":""} · <b style={{ color:C.orange }}>Cobrado {fmtMoney(cobradoEntre(periodStart))}</b></div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:16 }}>
         {[["Pedidos",periodJobs.length,"tomados"],["Entregas",shipped.filter(j=>(j.shippedAt||j.createdAt||0)>=periodStart).length,"entregados"]].map(([l,v,s])=>(
@@ -2037,7 +2098,7 @@ export default function App() {
       <div className="view-pad" style={{ maxWidth:isDesktop?1100:isTablet?800:"100%", margin:"0 auto" }}>
         <div style={{ display:"flex", gap:5, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
           {[["day","Hoy"],["week","Semana"],["month","Mes"],["year","Año"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setStatPeriod(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statPeriod===k?C.orange:"transparent", color:statPeriod===k?"#fff":C.t3, boxShadow:statPeriod===k?`0 3px 12px rgba(241,132,27,.35)`:undefined }}>{l}</button>
+            <button key={k} onClick={()=>setStatPeriod(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statPeriod===k?C.orange:"transparent", color:statPeriod===k?"#191513":C.t3, boxShadow:statPeriod===k?`0 3px 12px rgba(241,132,27,.35)`:undefined }}>{l}</button>
           ))}
         </div>
         <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
@@ -2073,7 +2134,7 @@ export default function App() {
               {editingCost===mat ? (
                 <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                   <input style={{ ...inputSt, width:85, padding:"7px 11px", border:`1.5px solid ${C.orange}` }} type="number" placeholder="121" value={costInput} onChange={e=>setCostInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveCost(mat,costInput);if(e.key==="Escape"){setEditingCost(null);setCostInput("");}}} autoFocus />
-                  <button onClick={()=>saveCost(mat,costInput)} style={{ padding:"7px 13px", background:C.orange, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>✓</button>
+                  <button onClick={()=>saveCost(mat,costInput)} style={{ padding:"7px 13px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>✓</button>
                   <button onClick={()=>{setEditingCost(null);setCostInput("");}} style={{ padding:"7px 11px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.rSm, fontSize:12, cursor:"pointer" }}>✕</button>
                 </div>
               ) : (
@@ -2121,12 +2182,12 @@ export default function App() {
       <div className="view-pad" style={{ maxWidth:isDesktop?1400:isTablet?900:"100%", margin:"0 auto" }}>
         {/* Sub-tab switcher */}
         <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
-          <button onClick={()=>setProdTab("catalogo")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="catalogo"?C.orange:"transparent", color:prodTab==="catalogo"?"#fff":C.t3, boxShadow:prodTab==="catalogo"?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
+          <button onClick={()=>setProdTab("catalogo")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="catalogo"?C.orange:"transparent", color:prodTab==="catalogo"?"#191513":C.t3, boxShadow:prodTab==="catalogo"?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
             Catálogo{products.length>0 && <span style={{ marginLeft:6, fontSize:12, opacity:.85 }}>{products.length}</span>}
           </button>
-          <button onClick={()=>setProdTab("stock")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="stock"?C.orange:"transparent", color:prodTab==="stock"?"#fff":C.t3, boxShadow:prodTab==="stock"?"0 3px 12px rgba(241,132,27,.35)":undefined, position:"relative" }}>
+          <button onClick={()=>setProdTab("stock")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="stock"?C.orange:"transparent", color:prodTab==="stock"?"#191513":C.t3, boxShadow:prodTab==="stock"?"0 3px 12px rgba(241,132,27,.35)":undefined, position:"relative" }}>
             Stock
-            {totalStock>0 && <span style={{ marginLeft:6, background:prodTab==="stock"?"rgba(255,255,255,.25)":C.orange, color:"#fff", borderRadius:C.rPill, padding:"1px 7px", fontSize:12, fontWeight:900 }}>{totalStock}</span>}
+            {totalStock>0 && <span style={{ marginLeft:6, background:prodTab==="stock"?"rgba(25,21,19,.25)":C.orange, color:"#191513", borderRadius:C.rPill, padding:"1px 7px", fontSize:12, fontWeight:900 }}>{totalStock}</span>}
           </button>
         </div>
 
@@ -2134,7 +2195,7 @@ export default function App() {
         {prodTab==="catalogo" && <>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
             <div style={{ fontSize:12, color:C.t3 }}>Toca <strong style={{ color:C.orange }}>+ Cola</strong> o <strong style={{ color:C.green }}>+ Stock</strong></div>
-            <button onClick={()=>{ setEditProduct(null); setProdForm({ name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"", category:"" }); setShowProductForm(true); }} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 14px rgba(241,132,27,.4)` }}>+ Nuevo</button>
+            <button onClick={()=>{ setEditProduct(null); setProdForm({ name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"", category:"" }); setShowProductForm(true); }} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 14px rgba(241,132,27,.4)` }}>+ Nuevo</button>
           </div>
           {/* Search bar */}
           <div style={{ position:"relative", marginBottom:12 }}>
@@ -2149,7 +2210,7 @@ export default function App() {
             return (
               <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4, marginBottom:12 }}>
                 {cats.map(cat=>(
-                  <button key={cat} onClick={()=>setProdCatFilter(cat)} style={{ padding:"7px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", flexShrink:0, background:prodCatFilter===cat?C.orange:C.bg3, color:prodCatFilter===cat?"#fff":C.t3, boxShadow:prodCatFilter===cat?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
+                  <button key={cat} onClick={()=>setProdCatFilter(cat)} style={{ padding:"7px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", flexShrink:0, background:prodCatFilter===cat?C.orange:C.bg3, color:prodCatFilter===cat?"#191513":C.t3, boxShadow:prodCatFilter===cat?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
                     {cat==="all"?"Todos":cat}
                     {cat!=="all" && <span style={{ marginLeft:5, fontSize:12, opacity:.8 }}>{products.filter(p=>p.category===cat).length}</span>}
                   </button>
@@ -2187,7 +2248,7 @@ export default function App() {
                         </div>
                         {/* Action buttons */}
                         <div style={{ display:"flex", gap:6 }}>
-                          <button onClick={()=>quickAddProduct(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)` }}>+ Cola</button>
+                          <button onClick={()=>quickAddProduct(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)` }}>+ Cola</button>
                           <button onClick={()=>addToStock(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.25)` }}>+ Stock</button>
                         </div>
                       </div>
@@ -2236,7 +2297,7 @@ export default function App() {
                             <div style={{ fontSize:22, fontWeight:900, color:C.purple, minWidth:28, textAlign:"center" }}>{item.qty}</div>
                             <button onClick={()=>prod&&addToStock(prod)} style={{ width:28, height:28, borderRadius:8, background:C.bg4, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:16, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
                           </div>
-                          <button onClick={()=>prod&&quickAddFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)`, whiteSpace:"nowrap" }}>→ Cola</button>
+                          <button onClick={()=>prod&&quickAddFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)`, whiteSpace:"nowrap" }}>→ Cola</button>
                           <button onClick={()=>sellFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.25)`, whiteSpace:"nowrap" }}>Vender</button>
                         </div>
                       </div>
@@ -2320,7 +2381,7 @@ export default function App() {
           const columnas = [...maquinas.map(p=>({ id:p.id, nombre:p.name, tipo:p.type, jobs:jobs.filter(j=>j.printer===p.id && j.jobType!=="design") })),
                             ...(sinMaquina.length?[{ id:"__diseno", nombre:"Diseño / sin máquina", tipo:"", jobs:sinMaquina }]:[])];
           const listos = [...done, ...shipping];
-          const BotonGrande = ({ onClick, children, bg, color="#fff" }) => (
+          const BotonGrande = ({ onClick, children, bg, color="#191513" }) => (
             <button onClick={onClick} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:10, minHeight:64, background:bg, color, border:"none", borderRadius:C.rMd, fontSize:20, fontWeight:900, cursor:"pointer" }}>{children}</button>
           );
           return (<>
@@ -2469,7 +2530,7 @@ export default function App() {
   ];
   const irA = (key) => { setView(key); setShowMas(false); if(key!=="clients")setSelectedClient(null); if(key!=="queue")setSortMode(false); };
   const Insignia = ({ n, urgente }) => !n ? null : (
-    <span aria-hidden="true" style={{ position:"absolute", top:-6, right:-10, background:urgente?C.red:C.orange, color:"#fff", fontSize:12, fontWeight:900, borderRadius:10, padding:"0 5px", minWidth:18, height:18, lineHeight:"18px", textAlign:"center", boxShadow:`0 0 0 2px ${C.bg0}` }}>{n}</span>
+    <span aria-hidden="true" style={{ position:"absolute", top:-6, right:-10, background:urgente?C.red:C.orange, color:urgente?"#fff":"#191513", fontSize:12, fontWeight:900, borderRadius:10, padding:"0 5px", minWidth:18, height:18, lineHeight:"18px", textAlign:"center", boxShadow:`0 0 0 2px ${C.bg0}` }}>{n}</span>
   );
 
   const views = {
@@ -2497,7 +2558,7 @@ export default function App() {
 
   const CartelPedido = () => !avisoNuevo ? null : (
     <div style={{ position:"fixed", top:"calc(env(safe-area-inset-top) + 12px)", left:12, right:12, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none" }}>
-      <div style={{ pointerEvents:"auto", width:"100%", maxWidth:560, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", borderRadius:C.r, padding:"16px 18px", boxShadow:"0 12px 40px rgba(0,0,0,.55)", display:"flex", alignItems:"center", gap:14, animation:"w3dEntra .35s ease-out" }}>
+      <div style={{ pointerEvents:"auto", width:"100%", maxWidth:560, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", borderRadius:C.r, padding:"16px 18px", boxShadow:"0 12px 40px rgba(0,0,0,.55)", display:"flex", alignItems:"center", gap:14, animation:"w3dEntra .35s ease-out" }}>
         <div style={{ fontSize:34 }}><Icono e="🛎" size={36} /></div>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:13, fontWeight:800, opacity:.9, textTransform:"uppercase", letterSpacing:.8 }}>
@@ -2508,8 +2569,8 @@ export default function App() {
           </div>
           {avisoNuevo.otros>0 && <div style={{ fontSize:12, fontWeight:700, opacity:.9 }}>y {avisoNuevo.otros} más</div>}
         </div>
-        <button onClick={()=>{ setAvisoNuevo(null); setKioskMode(false); setView("web"); }} style={{ background:"#fff", color:C.orangeD, border:"none", borderRadius:C.rSm, padding:"10px 14px", fontSize:14, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap" }}>Ver</button>
-        <button onClick={()=>setAvisoNuevo(null)} aria-label="Cerrar" style={{ background:"transparent", color:"#fff", border:"none", fontSize:22, cursor:"pointer", padding:"0 4px" }}>×</button>
+        <button onClick={()=>{ setAvisoNuevo(null); setKioskMode(false); setView("web"); }} style={{ background:"#191513", color:C.orange, border:"none", borderRadius:C.rSm, padding:"10px 14px", fontSize:14, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap" }}>Ver</button>
+        <button onClick={()=>setAvisoNuevo(null)} aria-label="Cerrar" style={{ background:"transparent", color:"#191513", border:"none", fontSize:22, cursor:"pointer", padding:"0 4px" }}>×</button>
       </div>
       <style>{`@keyframes w3dEntra{from{transform:translateY(-30px);opacity:0}to{transform:none;opacity:1}}`}</style>
     </div>
@@ -2535,14 +2596,20 @@ export default function App() {
           </div>
           <div style={{ display:"flex", gap:8 }}>
             <div style={{ display:"flex", borderRadius:C.rSm, overflow:"hidden", boxShadow:`0 3px 16px rgba(241,132,27,.4)` }}>
-              <button onClick={()=>{setMultiMode(false);setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
+              <button onClick={()=>{setMultiMode(false);setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
               <div style={{ width:1, background:"rgba(0,0,0,.3)" }} />
-              <button onClick={openMultiForm} title="Pedido con múltiples productos" style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", padding:"0 13px", height:38, fontSize:16, fontWeight:800, cursor:"pointer", lineHeight:1 }}>⊞</button>
+              <button onClick={openMultiForm} title="Pedido con múltiples productos" style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 13px", height:38, fontSize:16, fontWeight:800, cursor:"pointer", lineHeight:1 }}>⊞</button>
             </div>
           </div>
         </div>
       </div>
 
+      {!enLinea && (
+        <div role="status" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:C.redBg, borderBottom:`1px solid #5C1F14`, color:C.t1, fontSize:13, fontWeight:700, padding:"8px 14px", textAlign:"center" }}>
+          <WifiOff size={16} color={C.red} aria-hidden="true" />
+          Sin conexión · lo que hagas se guarda en este dispositivo y se sube solo cuando vuelva la señal
+        </div>
+      )}
       {/* ── BODY (sidebar + content) ── */}
       <div style={{ display:"flex", flex:1 }}>
 
@@ -2867,7 +2934,7 @@ export default function App() {
               <input style={inputSt} placeholder="Instrucciones especiales..." value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} />
             </FormField>
 
-            <button onClick={submitJob} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitJob} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               {editJob?"Guardar cambios":"Agregar a la cola"}
             </button>
             <button onClick={()=>{setShowForm(false);setEditJob(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -3021,7 +3088,7 @@ export default function App() {
               <input style={inputSt} placeholder="Instrucciones generales del pedido..." value={orderClient.notes} onChange={e=>setOrderClient(c=>({...c,notes:e.target.value}))} />
             </FormField>
 
-            <button onClick={submitOrder} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitOrder} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               Crear pedido ({orderItems.filter(x=>x.fileName.trim()).length} producto{orderItems.filter(x=>x.fileName.trim()).length!==1?"s":""})
             </button>
             <button onClick={()=>{setShowForm(false);setMultiMode(false);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -3057,7 +3124,7 @@ export default function App() {
                 ))}
               </div>
             </FormField>
-            <button onClick={submitP} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:6, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitP} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:6, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               {editP?"Guardar cambios":"Agregar impresora"}
             </button>
             <button onClick={()=>{setShowPForm(false);setEditP(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -3124,7 +3191,7 @@ export default function App() {
                 );
               })()}
             </FormField>
-            <button onClick={submitProduct} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#fff", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={submitProduct} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               {editProduct?"Guardar cambios":"Guardar producto"}
             </button>
             <button onClick={()=>{setShowProductForm(false);setEditProduct(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
@@ -3152,7 +3219,7 @@ export default function App() {
       {toast && (
         <div role="status" aria-live="polite" key={toast.id} style={{ position:"fixed", bottom: isMobile?"calc(env(safe-area-inset-bottom) + 84px)":24, left:"50%", transform:"translateX(-50%)", width:"max-content", maxWidth:"calc(100vw - 24px)", display:"flex", alignItems:"center", gap:14, background:toast.type==="err"?"#3A1510":"#2E1A0B", border:`1px solid ${toast.type==="err"?"#6B2A1F":"#6B3A12"}`, color:C.t1, padding: toast.deshacer?"8px 8px 8px 20px":"13px 22px", borderRadius:C.rPill, fontSize:15, fontWeight:700, zIndex:100, boxShadow:"0 10px 30px rgba(0,0,0,.5)", animation:"w3dSubeT .2s ease-out" }}>
           <span>{toast.msg}</span>
-          {toast.deshacer && <button onClick={()=>{ const f=toast.deshacer; setToast(null); clearTimeout(toastTimer.current); f(); }} style={{ background:C.orange, color:"#fff", border:"none", borderRadius:C.rPill, padding:"0 16px", minHeight:40, fontSize:14, fontWeight:900, cursor:"pointer" }}>Deshacer</button>}
+          {toast.deshacer && <button onClick={()=>{ const f=toast.deshacer; setToast(null); clearTimeout(toastTimer.current); f(); }} style={{ background:C.orange, color:"#191513", border:"none", borderRadius:C.rPill, padding:"0 16px", minHeight:40, fontSize:14, fontWeight:900, cursor:"pointer" }}>Deshacer</button>}
           <style>{`@keyframes w3dSubeT{from{transform:translate(-50%,12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}`}</style>
         </div>
       )}

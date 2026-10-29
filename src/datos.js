@@ -22,6 +22,7 @@ const memoria = {
     j5: { fileName: "Figura de capibara 12cm", printer: "p2", material: "PLA", color: "Café", weight: 70, duration: 0, remaining: 0, status: "done", quantity: 2, price: 120, unitPrice: 60, deposit: 60, clientName: "María Pérez", clientPhone: "76543210", createdAt: ahora - 30 * h, endedAt: ahora - 4 * h, priority: 5, deliveryAt: ahora + 2 * h },
     j6: { fileName: "Organizador de cafetería", printer: "p1", material: "PETG", color: "Rojo", weight: 140, duration: 0, remaining: 0, status: "shipping", quantity: 1, price: 95, unitPrice: 95, deposit: 95, clientName: "Carla Suárez", clientPhone: "70011223", createdAt: ahora - 50 * h, endedAt: ahora - 20 * h, priority: 6 },
     j7: { fileName: "Busto de Vecna pintado", printer: "", jobType: "design", material: "", color: "", weight: 0, duration: 240, remaining: 240, status: "pending", quantity: 1, price: 350, unitPrice: 350, deposit: 150, clientName: "Luis Vaca", clientPhone: "71234567", createdAt: ahora - 8 * h, priority: 7 },
+    j9: { fileName: "Llaveros con logo", printer: "p2", material: "PLA", color: "Negro", weight: 8, duration: 20, remaining: 0, status: "shipped", quantity: 10, price: 150, unitPrice: 15, deposit: 50, clientName: "Jose Luis Moya", clientPhone: "79060710", createdAt: ahora - 200 * h, shippedAt: ahora - 2 * h, priority: 9 },
     j8: { fileName: "Cortagalletas hombre de jengibre", printer: "p2", material: "PLA", color: "Blanco", weight: 15, duration: 0, remaining: 0, status: "shipped", quantity: 6, price: 90, unitPrice: 15, deposit: 90, clientName: "Repostería Dulce", clientPhone: "77001122", createdAt: ahora - 100 * h, endedAt: ahora - 90 * h, shippedAt: ahora - 80 * h, priority: 8 },
   },
   products: {
@@ -36,7 +37,18 @@ const oyentes = [];
 const avisar = (col) => oyentes.filter(o => o.col === col).forEach(o => o.cb(foto(col)));
 const foto = (col) => ({ docs: Object.entries(memoria[col] || {}).map(([id, d]) => ({ id, data: () => ({ ...d }) })) });
 
-export const getFirestore = DEMO ? () => ({ demo: true }) : fs.getFirestore;
+// Sin conexión: la cola se guarda en el dispositivo (IndexedDB). Si se corta el wifi del taller se sigue viendo
+// y lo que tocás se guarda al instante; se sube solo cuando vuelve la señal. Funciona aunque haya varias pestañas abiertas.
+export const getFirestore = DEMO ? () => ({ demo: true }) : (app) => {
+  try {
+    return fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) });
+  } catch (e) {
+    return fs.getFirestore(app);   // ya estaba iniciada (recarga en caliente) o el navegador no permite guardar
+  }
+};
+// Firestore aplica el cambio en el dispositivo al instante, pero la promesa espera al servidor.
+// Sin conexión eso es "para siempre": damos por guardado a los 1,5 s y el envío sigue en segundo plano.
+const sinEsperarRed = (p) => Promise.race([p, new Promise(r => setTimeout(r, 1500))]).catch(e => { console.error("No se pudo guardar:", e); throw e; });
 export const collection = DEMO ? (_db, col) => ({ col }) : fs.collection;
 export const doc = DEMO ? (_db, col, id) => ({ col, id }) : fs.doc;
 export const onSnapshot = DEMO
@@ -44,13 +56,13 @@ export const onSnapshot = DEMO
   : fs.onSnapshot;
 export const addDoc = DEMO
   ? async (ref, data) => { const id = "d" + (++sec); (memoria[ref.col] = memoria[ref.col] || {})[id] = data; avisar(ref.col); return { id }; }
-  : fs.addDoc;
+  : (ref, data) => { const r = fs.doc(ref); return sinEsperarRed(fs.setDoc(r, data)).then(() => r); };  // id generado en el dispositivo
 export const setDoc = DEMO
   ? async (ref, data) => { (memoria[ref.col] = memoria[ref.col] || {})[ref.id] = data; avisar(ref.col); }
-  : fs.setDoc;
+  : (...a) => sinEsperarRed(fs.setDoc(...a));
 export const updateDoc = DEMO
   ? async (ref, data) => { const c = memoria[ref.col] || {}; c[ref.id] = { ...(c[ref.id] || {}), ...data }; avisar(ref.col); }
-  : fs.updateDoc;
+  : (...a) => sinEsperarRed(fs.updateDoc(...a));
 export const deleteDoc = DEMO
   ? async (ref) => { delete (memoria[ref.col] || {})[ref.id]; avisar(ref.col); }
-  : fs.deleteDoc;
+  : (...a) => sinEsperarRed(fs.deleteDoc(...a));
