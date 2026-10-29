@@ -11,7 +11,7 @@ import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedid
 import WebView from "./WebView";
 import LoginView from "./LoginView";
 import Icono from "./Icono";
-import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, Wallet } from "lucide-react";
+import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, Wallet, Search, Banknote, QrCode, MessageCircle, Plus } from "lucide-react";
 import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
 const firebaseConfig = {
@@ -88,6 +88,13 @@ const EN_PRODUCCION = ["pending", "printing", "paused"];
 const finDelDia = () => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); };
 const esAtrasado = (j) => EN_PRODUCCION.includes(j.status) && !!j.deliveryAt && Number(j.deliveryAt) < Date.now();
 const esParaHoy = (j) => j.status !== "shipped" && !!j.deliveryAt && Number(j.deliveryAt) >= Date.now() && Number(j.deliveryAt) <= finDelDia();
+// Plata de un trabajo. Al entregar se puede marcar "queda debiendo" (debe: true): sigue en Por cobrar hasta que se cobre.
+const saldoDe = (j) => Math.max(0, (Number(j?.price) || 0) - (Number(j?.deposit) || 0));
+const porCobrarDe = (j) => j.status === "shipped" ? (j.debe ? saldoDe(j) : 0) : saldoDe(j);
+const DIA = 86400000;
+// Listo hace más de 3 días y nadie lo recogió
+const sinRecoger = (j) => ["done", "shipping"].includes(j.status) && j.jobType !== "design" && !!j.endedAt && Date.now() - Number(j.endedAt) > 3 * DIA;
+const haceDias = (ts) => { const d = Math.floor((Date.now() - Number(ts)) / DIA); return d <= 0 ? "hoy" : d === 1 ? "ayer" : `hace ${d} días`; };
 const fmtMoney = (n) => `Bs. ${Number(n||0).toFixed(2)}`;
 const startOfDay = (d=new Date()) => { const x=new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
 const startOfMonth = (d=new Date()) => new Date(d.getFullYear(),d.getMonth(),1).getTime();
@@ -301,6 +308,18 @@ export default function App() {
     return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
   }, []);
   const [selectedClient, setSelectedClient] = useState(null);
+  // Buscador rápido (lupa del encabezado, o "/" en teclado)
+  const [showBuscar, setShowBuscar] = useState(false);
+  const [buscarQ, setBuscarQ] = useState("");
+  useEffect(() => {
+    const tecla = (e) => {
+      const escribiendo = /input|textarea|select/i.test(e.target?.tagName || "") || e.target?.isContentEditable;
+      if ((e.key === "/" && !escribiendo) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) { e.preventDefault(); setBuscarQ(""); setShowBuscar(true); }
+      else if (e.key === "Escape") setShowBuscar(false);
+    };
+    window.addEventListener("keydown", tecla);
+    return () => window.removeEventListener("keydown", tecla);
+  }, []);
   const [sortMode, setSortMode] = useState(false);
   const [queueViewMode, setQueueViewMode] = useState("detail"); // "detail" | "summary" | "calendar"
   const [queueSearch, setQueueSearch] = useState("");
@@ -592,7 +611,9 @@ export default function App() {
       const dur = Number(j.duration) || 0, falta = (Number(j.remaining) || 0) - Math.floor(Math.max(0, ahora - j.runStart) / 60000);
       if (dur > 0 && falta <= 0) {
         cerrando.current.add(j.id);
-        updateDoc(doc(db,"jobs",j.id),{status:"done",endedAt:Date.now(),remaining:0,runStart:null}).finally(()=>cerrando.current.delete(j.id));
+        // finAuto = endedAt: marca que terminó solo (por el contador). El aviso de Telegram usa esa marca.
+        const fin = Date.now();
+        updateDoc(doc(db,"jobs",j.id),{status:"done",endedAt:fin,finAuto:fin,remaining:0,runStart:null}).finally(()=>cerrando.current.delete(j.id));
       }
     });
   }, [jobsDb, ahora]);
@@ -841,7 +862,7 @@ export default function App() {
   });
 
   // Cambio de estado con Deshacer (5 s): se guarda cómo estaba el trabajo y Deshacer lo deja igual
-  const CAMPOS_ESTADO = ["status","remaining","runStart","startedAt","endedAt","shippedAt"];
+  const CAMPOS_ESTADO = ["status","remaining","runStart","startedAt","endedAt","shippedAt","debe","pagoSaldo","saldoCobradoAt","finAuto"];
   const cambiarEstadoJ = (id, cambios, msg) => {
     const antes = jobsDb.find(x=>x.id===id);
     updateDoc(doc(db,"jobs",id), cambios);
@@ -855,9 +876,27 @@ export default function App() {
   const resumeJ = (id) => cambiarEstadoJ(id, {status:"printing",runStart:Date.now()}, "Impresión reanudada");
   const completeJ= (id) => cambiarEstadoJ(id, {status:"done",endedAt:Date.now(),remaining:0,runStart:null}, "Listo para entregar");
   const toShipJ = (id) => cambiarEstadoJ(id, {status:"shipping"}, "Marcado para envío");
+  // Entregar: si falta cobrar algo, primero pregunta si lo cobraste (efectivo o QR) o si queda debiendo
+  const [cobro, setCobro] = useState(null);   // { job, modo: "entrega" | "deuda" }
   const shippedJ= (id,job) => {
-    const total=Number(job?.price)||0,dep=Number(job?.deposit)||0,pend=total-dep;
-    cambiarEstadoJ(id, {status:"shipped",shippedAt:Date.now()}, dep>0&&pend>0 ? `Entregado · cobrar ${fmtMoney(pend)}` : "Entregado");
+    const j = job || jobs.find(x=>x.id===id);
+    if (j && saldoDe(j) > 0) { setCobro({ job:j, modo:"entrega" }); return; }
+    cambiarEstadoJ(id, {status:"shipped",shippedAt:Date.now(),debe:false}, "Entregado");
+  };
+  const cobrarDeuda = (job) => setCobro({ job, modo:"deuda" });
+  const resolverCobro = (metodo) => {   // metodo: "efectivo" | "qr" | null (queda debiendo)
+    if (!cobro) return;
+    const { job, modo } = cobro, t = Date.now(), monto = fmtMoney(saldoDe(job));
+    setCobro(null);
+    if (modo === "deuda") {
+      if (!metodo) return;
+      cambiarEstadoJ(job.id, {debe:false,pagoSaldo:metodo,saldoCobradoAt:t}, `Cobrado ${monto} (${metodo==="qr"?"QR":"efectivo"})`);
+      return;
+    }
+    cambiarEstadoJ(job.id, metodo
+      ? {status:"shipped",shippedAt:t,debe:false,pagoSaldo:metodo,saldoCobradoAt:t}
+      : {status:"shipped",shippedAt:t,debe:true,pagoSaldo:null,saldoCobradoAt:null},
+      metodo ? `Entregado · cobraste ${monto}` : `Entregado · queda debiendo ${monto}`);
   };
   // jobsDb guarda los datos tal cual (sin el tiempo restante recalculado)
   const deleteJ = (id) => { borrarConDeshacer("jobs", id, jobsDb.find(x=>x.id===id), "Trabajo eliminado"); setConfirmDel(null); };
@@ -897,9 +936,10 @@ export default function App() {
   // El adelanto se cuenta el día que se tomó el pedido; el saldo (precio − adelanto), el día que se entregó.
   const cobradoEntre = (desde, hasta = Infinity) => jobs.reduce((s,j) => {
     const precio = Number(j.price)||0, adel = Math.min(Number(j.deposit)||0, precio || Infinity);
-    const tPedido = j.createdAt||0, tEntrega = j.shippedAt||j.endedAt||j.createdAt||0;
+    const tPedido = j.createdAt||0, tSaldo = j.saldoCobradoAt||j.shippedAt||j.endedAt||j.createdAt||0;
     if (adel>0 && tPedido>=desde && tPedido<hasta) s += adel;
-    if (j.status==="shipped" && precio>adel && tEntrega>=desde && tEntrega<hasta) s += precio-adel;
+    // El saldo cuenta el día que lo cobraste (al entregar, o después si quedó debiendo)
+    if (j.status==="shipped" && !j.debe && precio>adel && tSaldo>=desde && tSaldo<hasta) s += precio-adel;
     return s;
   }, 0);
   const cobradoHoy = cobradoEntre(startOfDay()), cobradoMes = cobradoEntre(startOfMonth());
@@ -937,6 +977,20 @@ export default function App() {
     if(!clientMap[k].phone&&j.clientPhone) clientMap[k].phone=j.clientPhone;
   });
   const clients = Object.values(clientMap).map(c=>({...c,totalJobs:c.jobs.length,totalRevenue:c.jobs.filter(j=>j.price).reduce((s,j)=>s+Number(j.price),0),completed:c.jobs.filter(j=>j.status==="shipped").length,active:c.jobs.filter(j=>["pending","printing","paused"].includes(j.status)).length,lastJob:Math.max(...c.jobs.map(j=>j.createdAt||0))})).sort((a,b)=>b.lastJob-a.lastJob);
+
+  const claveCliente = (j) => { const n=normNombre(j?.clientName); if(!n) return null; const t=normTel(j.clientPhone)||telDeNombre[n]||""; return t?"tel:"+t:"nom:"+n; };
+  const abrirCliente = (j) => { const k=claveCliente(j); if(!k) return; setSelectedClient(k); setShowBuscar(false); setShowMas(false); setKioskMode(false); setView("clients"); };
+  // Recordatorio por WhatsApp a quien no recogió su pedido (queda anotado cuándo se le recordó)
+  const recordarRecojo = (job) => {
+    if (!job.clientPhone) return;
+    const fecha = new Date(Number(job.endedAt)).toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
+    const saldo = porCobrarDe(job);
+    const msg = `Hola ${job.clientName||""}! Te escribimos de WORLD3D 👋 Tu pedido *${job.fileName}* está listo desde el ${fecha}. ¿Cuándo podrías pasar a recogerlo?${saldo>0?` Queda un saldo de Bs ${saldo.toFixed(2)}.`:""}`;
+    window.open(`https://wa.me/${job.clientPhone.replace(/\D/g,"")}?text=${encodeURIComponent(msg)}`,"_blank","noopener,noreferrer");
+    updateDoc(doc(db,"jobs",job.id),{recordadoAt:Date.now()});
+  };
+  const listosSinRecoger = jobs.filter(sinRecoger).sort((a,b)=>(a.endedAt||0)-(b.endedAt||0));
+  const deudores = jobs.filter(j=>j.status==="shipped"&&j.debe&&saldoDe(j)>0).sort((a,b)=>(a.shippedAt||0)-(b.shippedAt||0));
 
   const todayDeliveries = (() => { const dayStart=startOfDay(); return jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=dayStart&&j.deliveryAt<dayStart+86400000&&j.status!=="shipped").sort((a,b)=>a.deliveryAt-b.deliveryAt); })();
   const upcomingDeliveries = (() => { const dayEnd=startOfDay()+86400000; return jobs.filter(j=>j.deliveryAt&&j.deliveryAt>=dayEnd&&j.deliveryAt<startOfDay()+7*86400000&&j.status!=="shipped").sort((a,b)=>a.deliveryAt-b.deliveryAt); })();
@@ -977,9 +1031,37 @@ export default function App() {
       if(job.status==="paused")    return {label:"Reanudar",fn:()=>resumeJ(job.id),bg:naranja,shadow:sombra};
       if(job.status==="done")      return {label:"Listo para envío",fn:()=>toShipJ(job.id),bg:"#FFF0DE",color:"#191513",shadow:"none"};
       if(job.status==="shipping")  return {label:"Marcar como entregado",fn:()=>shippedJ(job.id,job),bg:"#FFF7F3",color:"#191513",shadow:"none"};
+      if(job.status==="shipped"&&job.debe) return {label:`Cobrar saldo ${fmtMoney(saldoDe(job))}`,fn:()=>cobrarDeuda(job),bg:naranja,shadow:sombra};
       return null;
     };
     const action = primaryAction();
+    // Deslizar con el dedo: a la derecha hace la acción principal, a la izquierda pausa (si está imprimiendo).
+    // Sin hooks (JobCard se llama como función): el arrastre se guarda en el propio elemento.
+    const puedeDeslizar = !showPriority && (!!action || isPrinting);
+    const capas = (el) => [el.querySelector("[data-capa]"), el.querySelector("[data-pista]")];
+    const soltar = (el) => { const [capa, pista] = capas(el); if (capa) { capa.style.transition = "transform .2s"; capa.style.transform = "none"; } if (pista) pista.style.opacity = 0; };
+    const gestos = !puedeDeslizar ? {} : {
+      onTouchStart: (e) => { const t = e.touches[0]; e.currentTarget._g = { x:t.clientX, y:t.clientY, dx:0, eje:null }; },
+      onTouchMove: (e) => {
+        const el = e.currentTarget, g = el._g; if (!g) return;
+        const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+        if (!g.eje) { if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return; g.eje = Math.abs(dx) > Math.abs(dy) * 1.3 ? "x" : "y"; }
+        if (g.eje !== "x") return;
+        let d = dx; if (d > 0 && !action) d = 0; if (d < 0 && !isPrinting) d = 0;
+        d = Math.max(-140, Math.min(140, d)); g.dx = d;
+        const [capa, pista] = capas(el);
+        capa.style.transition = "none"; capa.style.transform = `translateX(${d}px)`;
+        pista.style.opacity = 1;
+        pista.children[0].style.opacity = d > 0 ? Math.min(1, d / 90) : 0;
+        pista.children[1].style.opacity = d < 0 ? Math.min(1, -d / 90) : 0;
+      },
+      onTouchEnd: (e) => {
+        const el = e.currentTarget, g = el._g; el._g = null; soltar(el);
+        if (!g || g.eje !== "x") return;
+        if (g.dx >= 90 && action) action.fn(); else if (g.dx <= -90 && isPrinting) pauseJ(job.id);
+      },
+      onTouchCancel: (e) => { e.currentTarget._g = null; soltar(e.currentTarget); },
+    };
 
     return (
       <div style={{ display:"flex", gap:0, marginBottom:10 }}>
@@ -990,7 +1072,14 @@ export default function App() {
             <button onClick={()=>movePriority(job.id,+1)} disabled={idx===total-1} style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===total-1?"not-allowed":"pointer", fontSize:12, color:idx===total-1?C.bg5:C.t2, opacity:idx===total-1?.3:1 }}>▼</button>
           </div>
         )}
-        <div style={{ flex:1, background:isHighlighted?C.orangeBg:C.bg2, borderRadius:showPriority?`0 ${C.r}px ${C.r}px 0`:C.r, border:`1px solid ${isHighlighted?C.orange:isPrinting?STATUS.printing.border:isPaused?STATUS.paused.border:C.bg4}`, overflow:"hidden", transition:"border-color .3s,background .3s", position:"relative" }}>
+        <div {...gestos} style={{ flex:1, minWidth:0, position:"relative", touchAction:puedeDeslizar?"pan-y":undefined }}>
+        {puedeDeslizar && (
+          <div data-pista aria-hidden="true" style={{ position:"absolute", inset:0, borderRadius:C.r, background:C.bg3, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 18px", opacity:0, fontSize:14, fontWeight:900 }}>
+            <span style={{ color:C.orange, opacity:0 }}>{action ? `${action.label} →` : ""}</span>
+            <span style={{ color:C.t2, opacity:0 }}>← Pausar</span>
+          </div>
+        )}
+        <div data-capa style={{ background:isHighlighted?C.orangeBg:C.bg2, borderRadius:showPriority?`0 ${C.r}px ${C.r}px 0`:C.r, border:`1px solid ${isHighlighted?C.orange:isPrinting?STATUS.printing.border:isPaused?STATUS.paused.border:C.bg4}`, overflow:"hidden", transition:"border-color .3s,background .3s", position:"relative" }}>
           {/* Left status accent bar */}
           <div style={{ position:"absolute", left:0, top:0, bottom:0, width:4, background:isDesign?"#E9521E":st.dot, borderRadius:"4px 0 0 4px", opacity:0.9 }} />
 
@@ -1035,6 +1124,15 @@ export default function App() {
             {job.status==="shipped"&&job.shippedAt && <div style={{ fontSize:12, color:C.teal, marginBottom:8 }}>Entregado el {fmtDate(job.shippedAt)}</div>}
             {job.status==="done"&&job.endedAt && <div style={{ fontSize:12, color:C.t3, marginBottom:8 }}>Terminado el {fmtDate(job.endedAt)}</div>}
             {isPaused && <div style={{ fontSize:12, color:STATUS.paused.color, marginBottom:8 }}>En pausa — toca Reanudar para continuar</div>}
+            {sinRecoger(job) && (
+              <div style={{ display:"flex", alignItems:"center", gap:10, background:C.yellowBg, border:"1px solid #4A3F36", borderRadius:C.rSm, padding:"8px 8px 8px 12px", marginBottom:10 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:C.yellow }}>Listo {haceDias(job.endedAt)} · no lo recogieron</div>
+                  {job.recordadoAt && <div style={{ fontSize:12, color:C.t3 }}>Le recordaste {haceDias(job.recordadoAt)}</div>}
+                </div>
+                {job.clientPhone && <button onClick={()=>recordarRecojo(job)} style={{ display:"flex", alignItems:"center", gap:6, background:C.waBg, color:C.wa, border:"1px solid #6B3A12", borderRadius:C.rSm, padding:"0 12px", minHeight:40, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}><MessageCircle size={16} aria-hidden="true" />Recordar</button>}
+              </div>
+            )}
 
             {/* Client + price */}
             {!compact&&!resumida&&(job.clientName||job.price) && (
@@ -1042,18 +1140,19 @@ export default function App() {
                 {job.clientName && (
                   <div>
                     <div style={{ fontSize:12, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:2 }}>Cliente</div>
-                    <div style={{ fontSize:14, color:C.t1, fontWeight:700 }}>{job.clientName}</div>
+                    <button onClick={()=>abrirCliente(job)} style={{ fontSize:14, color:C.t1, fontWeight:700, background:"none", border:"none", padding:0, minHeight:0, minWidth:0, cursor:"pointer", textAlign:"left", textDecoration:"underline", textDecorationColor:C.bg5, textUnderlineOffset:3 }}>{job.clientName}</button>
                     {job.clientPhone && <div style={{ fontSize:12, color:C.t3 }}>{job.clientPhone}</div>}
                   </div>
                 )}
                 {job.price&&(()=>{
-                  const total=Number(job.price)||0, dep=Number(job.deposit)||0, pend=job.status==="shipped"?0:total-dep;
+                  const total=Number(job.price)||0, dep=Number(job.deposit)||0, pend=porCobrarDe(job);
                   return (
                     <div style={{ marginLeft:"auto", textAlign:"right" }}>
                       <div style={{ fontSize:12, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:3 }}>{qty>1?`×${qty} unidades`:"Total"}</div>
                       <div style={{ fontSize:20, color:C.green, fontWeight:900, letterSpacing:-.5 }}>{fmtMoney(total)}</div>
                       {qty>1&&job.unitPrice && <div style={{ fontSize:12, color:C.t3 }}>{fmtMoney(job.unitPrice)} c/u</div>}
-                      {job.status==="shipped" ? <div style={{ fontSize:12, color:C.green, fontWeight:700, marginTop:3 }}>Cobrado</div>
+                      {job.status==="shipped"&&job.debe ? <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:3 }}>Debe: {fmtMoney(pend)}</div>
+                        : job.status==="shipped" ? <div style={{ fontSize:12, color:C.green, fontWeight:700, marginTop:3 }}>Cobrado{job.pagoSaldo?` · ${job.pagoSaldo==="qr"?"QR":"efectivo"}`:""}</div>
                         : dep>0 ? <div style={{ marginTop:4 }}>
                             <div style={{ fontSize:12, color:"#F1841B" }}>Adelanto: {fmtMoney(dep)}</div>
                             {pend>0 && <div style={{ fontSize:12, color:C.yellow, fontWeight:800 }}>Cobrar: {fmtMoney(pend)}</div>}
@@ -1066,12 +1165,13 @@ export default function App() {
               </div>
             )}
             {(compact||resumida)&&(job.price||job.clientName)&&(()=>{
-              const total=Number(job.price)||0,dep=Number(job.deposit)||0,pend=job.status==="shipped"?0:total-dep;
+              const total=Number(job.price)||0,dep=Number(job.deposit)||0,pend=porCobrarDe(job);
               return (
                 <div style={{ marginBottom:8, display:"flex", flexWrap:"wrap", alignItems:"baseline", columnGap:8 }}>
-                  {resumida && job.clientName && <span style={{ fontSize:14, color:C.t1, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"55%" }}>{job.clientName}</span>}
+                  {resumida && job.clientName && <button onClick={()=>abrirCliente(job)} style={{ fontSize:14, color:C.t1, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"55%", background:"none", border:"none", padding:0, minHeight:0, minWidth:0, cursor:"pointer", textDecoration:"underline", textDecorationColor:C.bg5, textUnderlineOffset:3 }}>{job.clientName}</button>}
                   <span style={{ fontSize:14,color:C.green,fontWeight:800 }}>{fmtMoney(total)}{qty>1?` (×${qty})`:""}</span>
-                  {job.status==="shipped"?<span style={{ fontSize:12,color:C.green,fontWeight:700,marginLeft:8 }}>Cobrado</span>
+                  {job.status==="shipped"&&job.debe?<span style={{ fontSize:12,color:C.yellow,fontWeight:800,marginLeft:8 }}>Debe: {fmtMoney(pend)}</span>
+                    :job.status==="shipped"?<span style={{ fontSize:12,color:C.green,fontWeight:700,marginLeft:8 }}>Cobrado</span>
                     :pend>0?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>Cobrar: {fmtMoney(pend)}</span>
                     :total>0&&!dep?<span style={{ fontSize:12,color:C.yellow,fontWeight:700,marginLeft:8 }}>Cobrar: {fmtMoney(total)}</span>:null}
                 </div>
@@ -1160,6 +1260,7 @@ export default function App() {
               {!compact && <button onClick={()=>setConfirmDel(job.id)} style={{ width:38, padding:"9px 0", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:14, cursor:"pointer" }}><Icono e="🗑" /></button>}
             </div>}
           </div>
+        </div>
         </div>
       </div>
     );
@@ -1274,12 +1375,34 @@ export default function App() {
             </div>
             <div style={{ height:1, background:C.bg4, margin:"13px 0" }} />
             <div style={{ display:"flex", gap:20 }}>
-              {[["Pedidos este mes",jobs.filter(j=>(j.createdAt||0)>=startOfMonth()).length],["Entregados este mes",jobs.filter(j=>j.status==="shipped"&&(j.shippedAt||0)>=startOfMonth()).length],["Por cobrar",fmtMoney(jobs.filter(j=>j.status!=="shipped").reduce((t,j)=>t+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0))]].map(([l,v])=>(
+              {[["Pedidos este mes",jobs.filter(j=>(j.createdAt||0)>=startOfMonth()).length],["Entregados este mes",jobs.filter(j=>j.status==="shipped"&&(j.shippedAt||0)>=startOfMonth()).length],["Por cobrar",fmtMoney(jobs.reduce((t,j)=>t+porCobrarDe(j),0))]].map(([l,v])=>(
                 <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{v}</div></div>
               ))}
             </div>
           </div>
         </div>
+        {(listosSinRecoger.length>0||deudores.length>0) && (<>
+          {SectionLabel({color:C.yellow, dot:C.yellow, children:<>Para hacer seguimiento</>})}
+          <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:18 }}>
+            {[...listosSinRecoger.map(j=>({j, tipo:"recoger"})), ...deudores.map(j=>({j, tipo:"deuda"}))].slice(0, lim("seguimiento")).map(({j, tipo})=>(
+              <div key={tipo+j.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 10px 10px 14px", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.rSm }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}</div>
+                  <div style={{ fontSize:12, color:C.t3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                    {j.clientName ? <button onClick={()=>abrirCliente(j)} style={{ background:"none", border:"none", padding:0, minHeight:0, minWidth:0, color:C.t2, fontSize:12, fontWeight:700, cursor:"pointer", textDecoration:"underline", textDecorationColor:C.bg5, textUnderlineOffset:3 }}>{j.clientName}</button> : "Sin cliente"}
+                    {tipo==="recoger"
+                      ? <span style={{ color:C.yellow }}> · listo {haceDias(j.endedAt)}{j.recordadoAt?` · recordado ${haceDias(j.recordadoAt)}`:""}</span>
+                      : <span style={{ color:C.yellow }}> · debe {fmtMoney(saldoDe(j))} · entregado {haceDias(j.shippedAt)}</span>}
+                  </div>
+                </div>
+                {tipo==="recoger"
+                  ? (j.clientPhone && <button onClick={()=>recordarRecojo(j)} style={{ display:"flex", alignItems:"center", gap:6, background:C.waBg, color:C.wa, border:"1px solid #6B3A12", borderRadius:C.rSm, padding:"0 12px", minHeight:40, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}><MessageCircle size={16} aria-hidden="true" />Recordar</button>)
+                  : <button onClick={()=>cobrarDeuda(j)} style={{ display:"flex", alignItems:"center", gap:6, background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, padding:"0 12px", minHeight:40, fontSize:13, fontWeight:900, cursor:"pointer", flexShrink:0 }}><Banknote size={16} aria-hidden="true" />Cobrar</button>}
+              </div>
+            ))}
+            {VerMas("seguimiento", listosSinRecoger.length+deudores.length)}
+          </div>
+        </>)}
         {printing.length>0 && (<>
           {SectionLabel({color:C.green, dot:C.green, children:<>Imprimiendo ahora</>})}
           <div className="cards-grid">{printing.map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>
@@ -1792,6 +1915,13 @@ export default function App() {
             <div style={{ fontSize:12, color:C.teal, fontWeight:800, marginTop:5 }}>Ya entregados</div>
             {shipFilter==="shipped" && <div style={{ width:28, height:3, background:C.teal, borderRadius:3, marginTop:8 }} />}
           </div>
+          {deudores.length>0 && (
+          <div onClick={()=>setShipFilter("deben")} style={{ background:C.yellowBg, border:`2px solid ${shipFilter==="deben"?C.yellow:"#4A3F36"}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
+            <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{fmtMoney(deudores.reduce((t,j)=>t+saldoDe(j),0))}</div>
+            <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:5 }}>Te deben · {deudores.length} entrega{deudores.length!==1?"s":""}</div>
+            {shipFilter==="deben" && <div style={{ width:28, height:3, background:C.yellow, borderRadius:3, marginTop:8 }} />}
+          </div>
+          )}
         </div>
 
         {/* Search bar */}
@@ -1811,10 +1941,15 @@ export default function App() {
         {/* Results count when searching */}
         {shipSearch.trim() && (
           <div style={{ fontSize:12, color:C.t3, marginBottom:10, fontWeight:700 }}>
-            {(shipFilter==="pending"?pendingSorted:deliveredSorted).length} resultado{(shipFilter==="pending"?pendingSorted:deliveredSorted).length!==1?"s":""} para "{shipSearch}"
+            {(shipFilter==="pending"?pendingSorted:shipFilter==="deben"?applySearch(deudores):deliveredSorted).length} resultado{(shipFilter==="pending"?pendingSorted:shipFilter==="deben"?applySearch(deudores):deliveredSorted).length!==1?"s":""} para "{shipSearch}"
           </div>
         )}
 
+        {shipFilter==="deben" && (
+          applySearch(deudores).length===0
+            ? <Empty icon="💰" title="Nadie te debe" sub="Cuando entregues algo sin cobrar el saldo, aparece aquí" />
+            : <div className="cards-grid">{applySearch(deudores).map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>
+        )}
         {/* Pending list */}
         {shipFilter==="pending" && (
           pendingSorted.length===0
@@ -1852,8 +1987,13 @@ export default function App() {
       const c = clients.find(x=>x.key===selectedClient);
       if (!c) return null;
       const wa = c.phone ? `https://wa.me/${c.phone.replace(/\D/g,"")}` : null;
-      const totalDeposits = c.jobs.filter(j=>j.deposit).reduce((s,j)=>s+Number(j.deposit),0);
-      const totalPending = c.jobs.filter(j=>j.status!=="shipped").reduce((s,j)=>s+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0);
+      const totalPending = c.jobs.reduce((s,j)=>s+porCobrarDe(j),0);
+      const desde = Math.min(...c.jobs.map(j=>j.createdAt||Date.now()));
+      const conteo = {}; c.jobs.forEach(j=>{ const n=(j.fileName||"").replace(/\s*\(copia\)$/,"").trim(); if(n) conteo[n]=(conteo[n]||0)+(Number(j.quantity)||1); });
+      const favoritos = Object.entries(conteo).sort((a,b)=>b[1]-a[1]).slice(0,3);
+      const debeC = c.jobs.filter(j=>j.status==="shipped"&&j.debe&&saldoDe(j)>0);
+      const sinRecogerC = c.jobs.filter(sinRecoger);
+      const nuevoPedido = () => { setMultiMode(false); setEditJob(null); setForm({...J0, printer:printers[0]?.id??"", clientName:c.name, clientPhone:c.phone||""}); setShowForm(true); };
       return (
         <div className="view-pad" style={{ maxWidth:isDesktop?1000:isTablet?700:"100%", margin:"0 auto" }}>
           <button onClick={()=>setSelectedClient(null)} style={{ background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:16 }}>← Volver</button>
@@ -1864,17 +2004,33 @@ export default function App() {
                 <div style={{ fontSize:19, fontWeight:900, color:C.t1 }}>{c.name}</div>
                 {c.phone && <div style={{ fontSize:13, color:C.t3, marginTop:2 }}>{c.phone}</div>}
               </div>
-              {wa && <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, padding:"10px 16px", fontSize:13, fontWeight:800, cursor:"pointer" }}>WA</button>}
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
-              {[["Pedidos",c.totalJobs],["Adelantos",totalDeposits>0?`Bs.${totalDeposits.toFixed(0)}`:"—"],["Por cobrar",totalPending>0?`Bs.${totalPending.toFixed(0)}`:"0"]].map(([l,v])=>(
-                <div key={l} style={{ background:C.bg3, borderRadius:C.rSm, padding:"13px 8px", textAlign:"center" }}>
-                  <div style={{ fontSize:20, fontWeight:900, color:C.t1 }}>{v}</div>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:8, marginBottom:14 }}>
+              {[["Pedidos",c.totalJobs],["Gastó en total",fmtMoney(c.totalRevenue)],["Por cobrar",totalPending>0?fmtMoney(totalPending):"Nada",totalPending>0],["Cliente desde",new Date(desde).toLocaleDateString("es-ES",{month:"short",year:"numeric"})]].map(([l,v,alerta])=>(
+                <div key={l} style={{ background:alerta?C.yellowBg:C.bg3, borderRadius:C.rSm, padding:"13px 8px", textAlign:"center" }}>
+                  <div style={{ fontSize:18, fontWeight:900, color:alerta?C.yellow:C.t1 }}>{v}</div>
                   <div style={{ fontSize:12, color:C.t3, marginTop:3, fontWeight:700 }}>{l}</div>
                 </div>
               ))}
             </div>
+            {favoritos.length>0 && <div style={{ fontSize:13, color:C.t2, marginBottom:14 }}><b style={{ color:C.t3 }}>Lo que más pide:</b> {favoritos.map(([n,k])=>`${n} ×${k}`).join(" · ")}</div>}
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              <button onClick={nuevoPedido} style={{ flex:1, minWidth:150, display:"flex", alignItems:"center", justifyContent:"center", gap:8, minHeight:46, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:900, cursor:"pointer" }}><Plus size={18} aria-hidden="true" />Nuevo pedido</button>
+              {wa && <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ flex:1, minWidth:150, display:"flex", alignItems:"center", justifyContent:"center", gap:8, minHeight:46, background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, fontSize:14, fontWeight:800, cursor:"pointer" }}><MessageCircle size={18} aria-hidden="true" />WhatsApp</button>}
+            </div>
           </div>
+          {debeC.map(j=>(
+            <div key={j.id} style={{ display:"flex", alignItems:"center", gap:10, background:C.yellowBg, border:"1px solid #4A3F36", borderRadius:C.rSm, padding:"10px 10px 10px 14px", marginBottom:8 }}>
+              <div style={{ flex:1, minWidth:0, fontSize:13, color:C.t1 }}><b>Debe {fmtMoney(saldoDe(j))}</b> · {j.fileName} <span style={{ color:C.t3 }}>(entregado {haceDias(j.shippedAt)})</span></div>
+              <button onClick={()=>cobrarDeuda(j)} style={{ display:"flex", alignItems:"center", gap:6, background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, padding:"0 12px", minHeight:40, fontSize:13, fontWeight:900, cursor:"pointer", flexShrink:0 }}><Banknote size={16} aria-hidden="true" />Cobrar</button>
+            </div>
+          ))}
+          {sinRecogerC.map(j=>(
+            <div key={j.id} style={{ display:"flex", alignItems:"center", gap:10, background:C.yellowBg, border:"1px solid #4A3F36", borderRadius:C.rSm, padding:"10px 10px 10px 14px", marginBottom:8 }}>
+              <div style={{ flex:1, minWidth:0, fontSize:13, color:C.t1 }}><b>Sin recoger</b> · {j.fileName} <span style={{ color:C.t3 }}>(listo {haceDias(j.endedAt)})</span></div>
+              {j.clientPhone && <button onClick={()=>recordarRecojo(j)} style={{ display:"flex", alignItems:"center", gap:6, background:C.waBg, color:C.wa, border:"1px solid #6B3A12", borderRadius:C.rSm, padding:"0 12px", minHeight:40, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}><MessageCircle size={16} aria-hidden="true" />Recordar</button>}
+            </div>
+          ))}
           {c.active>0 && <div style={{ background:STATUS.pending.bg, border:`1px solid ${STATUS.pending.border}`, borderRadius:C.rSm, padding:"10px 14px", marginBottom:12, fontSize:12, color:C.yellow, fontWeight:700 }}>{c.active} pedido{c.active>1?"s":""} en proceso</div>}
           {SectionLabel({color:C.t3, children:<>Historial de pedidos</>})}
           {[...c.jobs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0, lim("cliente:"+c.key)).map(j=><Fragment key={j.id}>{JobCard({job:j, compact:true})}</Fragment>)}
@@ -1902,7 +2058,7 @@ export default function App() {
             <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:16, pointerEvents:"none" }}><Icono e="🔍" size={18} /></div>
             <input
               style={{ ...inputSt, paddingLeft:42, background:C.bg3, borderColor:clientSearch?C.orange:C.bg5 }}
-              placeholder="Buscar cliente por nombre..."
+              placeholder="Buscar cliente por nombre o teléfono..."
               value={clientSearch}
               onChange={e=>setClientSearch(e.target.value)}
             />
@@ -1911,11 +2067,11 @@ export default function App() {
             )}
           </div>
           {(()=>{
-            const filtered = clients.filter(c=>c.name.toLowerCase().includes(clientSearch.toLowerCase()));
+            const q = normNombre(clientSearch), qt = clientSearch.replace(/\D/g,"");
+            const filtered = clients.filter(c=>normNombre(c.name).includes(q)||(qt.length>=3&&(c.phone||"").replace(/\D/g,"").includes(qt)));
             if(filtered.length===0) return <Empty icon="🔍" title="Sin resultados" sub={`No hay clientes que coincidan con "${clientSearch}"`} />;
             return filtered.map(c => {
-              const dep = c.jobs.filter(j=>j.deposit).reduce((s,j)=>s+Number(j.deposit),0);
-              const pend = c.jobs.filter(j=>j.status!=="shipped").reduce((s,j)=>s+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0);
+              const pend = c.jobs.reduce((s,j)=>s+porCobrarDe(j),0);
               return (
                 <div key={c.key} onClick={()=>setSelectedClient(c.key)} style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${C.bg4}`, cursor:"pointer" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:12 }}>
@@ -2030,8 +2186,7 @@ export default function App() {
             const qty = Number(job.quantity)||1;
             const total = Number(job.price)||0;
             const dep = Number(job.deposit)||0;
-            const collected = job.status==="shipped" ? total : dep;
-            const pending = job.status==="shipped" ? 0 : total-dep;
+            const pending = porCobrarDe(job);
             const isDesign = job.jobType==="design";
             return (
               <div key={job.id} onClick={()=>goToJob(job.id)} style={{ display:"grid", gridTemplateColumns:"1fr auto auto", gap:8, padding:"11px 14px", borderBottom:i<periodJobs.length-1?`1px solid ${C.bg4}`:"none", cursor:"pointer", alignItems:"center" }}
@@ -2046,9 +2201,9 @@ export default function App() {
                     <span style={{ fontSize:12, color:C.t3 }}>{job.clientName||"Sin cliente"}</span>
                     <span style={{ fontSize:12, background:STATUS[job.status]?.bg, color:STATUS[job.status]?.color, borderRadius:C.rPill, padding:"1px 6px", fontWeight:700, flexShrink:0 }}>{STATUS[job.status]?.label}</span>
                   </div>
-                  {dep>0 && job.status!=="shipped" && (
+                  {(job.debe || (dep>0 && job.status!=="shipped")) && (
                     <div style={{ fontSize:12, marginTop:2 }}>
-                      <span style={{ color:"#F1841B" }}>adelanto Bs.{dep.toFixed(2)}</span>
+                      {dep>0 && <span style={{ color:"#F1841B" }}>adelanto Bs.{dep.toFixed(2)}</span>}
                       {pending>0 && <span style={{ color:C.yellow, marginLeft:6 }}>cobrar Bs.{pending.toFixed(2)}</span>}
                     </div>
                   )}
@@ -2595,8 +2750,94 @@ export default function App() {
     </div>
   );
 
+  // ── Cobrar al entregar (o una deuda después) ──
+  const ModalCobro = () => {
+    if (!cobro) return null;
+    const { job, modo } = cobro, monto = saldoDe(job);
+    const btn = { flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6, minHeight:76, borderRadius:C.rSm, fontSize:15, fontWeight:900, cursor:"pointer" };
+    return (
+      <div onClick={e=>{ if(e.target===e.currentTarget) setCobro(null); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:70, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+        <div role="dialog" aria-modal="true" aria-labelledby="cobro-titulo" style={{ background:C.bg2, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:400, border:`1px solid ${C.bg4}` }}>
+          <div style={{ fontSize:12, color:C.t3, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:4 }}>{modo==="entrega"?"Entregar":"Cobrar saldo"}</div>
+          <div id="cobro-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{job.fileName}</div>
+          {job.clientName && <div style={{ fontSize:13, color:C.t3, marginTop:2 }}>{job.clientName}</div>}
+          <div style={{ background:C.yellowBg, border:"1px solid #4A3F36", borderRadius:C.rSm, padding:"14px", margin:"16px 0", textAlign:"center" }}>
+            <div style={{ fontSize:14, color:C.t2, fontWeight:700 }}>{modo==="entrega"?"¿Cobraste lo que faltaba?":"¿Cómo te pagó?"}</div>
+            <div style={{ fontSize:32, fontWeight:900, color:C.yellow, letterSpacing:-.5 }}>{fmtMoney(monto)}</div>
+            {Number(job.deposit)>0 && <div style={{ fontSize:12, color:C.t3 }}>Total {fmtMoney(job.price)} · adelanto {fmtMoney(job.deposit)}</div>}
+          </div>
+          <div style={{ display:"flex", gap:10, marginBottom:10 }}>
+            <button onClick={()=>resolverCobro("efectivo")} style={{ ...btn, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none" }}><Banknote size={24} aria-hidden="true" />Efectivo</button>
+            <button onClick={()=>resolverCobro("qr")} style={{ ...btn, background:"#FFF0DE", color:"#191513", border:"none" }}><QrCode size={24} aria-hidden="true" />QR / transferencia</button>
+          </div>
+          {modo==="entrega" && <button onClick={()=>resolverCobro(null)} style={{ width:"100%", minHeight:48, background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:14, fontWeight:800, cursor:"pointer", marginBottom:6 }}>Todavía no pagó · queda debiendo</button>}
+          <button onClick={()=>setCobro(null)} style={{ width:"100%", minHeight:44, background:"transparent", color:C.t3, border:"none", fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Buscador rápido: clientes, trabajos y pedidos web ──
+  const BuscadorRapido = () => {
+    if (!showBuscar) return null;
+    const q = normNombre(buscarQ), qt = buscarQ.replace(/\D/g,"");
+    const hay = q.length >= 2 || qt.length >= 3;
+    const telOk = (t) => qt.length >= 3 && (t||"").replace(/\D/g,"").includes(qt);
+    const clientesR = !hay ? [] : clients.filter(c=>normNombre(c.name).includes(q)||telOk(c.phone)).slice(0,6);
+    const activo = (j) => ["printing","paused","pending","done","shipping"].includes(j.status) || j.debe ? 0 : 1;
+    const trabajosR = !hay ? [] : jobs.filter(j=>normNombre(j.fileName).includes(q)||normNombre(j.clientName).includes(q)||normNombre(j.notes).includes(q)||telOk(j.clientPhone)||(qt&&j.webPedido&&String(j.webPedido)===qt.replace(/^0+/,"")))
+      .sort((a,b)=>activo(a)-activo(b)||(b.createdAt||0)-(a.createdAt||0));
+    const webR = !hay ? [] : pedidos.filter(p=>normNombre(p.cliente_nombre).includes(q)||telOk(p.cliente_telefono)||(qt&&String(p.id)===qt.replace(/^0+/,""))).slice(0,5);
+    const fila = { display:"flex", alignItems:"center", gap:12, width:"100%", padding:"10px 14px", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.rSm, marginBottom:6, cursor:"pointer", textAlign:"left", color:"inherit", fontFamily:"inherit" };
+    return (
+      <div role="dialog" aria-modal="true" aria-label="Buscar" style={{ position:"fixed", inset:0, background:C.bg1, zIndex:65, overflowY:"auto" }}>
+        <div style={{ position:"sticky", top:0, background:C.bg0, borderBottom:`1px solid ${C.bg4}`, padding:"calc(env(safe-area-inset-top) + 12px) 14px 12px", zIndex:2 }}>
+          <div style={{ display:"flex", gap:10, alignItems:"center", maxWidth:900, margin:"0 auto" }}>
+            <div style={{ position:"relative", flex:1 }}>
+              <Search size={20} color={C.t3} aria-hidden="true" style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)" }} />
+              <input autoFocus value={buscarQ} onChange={e=>setBuscarQ(e.target.value)} placeholder="Cliente, teléfono, producto o n.º de pedido" aria-label="Buscar"
+                style={{ ...inputSt, paddingLeft:44, fontSize:16, background:C.bg3, borderColor:C.orange }} />
+            </div>
+            <button onClick={()=>setShowBuscar(false)} aria-label="Cerrar búsqueda" style={{ width:46, height:46, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, color:C.t1, cursor:"pointer", flexShrink:0 }}><X size={22} aria-hidden="true" /></button>
+          </div>
+        </div>
+        <div style={{ maxWidth:900, margin:"0 auto", padding:"16px 14px 60px" }}>
+          {!hay && <div style={{ textAlign:"center", color:C.t3, fontSize:14, padding:"40px 10px", lineHeight:1.6 }}>Escribí al menos 2 letras o 3 números.<br/>Busca en clientes, teléfonos, productos, notas y pedidos de la web.</div>}
+          {hay && !clientesR.length && !trabajosR.length && !webR.length && <Empty icon="🔍" title="Sin resultados" sub={`Nada coincide con "${buscarQ}"`} />}
+          {clientesR.length>0 && <>{SectionLabel({color:C.t3, children:<>Clientes</>})}
+            {clientesR.map(c=>{ const deb=c.jobs.reduce((t,j)=>t+porCobrarDe(j),0); return (
+              <button key={c.key} onClick={()=>{ setSelectedClient(c.key); setShowBuscar(false); setView("clients"); }} style={fila}>
+                <div style={{ width:40, height:40, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, color:"#191513", flexShrink:0 }}>{initials(c.name)}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:15, fontWeight:800, color:C.t1 }}>{c.name}</div>
+                  <div style={{ fontSize:12, color:C.t3 }}>{c.phone||"Sin teléfono"} · {c.totalJobs} pedido{c.totalJobs!==1?"s":""}{c.active?` · ${c.active} en proceso`:""}</div>
+                </div>
+                {deb>0 && <span style={{ fontSize:12, color:C.yellow, fontWeight:800, flexShrink:0 }}>Por cobrar {fmtMoney(deb)}</span>}
+                <ChevronRight size={18} color={C.t3} aria-hidden="true" />
+              </button>); })}
+          </>}
+          {webR.length>0 && <>{SectionLabel({color:C.t3, children:<>Pedidos de la web</>})}
+            {webR.map(p=>(
+              <button key={p.id} onClick={()=>{ setShowBuscar(false); setView("web"); }} style={fila}>
+                <Globe size={20} color={C.orange} aria-hidden="true" />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:15, fontWeight:800, color:C.t1 }}>{numPedido(p)} · {p.cliente_nombre||"Sin nombre"}</div>
+                  <div style={{ fontSize:12, color:C.t3 }}>{p.estado}{Number(p.total)>0?` · ${fmtMoney(p.total)}`:""}</div>
+                </div>
+                <ChevronRight size={18} color={C.t3} aria-hidden="true" />
+              </button>))}
+          </>}
+          {trabajosR.length>0 && <>{SectionLabel({color:C.t3, children:<>Trabajos ({trabajosR.length})</>})}
+            <div className="cards-grid">{trabajosR.slice(0, lim("buscar:"+q)).map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>
+            {VerMas("buscar:"+q, trabajosR.length)}
+          </>}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    kioskMode ? <>{KioskView()}{CartelPedido()}</> :
+    kioskMode ? <>{KioskView()}{CartelPedido()}{ModalCobro()}</> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
       <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
@@ -2614,6 +2855,7 @@ export default function App() {
             </div>
           </div>
           <div style={{ display:"flex", gap:8 }}>
+            <button onClick={()=>{ setBuscarQ(""); setShowBuscar(true); }} aria-label="Buscar" title="Buscar ( / )" style={{ width:42, height:38, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, color:C.t1, cursor:"pointer" }}><Search size={20} aria-hidden="true" /></button>
             <div style={{ display:"flex", borderRadius:C.rSm, overflow:"hidden", boxShadow:`0 3px 16px rgba(241,132,27,.4)` }}>
               <button onClick={()=>{setMultiMode(false);setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
               <div style={{ width:1, background:"rgba(0,0,0,.3)" }} />
@@ -3233,6 +3475,8 @@ export default function App() {
         </div>
       )}
 
+      {BuscadorRapido()}
+      {ModalCobro()}
       {/* ── TOAST ── */}
       {CartelPedido()}
       {toast && (
