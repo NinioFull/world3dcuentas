@@ -32,6 +32,11 @@ const memoria = {
   stock: {},
   config: { matCosts: { PLA: 160, PETG: 180 } },
 };
+// Historial grande como el real (unos 380 entregados) para probar que las listas largas no traben
+for (let i = 0; i < 380; i++) {
+  const t = ahora - (i + 3) * 20 * h;
+  memoria.jobs["h" + i] = { fileName: ["Trofeo", "Llavero", "Soporte de mando", "Organizador", "Figura"][i % 5] + " #" + i, printer: ["p1", "p2", "p3"][i % 3], material: "PLA", color: "Negro", weight: 20, duration: 60, remaining: 0, status: "shipped", quantity: 1 + (i % 4), price: 50 + (i % 7) * 10, unitPrice: 50, deposit: 50, clientName: "Cliente " + (i % 60), clientPhone: "7" + String(1000000 + (i % 60)), createdAt: t, endedAt: t + h, shippedAt: t + 2 * h, priority: 100 + i };
+}
 let sec = 100;
 const oyentes = [];
 const avisar = (col) => oyentes.filter(o => o.col === col).forEach(o => o.cb(foto(col)));
