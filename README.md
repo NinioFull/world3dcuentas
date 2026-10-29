@@ -44,6 +44,15 @@ La cola se guarda en el dispositivo (caché de Firestore en IndexedDB). Si se co
 - **Vendido**: suma de los pedidos por fecha en que se tomaron, cobrados o no.
 - **Por cobrar**: precio − adelanto de lo que todavía no se entregó.
 
+## Respaldo y resumen semanal
+
+Todos los lunes a las 8:00 (hora de Bolivia), un Apps Script en la cuenta dueña del proyecto de Firebase (proyecto *WORLD3D Respaldo semanal* en script.google.com) hace dos cosas:
+
+- **Respaldo**: copia trabajos, productos, impresoras y stock a una hoja de cálculo nueva en Drive, carpeta *WORLD3D · Respaldos del Manager*. Quedan las últimas 8 semanas; las más viejas van a la papelera.
+- **Resumen por Telegram**: cobrado, vendido, entregados, por cobrar, cola, listos, atrasados y lo más pedido de la semana pasada, con el enlace al respaldo. Lo manda la función `resumen-semanal` de Supabase con el mismo bot del sitio. Si Telegram falla, llega por correo.
+
+El código está en `respaldo/` (`Codigo.gs` y `appsscript.json`). Para reinstalarlo: pegar ambos archivos en un proyecto de Apps Script, agregar la propiedad de script `RESUMEN_SECRETO` (la misma clave que el secreto homónimo de Supabase) y ejecutar `instalar()` una vez. Para probar sin esperar al lunes, ejecutar `semanal()`.
+
 ## Seguridad
 
 La cola en Firebase solo la puede leer y escribir la cuenta admin (`firestore.rules`). El Manager entra a Firebase con la misma cuenta de Google que a Supabase, usando el token que trae la sesión justo después de entrar. Si un dispositivo pierde la conexión con Firebase, aparece "Conectar con Google" una vez.
