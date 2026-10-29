@@ -11,7 +11,7 @@ import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedid
 import WebView from "./WebView";
 import LoginView from "./LoginView";
 import Icono from "./Icono";
-import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, Wallet, Search, Banknote, QrCode, MessageCircle, Plus } from "lucide-react";
+import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, ChevronLeft, CalendarDays, Wallet, Search, Banknote, QrCode, MessageCircle, Plus } from "lucide-react";
 import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
 const firebaseConfig = {
@@ -277,6 +277,11 @@ export default function App() {
   // Al cambiar de sección o entrar/salir del kiosco se empieza desde arriba
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view, kioskMode]);
   const [kioskPinInput, setKioskPinInput] = useState("");
+  // Kiosco: "maquinas" (una columna por impresora) o "calendario" (entregas de la semana). Se recuerda en el dispositivo.
+  const [kioskVista, setKioskVistaE] = useState(() => { try { return localStorage.getItem("w3d-kiosco-vista") || "maquinas"; } catch (e) { return "maquinas"; } });
+  const setKioskVista = (v) => { setKioskVistaE(v); try { localStorage.setItem("w3d-kiosco-vista", v); } catch (e) {} };
+  const [kioskSemana, setKioskSemana] = useState(0);
+  const [kioskSel, setKioskSel] = useState(null);   // id del trabajo tocado en el calendario
   const [showKioskExit, setShowKioskExit] = useState(false);
   const KIOSK_PIN = "1234";
   const [showRevenue, setShowRevenue] = useState(false); // default pin
@@ -2526,6 +2531,139 @@ export default function App() {
   };
 
   // ─── KIOSK VIEW ──────────────────────────────────────────────────────────
+  // ── Calendario del kiosco: entregas de la semana, una columna por día ──
+  const CalendarioKiosco = () => {
+    const lunes = new Date(); lunes.setHours(0,0,0,0); lunes.setDate(lunes.getDate() - ((lunes.getDay()+6)%7) + kioskSemana*7);
+    const dias = Array.from({length:7}, (_,i) => { const d = new Date(lunes); d.setDate(lunes.getDate()+i); return d; });
+    const NOM = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"], MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    const hoy0 = startOfDay(), ini = dias[0].getTime(), fin = ini + 7*DIA;
+    const delDia = (d) => { const a = d.getTime(), b = a + DIA; return jobs.filter(j => j.deliveryAt && j.deliveryAt >= a && j.deliveryAt < b).sort((x,y) => x.deliveryAt - y.deliveryAt); };
+    const deLaSemana = jobs.filter(j => j.deliveryAt && j.deliveryAt >= ini && j.deliveryAt < fin);
+    const atrasadosAntes = kioskSemana === 0 ? jobs.filter(j => esAtrasado(j) && j.deliveryAt < ini).sort((x,y)=>x.deliveryAt-y.deliveryAt) : [];
+    const sinFecha = jobs.filter(j => ["pending","printing","paused"].includes(j.status) && !j.deliveryAt).length;
+    const rango = dias[0].getMonth() === dias[6].getMonth()
+      ? `${dias[0].getDate()} – ${dias[6].getDate()} ${MES[dias[6].getMonth()]}`
+      : `${dias[0].getDate()} ${MES[dias[0].getMonth()]} – ${dias[6].getDate()} ${MES[dias[6].getMonth()]}`;
+    const hora = (ts) => new Date(ts).toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" });
+    const flecha = { width:52, height:52, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rMd, color:C.t1, cursor:"pointer" };
+    const Item = (j, chico) => {
+      const st = STATUS[j.status] || STATUS.pending, tarde = esAtrasado(j), entregado = j.status === "shipped";
+      return (
+        <button key={j.id} onClick={()=>setKioskSel(j.id)} style={{ display:"block", width:"100%", textAlign:"left", background:tarde?C.redBg:C.bg3, border:`1px solid ${tarde?"#5C1F14":C.bg5}`, borderLeft:`5px solid ${tarde?"#E53212":st.dot}`, borderRadius:C.rSm, padding:"10px 10px 10px 12px", marginBottom:8, cursor:"pointer", color:"inherit", fontFamily:"inherit", opacity:entregado?.5:1 }}>
+          <div style={{ fontSize:chico?14:17, fontWeight:900, color:tarde?"#FF8A6B":C.orange, fontVariantNumeric:"tabular-nums" }}>{chico ? new Date(j.deliveryAt).toLocaleDateString("es-ES",{day:"2-digit",month:"short"}) : hora(j.deliveryAt)}</div>
+          <div style={{ fontSize:16, fontWeight:900, color:C.t1, marginTop:4, lineHeight:1.25, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden", overflowWrap:"anywhere", textDecoration:entregado?"line-through":"none" }}>{j.fileName}{Number(j.quantity)>1 && <span style={{ color:C.purple }}> ×{j.quantity}</span>}</div>
+          {j.clientName && <div style={{ fontSize:14, color:C.t2, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.clientName}</div>}
+          <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, fontSize:13, fontWeight:800, color:entregado?C.teal:tarde?"#FF8A6B":st.color }}>
+            {entregado ? <CheckCircle2 size={15} aria-hidden="true" /> : <span style={{ width:8, height:8, borderRadius:"50%", background:tarde?"#E53212":st.dot, flexShrink:0 }} />}
+            <span style={{ lineHeight:1.2 }}>{tarde?"Atrasado":st.label}{j.status==="printing"?` ${avanceJob(j)}%`:""}</span>
+          </div>
+          {j.status==="printing" && <div style={{ height:6, background:C.bg5, borderRadius:4, marginTop:6, overflow:"hidden" }}><div style={{ height:"100%", width:`${avanceJob(j)}%`, background:C.green }} /></div>}
+        </button>
+      );
+    };
+    return (
+      <div style={{ padding:"16px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+          <button onClick={()=>setKioskSemana(v=>v-1)} aria-label="Semana anterior" style={flecha}><ChevronLeft size={26} aria-hidden="true" /></button>
+          <div style={{ minWidth:180 }}>
+            <div style={{ fontSize:24, fontWeight:900, color:C.t1 }}>{rango}</div>
+            <div style={{ fontSize:14, color:C.t3, fontWeight:700 }}>{kioskSemana===0?"Esta semana":kioskSemana===1?"Semana que viene":kioskSemana===-1?"Semana pasada":""} · {deLaSemana.filter(j=>j.status!=="shipped").length} por entregar · {deLaSemana.filter(j=>j.status==="shipped").length} entregados</div>
+          </div>
+          <button onClick={()=>setKioskSemana(v=>v+1)} aria-label="Semana siguiente" style={flecha}><ChevronRight size={26} aria-hidden="true" /></button>
+          {kioskSemana!==0 && <button onClick={()=>setKioskSemana(0)} style={{ ...flecha, width:"auto", padding:"0 18px", fontSize:15, fontWeight:900, color:C.orange }}>Hoy</button>}
+          {sinFecha>0 && <div style={{ marginLeft:"auto", fontSize:14, color:C.t3, fontWeight:700 }}>{sinFecha} en cola sin fecha de entrega</div>}
+        </div>
+        {atrasadosAntes.length>0 && (
+          <div style={{ background:C.redBg, border:"1px solid #5C1F14", borderRadius:C.r, padding:"12px 14px", marginBottom:14 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:15, fontWeight:900, color:"#FF8A6B", marginBottom:10 }}><AlertTriangle size={18} aria-hidden="true" />Atrasados de antes · {atrasadosAntes.length}</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:8 }}>{atrasadosAntes.map(j=>Item(j, true))}</div>
+          </div>
+        )}
+        {w < 1000 ? (
+          // Vertical (iPad parado, celu): la semana como agenda, un día por fila
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {dias.map((d,i)=>{
+              const t = d.getTime(), esHoy = t === hoy0, pasado = t < hoy0, lista = delDia(d);
+              return (
+                <section key={i} aria-label={`${NOM[i]} ${d.getDate()}`} style={{ display:"flex", gap:12, background:esHoy?`${C.orange}14`:C.bg2, border:`${esHoy?2:1}px solid ${esHoy?C.orange:C.bg4}`, borderRadius:C.r, padding:12, opacity:pasado&&!lista.some(esAtrasado)?.7:1 }}>
+                  <div style={{ width:62, flexShrink:0, textAlign:"center", paddingTop:4 }}>
+                    <div style={{ fontSize:14, fontWeight:900, color:esHoy?C.orange:C.t2, textTransform:"uppercase" }}>{NOM[i]}</div>
+                    <div style={{ fontSize:32, fontWeight:900, color:esHoy?C.orange:C.t1, lineHeight:1.05 }}>{d.getDate()}</div>
+                    {esHoy && <div style={{ fontSize:12, fontWeight:900, color:"#191513", background:C.orange, borderRadius:C.rPill, padding:"1px 6px", marginTop:4 }}>HOY</div>}
+                  </div>
+                  <div style={{ flex:1, minWidth:0, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:8, alignContent:"start" }}>
+                    {lista.length ? lista.map(j=>Item(j)) : <div style={{ color:C.t4, fontSize:15, alignSelf:"center", padding:"14px 0" }}>Sin entregas</div>}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+        <div style={{ overflowX:"auto", paddingBottom:6 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,minmax(130px,1fr))", gap:10 }}>
+            {dias.map((d,i)=>{
+              const t = d.getTime(), esHoy = t === hoy0, pasado = t < hoy0, lista = delDia(d);
+              return (
+                <section key={i} aria-label={`${NOM[i]} ${d.getDate()}`} style={{ background:esHoy?`${C.orange}14`:C.bg2, border:`${esHoy?2:1}px solid ${esHoy?C.orange:C.bg4}`, borderRadius:C.r, minHeight:"calc(100vh - 230px)", display:"flex", flexDirection:"column", opacity:pasado&&!lista.some(esAtrasado)?.7:1 }}>
+                  <div style={{ padding:"12px 12px 10px", borderBottom:`1px solid ${esHoy?C.orange+"55":C.bg4}`, display:"flex", alignItems:"baseline", gap:8 }}>
+                    <span style={{ fontSize:15, fontWeight:900, color:esHoy?C.orange:C.t2, textTransform:"uppercase" }}>{NOM[i]}</span>
+                    <span style={{ fontSize:28, fontWeight:900, color:esHoy?C.orange:C.t1, lineHeight:1 }}>{d.getDate()}</span>
+                    {esHoy && <span style={{ marginLeft:"auto", fontSize:12, fontWeight:900, color:"#191513", background:C.orange, borderRadius:C.rPill, padding:"2px 8px" }}>HOY</span>}
+                    {!esHoy && lista.length>0 && <span style={{ marginLeft:"auto", fontSize:13, fontWeight:800, color:C.t3 }}>{lista.length}</span>}
+                  </div>
+                  <div style={{ padding:10, flex:1 }}>
+                    {lista.length ? lista.map(j=>Item(j)) : <div style={{ textAlign:"center", color:C.t4, fontSize:14, paddingTop:20 }}>—</div>}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </div>
+        )}
+      </div>
+    );
+  };
+
+  // Detalle de un trabajo tocado en el calendario del kiosco, con su acción principal
+  const DetalleKiosco = () => {
+    const j = kioskSel && jobs.find(x=>x.id===kioskSel);
+    if (!j) return null;
+    const st = STATUS[j.status] || STATUS.pending, p = printers.find(x=>x.id===j.printer);
+    const cerrar = () => setKioskSel(null);
+    const hacer = (fn) => () => { cerrar(); fn(); };
+    const accion = j.status==="pending" ? { l:j.jobType==="design"?"Empezar diseño":"Iniciar impresión", f:()=>startJ(j), I:Play }
+      : j.status==="printing" ? { l:"Terminado", f:()=>completeJ(j.id), I:CheckCircle2 }
+      : j.status==="paused" ? { l:"Reanudar", f:()=>resumeJ(j.id), I:Play }
+      : j.status==="done" ? { l:"Para envío", f:()=>toShipJ(j.id), I:PackageOpen }
+      : j.status==="shipping" ? { l:"Entregado", f:()=>shippedJ(j.id,j), I:Truck }
+      : j.debe ? { l:`Cobrar ${fmtMoney(saldoDe(j))}`, f:()=>cobrarDeuda(j), I:Banknote } : null;
+    const fila = (l, v) => v ? <div style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"9px 0", borderBottom:`1px solid ${C.bg4}`, fontSize:16 }}><span style={{ color:C.t3 }}>{l}</span><span style={{ color:C.t1, fontWeight:800, textAlign:"right" }}>{v}</span></div> : null;
+    return (
+      <div onClick={e=>{ if(e.target===e.currentTarget) cerrar(); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:60, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+        <div role="dialog" aria-modal="true" aria-labelledby="kiosco-det" style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"22px", width:"100%", maxWidth:480 }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div id="kiosco-det" style={{ fontSize:24, fontWeight:900, color:C.t1, lineHeight:1.2 }}>{j.fileName}{Number(j.quantity)>1 && <span style={{ color:C.purple }}> ×{j.quantity}</span>}</div>
+              <div style={{ fontSize:15, fontWeight:800, color:st.color, marginTop:6 }}>{st.label}{esAtrasado(j)?" · atrasado":""}</div>
+            </div>
+            <button onClick={cerrar} aria-label="Cerrar" style={{ width:48, height:48, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, color:C.t1, cursor:"pointer", flexShrink:0 }}><X size={22} aria-hidden="true" /></button>
+          </div>
+          {j.status==="printing" && <div style={{ marginTop:14 }}><div style={{ display:"flex", justifyContent:"space-between", fontSize:16, fontWeight:800 }}><span style={{ color:C.green }}>{avanceJob(j)}%</span><span style={{ color:C.t1 }}>quedan {fmtTime(j.remaining)}</span></div><div style={{ height:10, background:C.bg4, borderRadius:8, marginTop:6, overflow:"hidden" }}><div style={{ height:"100%", width:`${avanceJob(j)}%`, background:C.green }} /></div></div>}
+          <div style={{ marginTop:12 }}>
+            {fila("Entrega", j.deliveryAt && new Date(j.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}))}
+            {fila("Cliente", j.clientName)}
+            {fila("Teléfono", j.clientPhone)}
+            {fila("Impresora", j.jobType!=="design" && p?.name)}
+            {fila("Material", [j.material, j.color].filter(Boolean).join(" · "))}
+            {fila("Por cobrar", porCobrarDe(j)>0 && fmtMoney(porCobrarDe(j)))}
+          </div>
+          {j.notes && <div style={{ fontSize:14, color:C.t2, background:C.bg3, borderLeft:`3px solid ${C.orange}`, borderRadius:C.rSm, padding:"10px 12px", marginTop:12, whiteSpace:"pre-wrap" }}>{j.notes}</div>}
+          {accion && <button onClick={hacer(accion.f)} style={{ width:"100%", marginTop:16, minHeight:64, display:"flex", alignItems:"center", justifyContent:"center", gap:10, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rMd, fontSize:20, fontWeight:900, cursor:"pointer" }}><accion.I size={24} aria-hidden="true" />{accion.l}</button>}
+        </div>
+      </div>
+    );
+  };
+
   const KioskView = () => {
     return (
       <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg0, minHeight:"100vh", color:C.t1 }}>
@@ -2543,13 +2681,19 @@ export default function App() {
               </div>
             </div>
           </div>
+          <div role="tablist" aria-label="Vista del kiosco" style={{ display:"flex", background:C.bg2, border:`1px solid ${C.bg5}`, borderRadius:C.rPill, padding:4, gap:4 }}>
+            {[["maquinas","Máquinas",Printer],["calendario","Calendario",CalendarDays]].map(([k,l,Ic])=>(
+              <button key={k} role="tab" aria-selected={kioskVista===k} onClick={()=>{ setKioskVista(k); setKioskSemana(0); }} style={{ display:"flex", alignItems:"center", gap:8, minHeight:44, padding:"0 18px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:15, fontWeight:900, background:kioskVista===k?C.orange:"transparent", color:kioskVista===k?"#191513":C.t2 }}><Ic size={18} aria-hidden="true" />{l}</button>
+            ))}
+          </div>
           <button onClick={()=>setShowKioskExit(true)} style={{ background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"10px 18px", color:C.t3, fontSize:13, fontWeight:700, cursor:"pointer" }}>
             <Lock size={16} aria-hidden="true" style={{ verticalAlign:"-3px", marginRight:6 }} />Salir del kiosco
           </button>
         </div>
 
+        {kioskVista==="calendario" && CalendarioKiosco()}
         {/* Una columna por máquina: lo que imprime ahora en grande, lo que sigue abajo */}
-        {(() => {
+        {kioskVista==="maquinas" && (() => {
           const maquinas = printers.filter(p=>p.connected!==false || jobs.some(j=>j.printer===p.id && ["printing","paused","pending"].includes(j.status)));
           const sinMaquina = jobs.filter(j=>["printing","paused","pending"].includes(j.status) && (j.jobType==="design" || !printers.some(p=>p.id===j.printer)));
           const columnas = [...maquinas.map(p=>({ id:p.id, nombre:p.name, tipo:p.type, jobs:jobs.filter(j=>j.printer===p.id && j.jobType!=="design") })),
@@ -2837,7 +2981,7 @@ export default function App() {
   };
 
   return (
-    kioskMode ? <>{KioskView()}{CartelPedido()}{ModalCobro()}</> :
+    kioskMode ? <>{KioskView()}{DetalleKiosco()}{CartelPedido()}{ModalCobro()}</> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
       <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
