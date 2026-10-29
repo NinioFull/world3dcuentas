@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, onSnapshot, addDoc, updateDoc,
@@ -311,6 +311,16 @@ export default function App() {
   const [prodSugOpen, setProdSugOpen] = useState(false);
   const [showAllWeek, setShowAllWeek] = useState(false);
   const [highlightJob, setHighlightJob] = useState(null);
+  // Listas largas (entregados, historial): de a 30, con "Ver más". Cada lista se identifica con una clave
+  // que incluye sus filtros, así al cambiar de filtro vuelve a empezar en 30.
+  const PASO = 30;
+  const [cuantos, setCuantos] = useState({});
+  const lim = (clave) => cuantos[clave] || PASO;
+  const VerMas = (clave, total) => total <= lim(clave) ? null : (
+    <button onClick={()=>setCuantos(c=>({...c,[clave]:lim(clave)+PASO}))} style={{ display:"block", width:"100%", minHeight:48, margin:"8px 0 20px", borderRadius:C.rMd, border:`1px solid ${C.bg5}`, background:C.bg2, color:C.t2, fontSize:14, fontWeight:800, cursor:"pointer" }}>
+      Ver {Math.min(PASO, total-lim(clave))} más · quedan {total-lim(clave)}
+    </button>
+  );
   // Tarjetas de trabajo: resumidas por defecto; las que abrís quedan abiertas
   const [abiertas, setAbiertas] = useState(() => new Set());
   const alternarTarjeta = (id) => setAbiertas(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -426,18 +436,26 @@ export default function App() {
     const pid = printers[0]?.id ?? "";
     const notaBase = [`Pedido web ${numPedido(p)}`, p.recepcion, p.nota].filter(Boolean).join(" · ");
     const items = p.items.filter(it => !/^vale:/.test(it.id || ""));
+    // Precio real: el sitio guarda en p.total lo que el cliente paga (productos − referido − cupón).
+    // Se reparte ese total entre los productos según su precio de lista; lo pagado con vale de regalo
+    // (p.vale_monto) es plata ya cobrada cuando se vendió el vale, así que el pedido entra como pagado completo.
+    const bruto = p.items.reduce((t, it) => t + (Number(it.precio) || 0) * (Number(it.cant) || 1), 0);
+    const factor = bruto > 0 && Number(p.total) >= 0 ? Math.min(1, Number(p.total) / bruto) : 1;
+    const precios = items.map(it => Math.round((Number(it.precio) || 0) * (Number(it.cant) || 1) * factor * 100) / 100);
+    const objetivo = Math.round(items.reduce((t, it) => t + (Number(it.precio) || 0) * (Number(it.cant) || 1), 0) * factor * 100) / 100;
+    if (precios.length) precios[precios.length - 1] = Math.round((precios[precios.length - 1] + objetivo - precios.reduce((a, b) => a + b, 0)) * 100) / 100;  // que sume exacto
     try {
       await Promise.all(items.map((it, i) => {
         const { nombre, color } = partirNombre(it.nombre);
-        const cant = Number(it.cant) || 1, unit = Number(it.precio) || 0;
+        const cant = Number(it.cant) || 1, total = precios[i], unit = Math.round(total / cant * 100) / 100;
         const prod = products.find(x => x.name && nombre && x.name.trim().toLowerCase() === nombre.trim().toLowerCase());
         const dur = Number(prod?.duration) || 0;
         return addDoc(collection(db, "jobs"), {
           fileName: nombre, printer: pid, jobType: "print",
           material: prod?.material || "", color: COLORS.includes(color) ? color : (color || prod?.color || ""),
           weight: Number(prod?.weight) || 0, duration: dur, remaining: dur * cant,
-          price: unit * cant, unitPrice: unit, quantity: cant, deposit: unit * cant,
-          notes: [notaBase, it.det].filter(Boolean).join("\n"),
+          price: total, unitPrice: unit, quantity: cant, deposit: total,
+          notes: [notaBase, factor < 1 ? `Con descuento (lista ${fmtMoney((Number(it.precio)||0)*cant)})` : "", Number(p.vale_monto) > 0 && i === 0 ? `Pagado en parte con vale ${p.codigo || ""} (${fmtMoney(p.vale_monto)})` : "", it.det].filter(Boolean).join("\n"),
           status: "pending", clientName: p.cliente_nombre || "", clientPhone: p.cliente_telefono || "",
           deliveryAt: null, createdAt: Date.now(), startedAt: null, endedAt: null, shippedAt: null, priority: Date.now() + i,
           webPedido: p.id, webItem: i,
@@ -873,8 +891,6 @@ export default function App() {
   const filtered = jobs.filter(j=>(fPrinter==="all"||j.printer===fPrinter)&&(fStatus==="all"||(fStatus==="design"?j.jobType==="design":j.status===fStatus))).sort((a,b)=>a.status==="pending"&&b.status==="pending"?(a.priority??a.createdAt??0)-(b.priority??b.createdAt??0):0);
   const pActive  = (pid) => jobs.find(j=>j.printer===pid&&j.status==="printing");
   const pPend    = (pid) => jobs.filter(j=>j.printer===pid&&j.status==="pending").length;
-  const todayRev  = jobs.filter(j=>j.price&&j.createdAt>=startOfDay()).reduce((s,j)=>s+Number(j.price),0);
-  const monthRev  = jobs.filter(j=>j.price&&j.createdAt>=startOfMonth()).reduce((s,j)=>s+Number(j.price),0);
   const last6 = Array.from({length:6},(_,i)=>{ const hoy=new Date(); const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1); const ms=startOfMonth(d),me=startOfMonth(new Date(d.getFullYear(),d.getMonth()+1,1)),mj=jobs.filter(j=>j.price&&(j.createdAt||0)>=ms&&(j.createdAt||0)<me); return {label:monthLabel(d),jobs:mj.length,rev:mj.reduce((s,j)=>s+Number(j.price),0)}; }).reverse();
   const maxRev = Math.max(...last6.map(m=>m.rev),1);
   // ── Cobrado: la plata que entró de verdad ──
@@ -1258,19 +1274,19 @@ export default function App() {
             </div>
             <div style={{ height:1, background:C.bg4, margin:"13px 0" }} />
             <div style={{ display:"flex", gap:20 }}>
-              {[["Vendido este mes",fmtMoney(monthRev)],["Vendido hoy",fmtMoney(todayRev)],["Por cobrar",fmtMoney(jobs.filter(j=>j.status!=="shipped").reduce((t,j)=>t+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0))]].map(([l,v])=>(
+              {[["Pedidos este mes",jobs.filter(j=>(j.createdAt||0)>=startOfMonth()).length],["Entregados este mes",jobs.filter(j=>j.status==="shipped"&&(j.shippedAt||0)>=startOfMonth()).length],["Por cobrar",fmtMoney(jobs.filter(j=>j.status!=="shipped").reduce((t,j)=>t+Math.max(0,(Number(j.price)||0)-(Number(j.deposit)||0)),0))]].map(([l,v])=>(
                 <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{v}</div></div>
               ))}
             </div>
           </div>
         </div>
         {printing.length>0 && (<>
-          <SectionLabel color={C.green} dot={C.green}>Imprimiendo ahora</SectionLabel>
-          <div className="cards-grid">{printing.map(j=><JobCard key={j.id} job={j} />)}</div>
+          {SectionLabel({color:C.green, dot:C.green, children:<>Imprimiendo ahora</>})}
+          <div className="cards-grid">{printing.map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>
         </>)}
         {shipping.length>0 && (<>
-          <SectionLabel color={C.purple} dot={C.purple}>Listos para enviar</SectionLabel>
-          <div className="cards-grid">{shipping.map(j=><JobCard key={j.id} job={j} />)}</div>
+          {SectionLabel({color:C.purple, dot:C.purple, children:<>Listos para enviar</>})}
+          <div className="cards-grid">{shipping.map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>
         </>)}
         {jobs.length===0 && (
           <div style={{ textAlign:"center", padding:"50px 20px" }}>
@@ -1286,10 +1302,10 @@ export default function App() {
     );
     const statsRight = (
       <div style={{ borderLeft: isDesktop?`1px solid ${C.bg4}`:"none", paddingLeft: isDesktop?28:0, marginTop: isDesktop?0:24 }}>
-        <SectionLabel color={C.t3}>Impresoras</SectionLabel>
-        {printers.map(p=><PrinterCard key={p.id} p={p} />)}
+        {SectionLabel({color:C.t3, children:<>Impresoras</>})}
+        {printers.map(p=><Fragment key={p.id}>{PrinterCard({p:p})}</Fragment>)}
         {pending.length>0 && (<>
-          <SectionLabel color={C.yellow} style={{ marginTop:20 }}>Cola de trabajo</SectionLabel>
+          {SectionLabel({color:C.yellow, style:{ marginTop:20 }, children:<>Cola de trabajo</>})}
           {pending.slice(0,8).map(j=>(
             <div key={j.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:C.bg2, borderRadius:C.rSm, marginBottom:6, border:`1px solid ${C.bg4}`, cursor:"pointer" }} onClick={()=>setView("queue")}>
               <div style={{ width:7, height:7, borderRadius:"50%", background:C.yellow, flexShrink:0 }} />
@@ -1373,6 +1389,7 @@ export default function App() {
     ).sort((a,b)=>a.status==="pending"&&b.status==="pending"?(a.priority??a.createdAt??0)-(b.priority??b.createdAt??0):0);
 
     const sortedFiltered = applySort(baseFiltered);
+    const claveCola = `cola:${fStatus}:${fPrinter}:${queueSearch}:${queueSort}`;
 
     const designFilter = (j) => fStatus==="design" ? j.jobType==="design" : j.jobType!=="design";
     const searchFilter = (j) => !queueSearch||j.fileName?.toLowerCase().includes(queueSearch.toLowerCase())||j.clientName?.toLowerCase().includes(queueSearch.toLowerCase());
@@ -1655,7 +1672,7 @@ export default function App() {
                   <span style={{ fontSize:12, color:C.t4, fontWeight:700, marginLeft:"auto" }}>{group.jobs.length} trabajo{group.jobs.length!==1?"s":""}</span>
                 </div>
                 {/* Compact job rows */}
-                {group.jobs.map((job,i)=>{
+                {group.jobs.slice(0, lim(`grupo:${group.key}:${fStatus}:${fPrinter}:${queueSearch}`)).map((job,i)=>{
                   const printer = printers.find(x=>x.id===job.printer);
                   const qty = Number(job.quantity)||1;
                   const action = quickAction(job);
@@ -1684,6 +1701,7 @@ export default function App() {
                     </div>
                   );
                 })}
+                {VerMas(`grupo:${group.key}:${fStatus}:${fPrinter}:${queueSearch}`, group.jobs.length)}
               </div>
             ))}
             {KANBAN_GROUPS.every(g=>g.jobs.length===0) && <Empty icon="🔍" title="Nada aquí" sub="Cambia los filtros o agrega un trabajo nuevo" />}
@@ -1699,14 +1717,14 @@ export default function App() {
                 {queueSort==="waiting" && j.createdAt && (
                   <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, marginLeft:48 }}>{fmtWaiting(j.createdAt)}</div>
                 )}
-                <JobCard job={j} showPriority idx={i} total={pending.length} />
+                {JobCard({job:j, showPriority:true, idx:i, total:pending.length})}
               </div>
             ))}</div>
           ) : sortedFiltered.length===0 ? (
             <Empty icon="🔍" title="Nada aquí" sub="Cambia los filtros o agrega un trabajo nuevo" />
-          ) : <div className="cards-grid">{(()=>{
+          ) : <><div className="cards-grid">{(()=>{
             const rendered = new Set();
-            return sortedFiltered.map(j=>{
+            return sortedFiltered.slice(0, lim(claveCola)).map(j=>{
               if(j.orderId) {
                 if(rendered.has(j.orderId)) return null;
                 rendered.add(j.orderId);
@@ -1718,11 +1736,11 @@ export default function App() {
                   {j.status==="pending"&&queueSort==="waiting"&&j.createdAt&&(
                     <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, paddingLeft:4 }}>{fmtWaiting(j.createdAt)}</div>
                   )}
-                  <JobCard job={j} />
+                  {JobCard({job:j})}
                 </div>
               );
             });
-          })()}</div>
+          })()}</div>{VerMas(claveCola, sortedFiltered.length)}</>
         )}
       </div>
     );
@@ -1801,7 +1819,7 @@ export default function App() {
         {shipFilter==="pending" && (
           pendingSorted.length===0
             ? <Empty icon="📦" title={shipSearch?"Sin resultados":"No hay envíos pendientes"} sub={shipSearch?`Ningún pedido coincide con "${shipSearch}"`:"Cuando un trabajo esté listo para enviar, aparecerá aquí"} />
-            : <div className="cards-grid">{pendingSorted.map(j=><JobCard key={j.id} job={j} />)}</div>
+            : <div className="cards-grid">{pendingSorted.map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>
         )}
 
         {/* Delivered list — grouped by date */}
@@ -1809,8 +1827,8 @@ export default function App() {
           deliveredSorted.length===0
             ? <Empty icon="🚚" title={shipSearch?"Sin resultados":"Sin entregas aún"} sub={shipSearch?`Ningún pedido coincide con "${shipSearch}"`:"Los trabajos marcados como entregados aparecerán aquí"} />
             : shipSearch.trim()
-              ? <div className="cards-grid">{deliveredSorted.map(j=><JobCard key={j.id} job={j} />)}</div>
-              : groupByDate(deliveredSorted).map(([dateLabel, dayJobs])=>(
+              ? <><div className="cards-grid">{deliveredSorted.slice(0, lim("envios:"+shipSearch)).map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>{VerMas("envios:"+shipSearch, deliveredSorted.length)}</>
+              : <>{groupByDate(deliveredSorted.slice(0, lim("envios"))).map(([dateLabel, dayJobs])=>(
                   <div key={dateLabel} style={{ marginBottom:20 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
                       <div style={{ fontSize:12, fontWeight:800, color:C.teal, textTransform:"capitalize" }}>{dateLabel}</div>
@@ -1819,9 +1837,9 @@ export default function App() {
                         {dayJobs.length} entrega{dayJobs.length!==1?"s":""} · Bs. {dayJobs.reduce((s,j)=>s+Number(j.price||0),0).toFixed(0)}
                       </div>
                     </div>
-                    <div className="cards-grid">{dayJobs.map(j=><JobCard key={j.id} job={j} />)}</div>
+                    <div className="cards-grid">{dayJobs.map(j=><Fragment key={j.id}>{JobCard({job:j})}</Fragment>)}</div>
                   </div>
-                ))
+                ))}{VerMas("envios", deliveredSorted.length)}</>
         )}
       </div>
     );
@@ -1858,8 +1876,9 @@ export default function App() {
             </div>
           </div>
           {c.active>0 && <div style={{ background:STATUS.pending.bg, border:`1px solid ${STATUS.pending.border}`, borderRadius:C.rSm, padding:"10px 14px", marginBottom:12, fontSize:12, color:C.yellow, fontWeight:700 }}>{c.active} pedido{c.active>1?"s":""} en proceso</div>}
-          <SectionLabel color={C.t3}>Historial de pedidos</SectionLabel>
-          {[...c.jobs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(j=><JobCard key={j.id} job={j} compact />)}
+          {SectionLabel({color:C.t3, children:<>Historial de pedidos</>})}
+          {[...c.jobs].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0, lim("cliente:"+c.key)).map(j=><Fragment key={j.id}>{JobCard({job:j, compact:true})}</Fragment>)}
+          {VerMas("cliente:"+c.key, c.jobs.length)}
         </div>
       );
     }
@@ -1956,7 +1975,7 @@ export default function App() {
       </div>
       {periodByPrinter.length>0 && showDetail && (
         <>
-          <SectionLabel color={C.t3}>Por impresora — {periodLabels[statPeriod]}</SectionLabel>
+          {SectionLabel({color:C.t3, children:<>Por impresora — {periodLabels[statPeriod]}</>})}
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
             {periodByPrinter.map((p,i)=>(
               <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:i<periodByPrinter.length-1?`1px solid ${C.bg4}`:"none" }}>
@@ -1969,7 +1988,7 @@ export default function App() {
       )}
       {topMaterials.length>0 && showDetail && (
         <>
-          <SectionLabel color={C.t3}>Materiales más usados</SectionLabel>
+          {SectionLabel({color:C.t3, children:<>Materiales más usados</>})}
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
             {topMaterials.map(([mat,count],i)=>{
               const maxC=topMaterials[0][1];
@@ -1994,7 +2013,7 @@ export default function App() {
       </button>
       {showDetail && <>
       {/* Job-by-job income detail */}
-      <SectionLabel color={C.t3}>Detalle de ingresos — {periodLabels[statPeriod]}</SectionLabel>
+      {SectionLabel({color:C.t3, children:<>Detalle de ingresos — {periodLabels[statPeriod]}</>})}
       {periodJobs.length===0 ? (
         <div style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, padding:"20px", textAlign:"center", marginBottom:16 }}>
           <div style={{ fontSize:13, color:C.t3 }}>Sin pedidos en este período</div>
@@ -2051,7 +2070,7 @@ export default function App() {
           </div>
         </div>
       )}
-      <SectionLabel color={C.t3}>Ingresos últimos 6 meses</SectionLabel>
+      {SectionLabel({color:C.t3, children:<>Ingresos últimos 6 meses</>})}
       <div style={{ background:C.bg2, borderRadius:C.r, padding:"16px 14px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
         <div style={{ display:"flex", alignItems:"flex-end", gap:8, height:110 }}>
           {last6.map((m,i)=>(
@@ -2122,7 +2141,7 @@ export default function App() {
             </div>
           </div>
         )}
-        <SectionLabel color={C.t3}>Costo por material (Bs. por kg)</SectionLabel>
+        {SectionLabel({color:C.t3, children:<>Costo por material (Bs. por kg)</>})}
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
           {allMaterials.map((mat,i)=>(
             <div key={mat} style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 0", borderBottom:i<allMaterials.length-1?`1px solid ${C.bg4}`:"none" }}>
@@ -2148,7 +2167,7 @@ export default function App() {
             </div>
           ))}
         </div>
-        <SectionLabel color={C.t3}>Resumen histórico</SectionLabel>
+        {SectionLabel({color:C.t3, children:<>Resumen histórico</>})}
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
           {[["Total vendido",fmtMoney(totalRevenue)],["Costo materiales",`- ${fmtMoney(totalMatCost)}`],["Utilidad neta",fmtMoney(totalProfit)],["Margen promedio",`${avgMargin.toFixed(1)}%`]].map(([l,v],i,arr)=>(
             <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 0", borderBottom:i<arr.length-1?`1px solid ${C.bg4}`:"none" }}>
@@ -2164,8 +2183,8 @@ export default function App() {
   // ─── PRINTERS VIEW ────────────────────────────────────────────────────────
   const PrintersView = () => (
     <div className="view-pad" style={{ maxWidth:isDesktop?900:isTablet?700:"100%", margin:"0 auto" }}>
-      <SectionLabel color={C.t3}>Tus impresoras</SectionLabel>
-      {printers.map(p=><PrinterCard key={p.id} p={p} showActions />)}
+      {SectionLabel({color:C.t3, children:<>Tus impresoras</>})}
+      {printers.map(p=><Fragment key={p.id}>{PrinterCard({p:p, showActions:true})}</Fragment>)}
       <button onClick={()=>{setEditP(null);setPForm(P0);setShowPForm(true);}} style={{ width:"100%", padding:"16px", background:C.bg2, border:`2px dashed ${C.bg5}`, borderRadius:C.r, color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:4 }}>
         + Agregar nueva impresora
       </button>
@@ -2342,7 +2361,7 @@ export default function App() {
           <div style={{ borderRadius:`0 0 ${C.r}px ${C.r}px`, border:`1px solid ${C.bg5}`, borderTop:"none", overflow:"hidden" }}>
             {groupJobs.map((job,i)=>(
               <div key={job.id} style={{ borderBottom:i<groupJobs.length-1?`1px solid ${C.bg4}`:"none" }}>
-                <JobCard job={job} compact={false} />
+                {JobCard({job:job, compact:false})}
               </div>
             ))}
           </div>
@@ -2577,7 +2596,7 @@ export default function App() {
   );
 
   return (
-    kioskMode ? <><KioskView /><CartelPedido /></> :
+    kioskMode ? <>{KioskView()}{CartelPedido()}</> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
       <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
@@ -3215,7 +3234,7 @@ export default function App() {
       )}
 
       {/* ── TOAST ── */}
-      <CartelPedido />
+      {CartelPedido()}
       {toast && (
         <div role="status" aria-live="polite" key={toast.id} style={{ position:"fixed", bottom: isMobile?"calc(env(safe-area-inset-bottom) + 84px)":24, left:"50%", transform:"translateX(-50%)", width:"max-content", maxWidth:"calc(100vw - 24px)", display:"flex", alignItems:"center", gap:14, background:toast.type==="err"?"#3A1510":"#2E1A0B", border:`1px solid ${toast.type==="err"?"#6B2A1F":"#6B3A12"}`, color:C.t1, padding: toast.deshacer?"8px 8px 8px 20px":"13px 22px", borderRadius:C.rPill, fontSize:15, fontWeight:700, zIndex:100, boxShadow:"0 10px 30px rgba(0,0,0,.5)", animation:"w3dSubeT .2s ease-out" }}>
           <span>{toast.msg}</span>
