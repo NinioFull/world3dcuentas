@@ -1100,10 +1100,11 @@ export default function App() {
   // ── Costo real de un trabajo: filamento + horas de máquina (luz + desgaste). Los diseños no gastan máquina. ──
   const porHoraMaq = (Number(operacion.luzHora)||0) + (Number(operacion.desgasteHora)||0);
   const costoDe = (j) => {
-    if (j.jobType==="design") return { mat:0, maq:0, total:0, sinMat:false, sinDatos:true };
+    if (j.jobType==="design") return { mat:0, maq:0, luz:0, desgaste:0, total:0, sinMat:false, sinPeso:false, sinDatos:true };
     const g = (Number(j.weight)||0)*unidades(j), kg = matCosts[j.material]||0, horas = minutosTotales(j)/60;
-    const mat = kg>0 ? g/1000*kg : 0, maq = horas*porHoraMaq;
-    return { mat, maq, total:mat+maq, sinMat:g>0&&!kg, sinDatos:!g&&!horas };
+    const luz = horas*(Number(operacion.luzHora)||0), desgaste = horas*(Number(operacion.desgasteHora)||0);
+    const mat = kg>0 ? g/1000*kg : 0, maq = luz+desgaste;
+    return { mat, maq, luz, desgaste, horas, total:mat+maq, sinMat:g>0&&!kg, sinPeso:!g&&horas>0, sinDatos:!g&&!horas };
   };
   const precioSugerido = (j) => { const m = Math.min(90, Number(operacion.margenMin)||30)/100; return costoDe(j).total/(1-m); };
 
@@ -1338,10 +1339,19 @@ export default function App() {
               return (
                 <div style={{ background:bajo?C.redBg:C.bg3, border:`1px solid ${bajo?"#5C1F14":C.bg5}`, borderRadius:C.rSm, padding:"9px 13px", marginBottom:12, fontSize:12, color:C.t2 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
-                    <span>Costo {fmtMoney(c.total)} <span style={{ color:C.t3 }}>(filamento {fmtMoney(c.mat)} · máquina {fmtMoney(c.maq)})</span></span>
+                    <span>Costo {fmtMoney(c.total)} <span style={{ color:C.t3 }}>= filamento {c.sinPeso?"—":fmtMoney(c.mat)} · luz {fmtMoney(c.luz)} · desgaste {fmtMoney(c.desgaste)}</span></span>
                     <span style={{ fontWeight:900, color:gan<0?"#FF8A6B":bajo?C.yellow:C.green }}>Ganás {fmtMoney(gan)} · {margen.toFixed(0)}%</span>
                   </div>
-                  {c.sinMat && <div style={{ color:C.yellow, marginTop:3 }}>Falta el costo del {job.material||"material"} en Stats › Utilidad</div>}
+                  {c.sinMat && <div style={{ color:C.yellow, marginTop:3 }}>Falta el costo del {job.material||"material"} en Stats › Utilidad: el filamento no se está contando</div>}
+                  {c.sinPeso && (
+                    <div style={{ marginTop:6 }}>
+                      <div style={{ color:C.yellow, fontWeight:800 }}>Falta el peso: el filamento no se está contando</div>
+                      <div style={{ display:"flex", gap:6, alignItems:"center", marginTop:6 }}>
+                        <input type="number" inputMode="numeric" placeholder={unidades(job)>1?"gramos por unidad":"gramos"} aria-label="Peso en gramos" onKeyDown={e=>{ if(e.key==="Enter"){ const v=Number(e.currentTarget.value); if(v>0) updateDoc(doc(db,"jobs",job.id),{weight:v}); } }} style={{ ...inputSt, flex:1, padding:"8px 10px", fontSize:14 }} />
+                        <button onClick={e=>{ const v=Number(e.currentTarget.previousSibling.value); if(v>0){ updateDoc(doc(db,"jobs",job.id),{weight:v}); toast_("Peso guardado"); } }} style={{ minHeight:40, padding:"0 14px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer" }}>Guardar</button>
+                      </div>
+                    </div>
+                  )}
                   {bajo && <div style={{ color:"#FF8A6B", fontWeight:800, marginTop:3 }}>Precio bajo: con {Number(operacion.margenMin)||30}% de margen sería {fmtMoney(precioSugerido(job))}</div>}
                   {Number(job.fallas)>0 && <div style={{ color:C.t3, marginTop:3 }}>Falló {job.fallas} {Number(job.fallas)===1?"vez":"veces"}</div>}
                 </div>
@@ -2507,6 +2517,11 @@ export default function App() {
             </div>
           </div>
         )}
+        {(()=>{ const sp = periodJobs2.filter(j=>Number(j.price)>0 && costoDe(j).sinPeso).length, sm = periodJobs2.filter(j=>Number(j.price)>0 && costoDe(j).sinMat).length;
+          return (sp||sm) ? <div style={{ background:C.yellowBg, border:"1px solid #4A3F36", borderRadius:C.rSm, padding:"10px 14px", marginBottom:16, fontSize:13, color:C.yellow, fontWeight:700, lineHeight:1.5 }}>
+            {sp>0 && <div>{sp} trabajo{sp>1?"s":""} sin peso: su filamento no se cuenta, la utilidad real es menor.</div>}
+            {sm>0 && <div>{sm} trabajo{sm>1?"s":""} de un material sin costo por kg (configuralo abajo).</div>}
+          </div> : null; })()}
         {bajos.length>0 && (<>
           {SectionLabel({color:C.yellow, children:<>Con margen bajo ({bajos.length}) · menos de {Number(operacion.margenMin)||30}%</>})}
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
