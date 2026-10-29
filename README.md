@@ -20,6 +20,10 @@ Se entra solo con Google, con la cuenta admin de WORLD3D (la que está en la tab
 1. Supabase > Authentication > URL Configuration > **Redirect URLs**: agregar `https://TU-DOMINIO-DEL-MANAGER/**` (la URL de Vercel donde está publicado, y `http://localhost:3000/**` si lo probás en la compu).
 2. Listo: el botón *Entrar con Google* usa el mismo Client ID que el sitio.
 
+## Modo kiosco
+
+Arriba se elige **Máquinas** (una columna por impresora con lo que imprime y lo que sigue) o **Calendario** (las entregas de la semana, un día por columna; con el iPad parado se ve como agenda, un día por fila). Tocando una entrega se ve el detalle y su acción principal (iniciar, terminado, entregado…). Las flechas cambian de semana y *Hoy* vuelve a la actual. La vista elegida queda guardada en el iPad.
+
 ## Agregar a inicio en el iPad
 
 Abrir el Manager en Safari > Compartir > *Agregar a pantalla de inicio*. Queda con el ícono de WORLD3D y sin la barra del navegador.
