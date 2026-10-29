@@ -562,6 +562,47 @@ export default function App() {
   const [form, setForm] = useState(J0);
   const [pForm, setPForm] = useState(P0);
 
+  // ── Borradores: lo que estás cargando se guarda en el dispositivo mientras escribís.
+  // Si el formulario se cierra sin querer (tocar afuera), al volver a abrirlo sigue donde quedó.
+  const BORR = { trabajo:"w3d-borrador-trabajo", pedido:"w3d-borrador-pedido", edicion:"w3d-borrador-edicion" };
+  const leerBorr = (k) => { try { const d = JSON.parse(localStorage.getItem(k)||"null"); return d && Date.now()-(d.at||0) < 3*DIA ? d : null; } catch (e) { return null; } };
+  const guardarBorr = (k, d) => { try { localStorage.setItem(k, JSON.stringify({ ...d, at:Date.now() })); } catch (e) {} };
+  const borrarBorr = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
+  const [borradorAviso, setBorradorAviso] = useState(null);   // cuándo se guardó el borrador que se recuperó
+  const formOriginal = useRef("");   // al editar: cómo estaba el trabajo, para no guardar borrador si no cambiaste nada
+  useEffect(() => {
+    if (!showForm) return;
+    if (multiMode) {
+      const vacio = !orderClient.name && !orderClient.phone && !orderClient.notes && orderItems.every(i=>!i.fileName && !i.unitPrice);
+      vacio ? borrarBorr(BORR.pedido) : guardarBorr(BORR.pedido, { orderItems, orderClient });
+    } else if (editJob) {
+      JSON.stringify(form) === formOriginal.current ? borrarBorr(BORR.edicion) : guardarBorr(BORR.edicion, { jobId:editJob.id, status:editJob.status, form });
+    } else {
+      const vacio = !form.fileName && !form.clientName && !form.clientPhone && !form.price && !form.unitPrice && !form.notes && !form.deposit;
+      vacio ? borrarBorr(BORR.trabajo) : guardarBorr(BORR.trabajo, { form });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showForm, multiMode, editJob, form, orderItems, orderClient]);
+  const abrirNuevoTrabajo = (prefill = {}) => {
+    setMultiMode(false); setEditJob(null);
+    const b = leerBorr(BORR.trabajo), conPrefill = Object.keys(prefill).length > 0;
+    if (b && b.form && (!conPrefill || normNombre(b.form.clientName) === normNombre(prefill.clientName))) { setForm({ ...J0, ...b.form }); setBorradorAviso(b.at); }
+    else { setForm({ ...J0, printer:printers[0]?.id??"", ...prefill }); setBorradorAviso(null); }
+    setShowForm(true);
+  };
+  const empezarDeCero = () => {
+    setBorradorAviso(null);
+    if (multiMode) { borrarBorr(BORR.pedido); setOrderItems([{...ITEM0, id:Date.now(), printer:printers[0]?.id??""}]); setOrderClient({name:'',phone:'',deliveryAt:null,deposit:'',notes:''}); }
+    else if (editJob) { borrarBorr(BORR.edicion); setForm(JSON.parse(formOriginal.current)); }
+    else { borrarBorr(BORR.trabajo); setForm({ ...J0, printer:printers[0]?.id??"" }); }
+  };
+  // Tocar afuera cierra pero conserva el borrador; Cancelar lo descarta
+  const cerrarForm = (descartar) => {
+    const k = multiMode ? BORR.pedido : editJob ? BORR.edicion : BORR.trabajo;
+    if (descartar) borrarBorr(k); else if (leerBorr(k)) toast_(editJob ? "Tus cambios quedaron como borrador" : "Quedó guardado como borrador");
+    setShowForm(false); setEditJob(null); setMultiMode(false); setBorradorAviso(null);
+  };
+
   useEffect(() => {
     document.title = "WORLD3D Manager";
     const link = document.createElement("link");
@@ -804,9 +845,14 @@ export default function App() {
   const updateOrderItem = (id, field, value) => setOrderItems(prev=>prev.map(x=>x.id===id?{...x,[field]:value}:x));
 
   const openMultiForm = () => {
-    setMultiMode(true);
-    setOrderItems([{...ITEM0, id:Date.now(), printer:printers[0]?.id??""}]);
-    setOrderClient({name:'',phone:'',deliveryAt:null,deposit:'',notes:''});
+    setMultiMode(true); setEditJob(null);
+    const b = leerBorr(BORR.pedido);
+    if (b && Array.isArray(b.orderItems) && b.orderItems.length) { setOrderItems(b.orderItems); setOrderClient(b.orderClient||{name:'',phone:'',deliveryAt:null,deposit:'',notes:''}); setBorradorAviso(b.at); }
+    else {
+      setOrderItems([{...ITEM0, id:Date.now(), printer:printers[0]?.id??""}]);
+      setOrderClient({name:'',phone:'',deliveryAt:null,deposit:'',notes:''});
+      setBorradorAviso(null);
+    }
     setShowForm(true);
   };
 
@@ -861,6 +907,7 @@ export default function App() {
     }
     const totalPrice = validItems.reduce((s,x)=>(s+Number(x.unitPrice||0)*(Number(x.quantity)||1)),0);
     toast_("Pedido con "+validItems.length+" productos agregado" + (totalPrice>0?" · Bs."+totalPrice.toFixed(2):""));
+    borrarBorr(BORR.pedido); setBorradorAviso(null);
     setShowForm(false);
     setMultiMode(false);
     setOrderItems([]);
@@ -900,6 +947,7 @@ export default function App() {
       }
       toast_("Agregado a la cola");
     }
+    borrarBorr(editJob ? BORR.edicion : BORR.trabajo); setBorradorAviso(null);
     setForm(J0); setShowForm(false); setEditJob(null);
   });
 
@@ -971,7 +1019,13 @@ export default function App() {
     toast_("Trabajo duplicado");
   };
   const openEJ = (job) => {
-    setEditJob(job);
+    setEditJob(job); setMultiMode(false);
+    const original = { fileName:job.fileName, printer:job.printer, material:job.material||"", jobType:job.jobType||"print", weight:job.weight||"", duration:job.duration||"", notes:job.notes||"", status:job.status, color:job.color||"", clientName:job.clientName||"", clientPhone:job.clientPhone||"", price:job.price||"", quantity:job.quantity||"1", unitPrice:job.unitPrice||"", deliveryAt:job.deliveryAt||null, deposit:job.deposit||"" };
+    formOriginal.current = JSON.stringify(original);
+    // Borrador de edición: solo si es de este trabajo y el trabajo no cambió de estado mientras tanto
+    const b = leerBorr(BORR.edicion);
+    if (b && b.jobId===job.id && b.status===job.status && b.form) { setForm(b.form); setBorradorAviso(b.at); setShowForm(true); return; }
+    setBorradorAviso(null);
     setForm({ fileName:job.fileName, printer:job.printer, material:job.material||"", jobType:job.jobType||"print", weight:job.weight||"", duration:job.duration||"", notes:job.notes||"", status:job.status, color:job.color||"", clientName:job.clientName||"", clientPhone:job.clientPhone||"", price:job.price||"", quantity:job.quantity||"1", unitPrice:job.unitPrice||"", deliveryAt:job.deliveryAt||null, deposit:job.deposit||"" });
     setShowForm(true);
   };
@@ -1644,7 +1698,7 @@ export default function App() {
             <div style={{ fontSize:60, marginBottom:16 }}><Icono e="🖨" size={48} /></div>
             <div style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:8 }}>Todo listo para empezar</div>
             <div style={{ fontSize:13, color:C.t3, lineHeight:1.7, marginBottom:24 }}>Agrega tu primer trabajo tocando el botón <strong style={{ color:C.t1 }}>+ Nuevo</strong> arriba</div>
-            <button onClick={()=>{setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ padding:"14px 32px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:800, cursor:"pointer", boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
+            <button onClick={()=>abrirNuevoTrabajo()} style={{ padding:"14px 32px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:800, cursor:"pointer", boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               + Agregar primer trabajo
             </button>
           </div>
@@ -2221,7 +2275,7 @@ export default function App() {
       const favoritos = Object.entries(conteo).sort((a,b)=>b[1]-a[1]).slice(0,3);
       const debeC = c.jobs.filter(j=>j.status==="shipped"&&j.debe&&saldoDe(j)>0);
       const sinRecogerC = c.jobs.filter(sinRecoger);
-      const nuevoPedido = () => { setMultiMode(false); setEditJob(null); setForm({...J0, printer:printers[0]?.id??"", clientName:c.name, clientPhone:c.phone||""}); setShowForm(true); };
+      const nuevoPedido = () => abrirNuevoTrabajo({ clientName:c.name, clientPhone:c.phone||"" });
       return (
         <div className="view-pad" style={{ maxWidth:isDesktop?1000:isTablet?700:"100%", margin:"0 auto" }}>
           <button onClick={()=>setSelectedClient(null)} style={{ background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:16 }}>← Volver</button>
@@ -3353,7 +3407,7 @@ export default function App() {
           <div style={{ display:"flex", gap:8 }}>
             <button onClick={()=>{ setBuscarQ(""); setShowBuscar(true); }} aria-label="Buscar" title="Buscar ( / )" style={{ width:42, height:38, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, color:C.t1, cursor:"pointer" }}><Search size={20} aria-hidden="true" /></button>
             <div style={{ display:"flex", borderRadius:C.rSm, overflow:"hidden", boxShadow:`0 3px 16px rgba(241,132,27,.4)` }}>
-              <button onClick={()=>{setMultiMode(false);setEditJob(null);setForm({...J0,printer:printers[0]?.id??""});setShowForm(true);}} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
+              <button onClick={()=>abrirNuevoTrabajo()} aria-label="Nuevo trabajo" style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
               <div style={{ width:1, background:"rgba(0,0,0,.3)" }} />
               <button onClick={openMultiForm} title="Pedido con múltiples productos" style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 13px", height:38, fontSize:16, fontWeight:800, cursor:"pointer", lineHeight:1 }}>⊞</button>
             </div>
@@ -3471,11 +3525,17 @@ export default function App() {
 
       {/* ── FORM: NUEVO TRABAJO ── */}
       {showForm && !multiMode && (
-        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowForm(false);setEditJob(null);}}}>
+        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget) cerrarForm(false);}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
             <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>{editJob?"Editar trabajo":"➕ Nuevo trabajo"}</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:16 }}>{editJob?"Modifica los datos del trabajo":"Completa los datos para agregar a la cola"}</div>
+            {borradorAviso && (
+              <div role="status" style={{ display:"flex", alignItems:"center", gap:10, background:C.orangeBg, border:`1px solid ${C.orange}55`, borderRadius:C.rSm, padding:"10px 10px 10px 14px", marginBottom:16 }}>
+                <div style={{ flex:1, fontSize:13, color:C.t1, fontWeight:700 }}>Seguís con tu borrador <span style={{ color:C.t3, fontWeight:600 }}>({new Date(borradorAviso).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}{Date.now()-borradorAviso>DIA?`, ${haceDias(borradorAviso)}`:""})</span></div>
+                <button onClick={empezarDeCero} style={{ minHeight:38, padding:"0 12px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}>{editJob?"Descartar cambios":"Empezar de cero"}</button>
+              </div>
+            )}
 
             {/* Job type selector */}
             <div style={{ display:"flex", gap:8, marginBottom:20 }}>
@@ -3694,18 +3754,24 @@ export default function App() {
             <button onClick={submitJob} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               {editJob?"Guardar cambios":"Agregar a la cola"}
             </button>
-            <button onClick={()=>{setShowForm(false);setEditJob(null);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
+            <button onClick={()=>cerrarForm(true)} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
           </div>
         </div>
       )}
 
       {/* ── FORM: PEDIDO MÚLTIPLE ── */}
       {showForm && multiMode && (
-        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowForm(false);setMultiMode(false);}}}>
+        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget) cerrarForm(false);}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
             <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>Pedido con múltiples productos</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:20 }}>Agrupa varios productos en un solo pedido para un cliente</div>
+            {borradorAviso && (
+              <div role="status" style={{ display:"flex", alignItems:"center", gap:10, background:C.orangeBg, border:`1px solid ${C.orange}55`, borderRadius:C.rSm, padding:"10px 10px 10px 14px", marginBottom:16 }}>
+                <div style={{ flex:1, fontSize:13, color:C.t1, fontWeight:700 }}>Seguís con tu borrador <span style={{ color:C.t3, fontWeight:600 }}>({new Date(borradorAviso).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}{Date.now()-borradorAviso>DIA?`, ${haceDias(borradorAviso)}`:""})</span></div>
+                <button onClick={empezarDeCero} style={{ minHeight:38, padding:"0 12px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}>{editJob?"Descartar cambios":"Empezar de cero"}</button>
+              </div>
+            )}
 
             {/* Client section */}
             <FormDivider label="Cliente del pedido" />
@@ -3848,7 +3914,7 @@ export default function App() {
             <button onClick={submitOrder} disabled={guardando} aria-busy={guardando||undefined} style={{ opacity:guardando?.6:1, cursor:guardando?"wait":"pointer", width:"100%", padding:"16px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.r, fontSize:16, fontWeight:900, cursor:"pointer", marginTop:4, boxShadow:`0 6px 24px rgba(241,132,27,.4)` }}>
               Crear pedido ({orderItems.filter(x=>x.fileName.trim()).length} producto{orderItems.filter(x=>x.fileName.trim()).length!==1?"s":""})
             </button>
-            <button onClick={()=>{setShowForm(false);setMultiMode(false);}} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
+            <button onClick={()=>cerrarForm(true)} style={{ width:"100%", padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.r, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>Cancelar</button>
           </div>
         </div>
       )}
