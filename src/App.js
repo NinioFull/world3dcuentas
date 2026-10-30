@@ -1754,6 +1754,7 @@ export default function App() {
 
   // ─── QUEUE VIEW ───────────────────────────────────────────────────────────
   const QueueView = () => {
+    const fPrinter = "all";   // la Cola ya no filtra por máquina (las horas por máquina siguen en Máquinas)
     const fmtWaiting = (createdAt) => {
       if(!createdAt) return "";
       const diff = Date.now()-createdAt;
@@ -1870,19 +1871,13 @@ export default function App() {
               <button key={k} role="radio" aria-checked={queueViewMode===k} onClick={()=>{ setQueueViewMode(k); setSortMode(false); }} style={{ flex:1, minHeight:38, padding:"0 12px", borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, whiteSpace:"nowrap", background:queueViewMode===k?C.bg5:"transparent", color:queueViewMode===k?C.t1:C.t3 }}>{l}</button>
             ))}
           </div>
-          <button onClick={()=>setVerFiltros(v=>!v)} aria-expanded={verFiltros} style={{ display:"flex", alignItems:"center", gap:6, minHeight:44, padding:"0 14px", borderRadius:C.rSm, cursor:"pointer", fontSize:13, fontWeight:800, whiteSpace:"nowrap", background:verFiltros||fPrinter!=="all"||queueSort!=="priority"?C.orangeBg:C.bg3, color:verFiltros||fPrinter!=="all"||queueSort!=="priority"?C.orange:C.t2, border:`1px solid ${verFiltros||fPrinter!=="all"||queueSort!=="priority"?C.orange+"66":C.bg5}` }}>
-            Filtrar{(fPrinter!=="all"?1:0)+(queueSort!=="priority"?1:0)>0 && <span style={{ fontSize:12, fontWeight:900, background:C.orange, color:"#191513", borderRadius:C.rPill, padding:"0 6px" }}>{(fPrinter!=="all"?1:0)+(queueSort!=="priority"?1:0)}</span>}
+          <button onClick={()=>setVerFiltros(v=>!v)} aria-expanded={verFiltros} style={{ display:"flex", alignItems:"center", gap:6, minHeight:44, padding:"0 14px", borderRadius:C.rSm, cursor:"pointer", fontSize:13, fontWeight:800, whiteSpace:"nowrap", background:verFiltros||queueSort!=="priority"?C.orangeBg:C.bg3, color:verFiltros||queueSort!=="priority"?C.orange:C.t2, border:`1px solid ${verFiltros||queueSort!=="priority"?C.orange+"66":C.bg5}` }}>
+            Ordenar{queueSort!=="priority" && <span style={{ fontSize:12, fontWeight:900, background:C.orange, color:"#191513", borderRadius:C.rPill, padding:"0 6px" }}>1</span>}
             <ChevronDown size={16} aria-hidden="true" style={{ transform:verFiltros?"rotate(180deg)":"none", transition:"transform .2s" }} />
           </button>
         </div>
         {verFiltros && (
-          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr auto", gap:10, alignItems:"end", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"12px 14px", marginBottom:10 }}>
-            <label style={{ fontSize:12, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.6 }}>Impresora
-              <select value={fPrinter} onChange={e=>setFPrinter(e.target.value)} style={{ ...inputSt, marginTop:6, fontSize:14, textTransform:"none", letterSpacing:0 }}>
-                <option value="all">Todas las impresoras</option>
-                {printers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </label>
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr auto", gap:10, alignItems:"end", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"12px 14px", marginBottom:10 }}>
             <label style={{ fontSize:12, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.6 }}>Ordenar por
               <select value={queueSort} onChange={e=>setQueueSort(e.target.value)} style={{ ...inputSt, marginTop:6, fontSize:14, textTransform:"none", letterSpacing:0 }}>
                 <option value="priority">Orden de impresión</option>
@@ -1891,13 +1886,11 @@ export default function App() {
                 <option value="created">Los más nuevos</option>
               </select>
             </label>
-            {(fPrinter!=="all"||queueSort!=="priority") && <button onClick={()=>{ setFPrinter("all"); setQueueSort("priority"); }} style={{ minHeight:46, padding:"0 14px", background:"transparent", color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer" }}>Quitar filtros</button>}
+            {queueSort!=="priority" && <button onClick={()=>setQueueSort("priority")} style={{ minHeight:46, padding:"0 14px", background:"transparent", color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer" }}>Volver al orden de impresión</button>}
           </div>
         )}
-        {!verFiltros && (fPrinter!=="all"||queueSort!=="priority") && (
+        {!verFiltros && queueSort!=="priority" && (
           <div style={{ fontSize:13, color:C.t3, marginBottom:10 }}>
-            {fPrinter!=="all" && <>Solo <b style={{ color:C.t1 }}>{printers.find(p=>p.id===fPrinter)?.name}</b></>}
-            {fPrinter!=="all"&&queueSort!=="priority" && " · "}
             {queueSort!=="priority" && <>Ordenado por <b style={{ color:C.t1 }}>{({delivery:"fecha de entrega",waiting:"espera",created:"más nuevos"})[queueSort]}</b></>}
           </div>
         )}
