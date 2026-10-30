@@ -1770,18 +1770,17 @@ export default function App() {
     const printJobs  = jobs.filter(j=>j.jobType!=="design");
     // Cada chip cuenta exactamente lo que muestra su lista (misma regla en enFiltro)
     const atrasadosQ = jobs.filter(esAtrasado), hoyQ = jobs.filter(esParaHoy);
-    const filters = [
-      ...(atrasadosQ.length||fStatus==="atrasados" ? [{key:"atrasados", label:"Atrasados", count:atrasadosQ.length, alerta:true}] : []),
-      ...(hoyQ.length||fStatus==="hoy" ? [{key:"hoy", label:"Entregar hoy", count:hoyQ.length}] : []),
-      {key:"all",      label:"Impresión", count:printJobs.filter(j=>j.status!=="shipped").length},
-      {key:"design",   label:"Diseño",   count:designJobs.filter(j=>j.status!=="shipped").length, purple:true},
-      {key:"pending",  label:"Cola",      count:pending.filter(j=>j.jobType!=="design").length},
-      {key:"printing", label:"Activos",   count:[...printing,...paused].filter(j=>j.jobType!=="design").length},
-      {key:"done",     label:"Listos",    count:done.filter(j=>j.jobType!=="design").length},
-      {key:"shipping", label:"Envío",     count:shipping.filter(j=>j.jobType!=="design").length},
-      {key:"shipped",  label:"Entregados",count:shipped.filter(j=>j.jobType!=="design").length},
+    // Etapas (pestañas). "listos" junta Listo + Para envío. Las alertas (atrasados / hoy) van aparte.
+    const ETAPAS = [
+      {key:"all",      label:"Todo",        count:printJobs.filter(j=>j.status!=="shipped").length},
+      {key:"printing", label:"Imprimiendo", count:[...printing,...paused].filter(j=>j.jobType!=="design").length},
+      {key:"pending",  label:"En cola",     count:pending.filter(j=>j.jobType!=="design").length},
+      {key:"listos",   label:"Listos",      count:[...done,...shipping].filter(j=>j.jobType!=="design").length},
+      {key:"design",   label:"Diseño",      count:designJobs.filter(j=>j.status!=="shipped").length},
+      {key:"shipped",  label:"Entregados",  count:null},
     ];
-
+    const etapaActiva = ["done","shipping"].includes(fStatus) ? "listos" : fStatus;
+    const [verFiltros, setVerFiltros] = useState(false);
     const SORT_OPTIONS = [
       {key:"priority", label:"Prioridad"},
       {key:"delivery", label:"Entrega"},
@@ -1803,6 +1802,7 @@ export default function App() {
       : fStatus==="design"  ? j.jobType==="design" && j.status!=="shipped"    // los entregados están en "Entregados"
       : fStatus==="all"     ? j.jobType!=="design" && j.status!=="shipped"
       : fStatus==="printing"? j.jobType!=="design" && (j.status==="printing"||j.status==="paused")
+      : fStatus==="listos"  ? j.jobType!=="design" && (j.status==="done"||j.status==="shipping")
       : j.status===fStatus && j.jobType!=="design";
     const baseFiltered = jobs.filter(j=>
       (fPrinter==="all"||j.printer===fPrinter) &&
@@ -1836,77 +1836,72 @@ export default function App() {
       return null;
     };
 
-    const showSortBtn = (fStatus==="all"||fStatus==="pending")&&pending.filter(j=>j.jobType!=="design").length>1&&queueViewMode==="detail";
 
     return (
       <div className="view-pad" style={{ maxWidth:isDesktop?1500:isTablet?900:"100%", margin:"0 auto" }}>
 
-        {/* ── DESIGN MODE BANNER ── */}
-        {fStatus==="design" && (
-          <div style={{ background:"linear-gradient(135deg,#2E1309,#2E1309)", border:"1px solid #6B2812", borderRadius:C.r, padding:"14px 18px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-              <span style={{ fontSize:22 }}><Icono e="🎨" size={24} /></span>
-              <div>
-                <div style={{ fontSize:14, fontWeight:900, color:"#FFF0DE" }}>Modo Diseño 3D</div>
-                <div style={{ fontSize:12, color:"#E9521E", marginTop:1 }}>
-                  {designJobs.filter(j=>j.status==="pending").length} pendientes · {designJobs.filter(j=>j.status==="printing").length} en diseño · {designJobs.filter(j=>j.status==="done").length} listos · {designJobs.filter(j=>j.status==="shipped").length} entregados
-                </div>
-              </div>
-            </div>
-            <button onClick={()=>setFStatus("all")} style={{ fontSize:12, color:"#E9521E", background:"none", border:"1px solid #6B2812", borderRadius:C.rSm, padding:"6px 12px", cursor:"pointer", fontWeight:700 }}>
-              ← Ver impresión
-            </button>
+        {/* ── 1. ETAPAS: en qué parte del proceso está cada trabajo ── */}
+        <div role="tablist" aria-label="Etapa" style={{ display:"flex", gap:4, background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:4, marginBottom:12, overflowX:"auto" }}>
+          {ETAPAS.map(e=>{ const on = etapaActiva===e.key; return (
+            <button key={e.key} role="tab" aria-selected={on} onClick={()=>{ setFStatus(e.key); setSortMode(false); }} style={{ flex:"1 0 auto", display:"flex", alignItems:"center", justifyContent:"center", gap:6, minHeight:44, padding:isMobile?"0 10px":"0 12px", borderRadius:C.rMd, border:"none", cursor:"pointer", whiteSpace:"nowrap", fontSize:isMobile?13:14, fontWeight:on?900:700, background:on?C.orange:"transparent", color:on?"#191513":C.t2 }}>
+              {e.label}{e.count>0 && <span style={{ fontSize:12, fontWeight:900, minWidth:22, padding:"1px 6px", borderRadius:C.rPill, background:on?"rgba(25,21,19,.18)":C.bg4, color:on?"#191513":C.t2 }}>{e.count}</span>}
+            </button>); })}
+        </div>
+
+        {/* ── 2. ALERTAS: solo si hay algo urgente ── */}
+        {(atrasadosQ.length>0||hoyQ.length>0||fStatus==="atrasados"||fStatus==="hoy") && (
+          <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+            {[["atrasados",AlertTriangle,"atrasado",atrasadosQ.length,"#E53212",C.redBg,"#5C1F14"],["hoy",CalendarClock,"para entregar hoy",hoyQ.length,C.yellow,C.yellowBg,"#4A3F36"]].filter(([k,,,n])=>n>0||fStatus===k).map(([k,Ic,txt,n,col,bg,bd])=>{ const on=fStatus===k; return (
+              <button key={k} onClick={()=>{ setFStatus(on?"all":k); setQueueSort(on?"priority":"delivery"); setSortMode(false); }} aria-pressed={on} style={{ display:"flex", alignItems:"center", gap:8, minHeight:40, padding:"0 14px", borderRadius:C.rPill, cursor:"pointer", fontSize:13, fontWeight:800, background:on?col:bg, color:on?"#191513":col, border:`1px solid ${on?col:bd}` }}>
+                <Ic size={16} aria-hidden="true" />{n} {txt}{n!==1&&k==="atrasados"?"s":""}{on && <X size={15} aria-label="Quitar filtro" />}
+              </button>); })}
           </div>
         )}
 
-        {/* ── TOP BAR: search + view toggle ── */}
-        <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-          <div style={{ flex:1, position:"relative" }}>
-            <div style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
-            <input style={{ ...inputSt, paddingLeft:40, background:C.bg3, borderColor:queueSearch?C.orange:C.bg5, fontSize:13 }} placeholder="Buscar por nombre o cliente..." value={queueSearch} onChange={e=>setQueueSearch(e.target.value)} />
-            {queueSearch && <button onClick={()=>setQueueSearch("")} style={{ position:"absolute", right:11, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:C.t3, fontSize:17, cursor:"pointer" }}>✕</button>}
+        {/* ── 3. BUSCAR + VISTA + FILTROS ── */}
+        <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:isMobile?"wrap":"nowrap" }}>
+          <div style={{ flex:"1 1 220px", position:"relative" }}>
+            <Search size={17} color={C.t3} aria-hidden="true" style={{ position:"absolute", left:13, top:"50%", transform:"translateY(-50%)" }} />
+            <input aria-label="Buscar en la cola" style={{ ...inputSt, paddingLeft:40, background:C.bg3, borderColor:queueSearch?C.orange:C.bg5, fontSize:14 }} placeholder="Buscar producto o cliente" value={queueSearch} onChange={e=>setQueueSearch(e.target.value)} />
+            {queueSearch && <button onClick={()=>setQueueSearch("")} aria-label="Borrar búsqueda" style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:C.t3, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}><X size={17} aria-hidden="true" /></button>}
           </div>
-          {/* View mode toggle */}
-          <div style={{ display:"flex", background:C.bg3, borderRadius:C.rSm, padding:3, gap:2, flexShrink:0 }}>
-            <button onClick={()=>setQueueViewMode("summary")}  title="Vista resumen"   style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="summary"?"#6B2812":"transparent",  color:queueViewMode==="summary"?C.purple:C.t3 }}>⊞</button>
-            <button onClick={()=>setQueueViewMode("calendar")} title="Vista calendario" style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="calendar"?C.blueBg:"transparent", color:queueViewMode==="calendar"?C.blue:C.t3 }}><Icono e="📅" /></button>
-            <button onClick={()=>setQueueViewMode("detail")}   title="Vista detallada"  style={{ width:34, height:34, borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:15, background:queueViewMode==="detail"?C.orangeBg:"transparent",  color:queueViewMode==="detail"?C.orange:C.t3 }}>☰</button>
+          <div role="radiogroup" aria-label="Cómo ver" style={{ display:"flex", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:3, gap:2, flex:isMobile?"1 1 auto":"0 0 auto" }}>
+            {[["detail","Tarjetas"],["summary","Lista"],["calendar","Semana"]].map(([k,l])=>(
+              <button key={k} role="radio" aria-checked={queueViewMode===k} onClick={()=>{ setQueueViewMode(k); setSortMode(false); }} style={{ flex:1, minHeight:38, padding:"0 12px", borderRadius:C.rXs, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, whiteSpace:"nowrap", background:queueViewMode===k?C.bg5:"transparent", color:queueViewMode===k?C.t1:C.t3 }}>{l}</button>
+            ))}
           </div>
+          <button onClick={()=>setVerFiltros(v=>!v)} aria-expanded={verFiltros} style={{ display:"flex", alignItems:"center", gap:6, minHeight:44, padding:"0 14px", borderRadius:C.rSm, cursor:"pointer", fontSize:13, fontWeight:800, whiteSpace:"nowrap", background:verFiltros||fPrinter!=="all"||queueSort!=="priority"?C.orangeBg:C.bg3, color:verFiltros||fPrinter!=="all"||queueSort!=="priority"?C.orange:C.t2, border:`1px solid ${verFiltros||fPrinter!=="all"||queueSort!=="priority"?C.orange+"66":C.bg5}` }}>
+            Filtrar{(fPrinter!=="all"?1:0)+(queueSort!=="priority"?1:0)>0 && <span style={{ fontSize:12, fontWeight:900, background:C.orange, color:"#191513", borderRadius:C.rPill, padding:"0 6px" }}>{(fPrinter!=="all"?1:0)+(queueSort!=="priority"?1:0)}</span>}
+            <ChevronDown size={16} aria-hidden="true" style={{ transform:verFiltros?"rotate(180deg)":"none", transition:"transform .2s" }} />
+          </button>
         </div>
-
-        {/* ── STATUS FILTERS ── */}
-        <div style={{ display:"flex", gap:6, marginBottom:8, overflowX:"auto", paddingBottom:4 }}>
-          {filters.map(f=>(
-            <button key={f.key} onClick={()=>{setFStatus(f.key);setSortMode(false);}} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", background:fStatus===f.key?(f.alerta?C.red:f.purple?"#6B2812":C.orange):(f.alerta?C.redBg:C.bg3), color:fStatus===f.key?(f.alerta?"#fff":"#191513"):C.t3, boxShadow:fStatus===f.key?`0 3px 12px rgba(${f.purple?"107,33,168":"255,87,34"},.35)`:undefined }}>
-              {f.label}{f.count>0?` ${f.count}`:""}
-            </button>
-          ))}
-        </div>
-
-        {/* ── PRINTER + SORT FILTERS ── */}
-        <div style={{ display:"flex", gap:6, marginBottom:12, overflowX:"auto", paddingBottom:2 }}>
-          {[{id:"all",name:"Todas"},...printers].map(p=>(
-            <button key={p.id} onClick={()=>setFPrinter(p.id)} style={{ padding:"6px 12px", borderRadius:C.rPill, border:`1.5px solid ${fPrinter===p.id?C.orange:C.bg5}`, cursor:"pointer", fontSize:12, fontWeight:700, background:fPrinter===p.id?C.orangeBg:C.bg3, color:fPrinter===p.id?C.orange:C.t3, whiteSpace:"nowrap", flexShrink:0 }}>
-              {p.name}
-            </button>
-          ))}
-          <div style={{ width:1, background:C.bg5, flexShrink:0, margin:"2px 2px" }} />
-          {SORT_OPTIONS.map(s=>(
-            <button key={s.key} onClick={()=>setQueueSort(s.key)} style={{ padding:"6px 12px", borderRadius:C.rPill, border:`1.5px solid ${queueSort===s.key?C.blue:C.bg5}`, cursor:"pointer", fontSize:12, fontWeight:700, background:queueSort===s.key?C.blueBg:C.bg3, color:queueSort===s.key?C.blue:C.t3, whiteSpace:"nowrap", flexShrink:0 }}>
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        {/* ── REORDER MODE (detail only) ── */}
-        {showSortBtn && (
-          <div style={{ marginBottom:12 }}>
-            <button onClick={()=>setSortMode(v=>!v)} style={{ padding:"9px 18px", borderRadius:C.rPill, border:`1.5px solid ${sortMode?C.orange:C.bg5}`, fontSize:12, fontWeight:800, cursor:"pointer", background:sortMode?C.orange:"transparent", color:sortMode?"#191513":C.t2 }}>
-              {sortMode?"✓ Reordenando prioridad":"↕ Reordenar cola"}
-            </button>
-            {sortMode && <div style={{ marginTop:8, background:C.orangeBg, borderRadius:C.rSm, padding:"10px 14px", border:`1px solid ${C.orange}33`, fontSize:12, color:"#E53212" }}>El trabajo #1 será el próximo en imprimirse. Usa ▲▼ para reordenar.</div>}
+        {verFiltros && (
+          <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr auto", gap:10, alignItems:"end", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"12px 14px", marginBottom:10 }}>
+            <label style={{ fontSize:12, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.6 }}>Impresora
+              <select value={fPrinter} onChange={e=>setFPrinter(e.target.value)} style={{ ...inputSt, marginTop:6, fontSize:14, textTransform:"none", letterSpacing:0 }}>
+                <option value="all">Todas las impresoras</option>
+                {printers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            <label style={{ fontSize:12, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.6 }}>Ordenar por
+              <select value={queueSort} onChange={e=>setQueueSort(e.target.value)} style={{ ...inputSt, marginTop:6, fontSize:14, textTransform:"none", letterSpacing:0 }}>
+                <option value="priority">Orden de impresión</option>
+                <option value="delivery">Fecha de entrega (la más próxima primero)</option>
+                <option value="waiting">Los que más esperan</option>
+                <option value="created">Los más nuevos</option>
+              </select>
+            </label>
+            {(fPrinter!=="all"||queueSort!=="priority") && <button onClick={()=>{ setFPrinter("all"); setQueueSort("priority"); }} style={{ minHeight:46, padding:"0 14px", background:"transparent", color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer" }}>Quitar filtros</button>}
           </div>
         )}
+        {!verFiltros && (fPrinter!=="all"||queueSort!=="priority") && (
+          <div style={{ fontSize:13, color:C.t3, marginBottom:10 }}>
+            {fPrinter!=="all" && <>Solo <b style={{ color:C.t1 }}>{printers.find(p=>p.id===fPrinter)?.name}</b></>}
+            {fPrinter!=="all"&&queueSort!=="priority" && " · "}
+            {queueSort!=="priority" && <>Ordenado por <b style={{ color:C.t1 }}>{({delivery:"fecha de entrega",waiting:"espera",created:"más nuevos"})[queueSort]}</b></>}
+          </div>
+        )}
+        <div style={{ height:6 }} />
 
         {/* ── CALENDAR VIEW ── */}
         {queueViewMode==="calendar" && (()=>{
@@ -2084,7 +2079,7 @@ export default function App() {
         {/* ── SUMMARY VIEW (Kanban) ── */}
         {queueViewMode==="summary" && (
           <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-            {KANBAN_GROUPS.filter(g=>fStatus==="design"||fStatus==="all"||g.key===fStatus||((g.key==="printing"||g.key==="paused")&&(fStatus==="printing"||fStatus==="paused"))).map(group=>(
+            {KANBAN_GROUPS.filter(g=>fStatus==="design"||fStatus==="all"||g.key===fStatus||(fStatus==="listos"&&(g.key==="done"||g.key==="shipping"))||((g.key==="printing"||g.key==="paused")&&(fStatus==="printing"||fStatus==="paused"))).map(group=>(
               group.jobs.length===0 ? null :
               <div key={group.key} style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, overflow:"hidden" }}>
                 {/* Group header */}
@@ -2130,40 +2125,60 @@ export default function App() {
           </div>
         )}
 
-        {/* ── DETAIL VIEW ── */}
-        {queueViewMode==="detail" && (
-          sortMode ? (
-            pending.length===0 ? <Empty icon="⏳" title="No hay trabajos pendientes" /> :
-            <div className="cards-grid">{pending.map((j,i)=>(
-              <div key={j.id}>
-                {queueSort==="waiting" && j.createdAt && (
-                  <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, marginLeft:48 }}>{fmtWaiting(j.createdAt)}</div>
-                )}
-                {JobCard({job:j, showPriority:true, idx:i, total:pending.length})}
-              </div>
-            ))}</div>
-          ) : sortedFiltered.length===0 ? (
-            <Empty icon="🔍" title="Nada aquí" sub="Cambia los filtros o agrega un trabajo nuevo" />
-          ) : <><div className="cards-grid">{(()=>{
-            const rendered = new Set();
-            return sortedFiltered.slice(0, lim(claveCola)).map(j=>{
+        {/* ── DETAIL VIEW: separado por secciones ── */}
+        {queueViewMode==="detail" && (()=>{
+          const pintar = (lista, clave) => { const rendered = new Set(); return (<>
+            <div className="cards-grid">{lista.slice(0, lim(clave)).map(j=>{
               if(j.orderId) {
                 if(rendered.has(j.orderId)) return null;
                 rendered.add(j.orderId);
-                const groupJobs = sortedFiltered.filter(x=>x.orderId===j.orderId);
-                return <OrderGroup key={j.orderId} orderId={j.orderId} jobs={groupJobs} />;
+                return <OrderGroup key={j.orderId} orderId={j.orderId} jobs={lista.filter(x=>x.orderId===j.orderId)} />;
               }
               return (
                 <div key={j.id}>
-                  {j.status==="pending"&&queueSort==="waiting"&&j.createdAt&&(
-                    <div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, paddingLeft:4 }}>{fmtWaiting(j.createdAt)}</div>
-                  )}
+                  {j.status==="pending"&&queueSort==="waiting"&&j.createdAt&&<div style={{ fontSize:12, color:C.yellow, fontWeight:700, marginBottom:4, paddingLeft:4 }}>{fmtWaiting(j.createdAt)}</div>}
                   {JobCard({job:j})}
                 </div>
               );
-            });
-          })()}</div>{VerMas(claveCola, sortedFiltered.length)}</>
-        )}
+            })}</div>{VerMas(clave, lista.length)}</>); };
+          const Cabecera = ({ titulo, sub, color, n, extra }) => (
+            <div style={{ display:"flex", alignItems:"center", gap:10, margin:"6px 0 12px", flexWrap:"wrap" }}>
+              <span style={{ width:10, height:10, borderRadius:"50%", background:color, flexShrink:0 }} />
+              <h2 style={{ margin:0, fontSize:17, fontWeight:900, color:C.t1 }}>{titulo} <span style={{ color:C.t3, fontWeight:800 }}>· {n}</span></h2>
+              {sub && <span style={{ fontSize:13, color:C.t3 }}>{sub}</span>}
+              <div style={{ flex:1, height:1, background:C.bg4, minWidth:20 }} />
+              {extra}
+            </div>
+          );
+          const pendientesVis = pending.filter(j=>j.jobType!=="design"&&(fPrinter==="all"||j.printer===fPrinter));
+          const botonOrden = pendientesVis.length>1 && queueSort==="priority" && !queueSearch && (
+            <button onClick={()=>setSortMode(v=>!v)} style={{ minHeight:38, padding:"0 14px", borderRadius:C.rPill, border:`1px solid ${sortMode?C.orange:C.bg5}`, fontSize:13, fontWeight:800, cursor:"pointer", background:sortMode?C.orange:C.bg3, color:sortMode?"#191513":C.t2 }}>{sortMode?"Listo":"Cambiar orden"}</button>
+          );
+          if (sortMode) return (<>
+            <Cabecera titulo="En cola" sub="El #1 es el próximo en imprimirse. Usá ▲▼." color={C.yellow} n={pendientesVis.length} extra={botonOrden} />
+            <div className="cards-grid">{pendientesVis.map((j,i)=><div key={j.id}>{JobCard({job:j, showPriority:true, idx:i, total:pendientesVis.length})}</div>)}</div>
+          </>);
+          if (sortedFiltered.length===0) return <Empty icon="🔍" title={queueSearch?"Sin resultados":"Nada en esta etapa"} sub={queueSearch?`Nada coincide con "${queueSearch}"`:"Elegí otra etapa arriba o agregá un trabajo con +"} />;
+          // "Todo" e "Imprimiendo/Diseño": se muestran por secciones. Lo demás, lista simple.
+          if (["all","design"].includes(fStatus)) {
+            const des = fStatus==="design";
+            const secciones = [
+              { k:"act", titulo:des?"En diseño":"Imprimiendo ahora", color:C.green, lista:sortedFiltered.filter(j=>["printing","paused"].includes(j.status)) },
+              { k:"pen", titulo:des?"Por empezar":"En cola", sub:queueSort==="priority"?"en orden de impresión":null, color:C.yellow, lista:sortedFiltered.filter(j=>j.status==="pending"), extra:des?null:botonOrden },
+              { k:"lis", titulo:"Listos para entregar", color:C.purple, lista:sortedFiltered.filter(j=>["done","shipping"].includes(j.status)) },
+            ].filter(x=>x.lista.length);
+            return secciones.map(x=>(
+              <section key={x.k} style={{ marginBottom:22 }}>
+                <Cabecera titulo={x.titulo} sub={x.sub} color={x.color} n={x.lista.length} extra={x.extra} />
+                {pintar(x.lista, `${claveCola}:${x.k}`)}
+              </section>
+            ));
+          }
+          return (<>
+            {fStatus==="pending" && <Cabecera titulo="En cola" sub={queueSort==="priority"?"en orden de impresión":null} color={C.yellow} n={sortedFiltered.length} extra={botonOrden} />}
+            {pintar(sortedFiltered, claveCola)}
+          </>);
+        })()}
       </div>
     );
   };
