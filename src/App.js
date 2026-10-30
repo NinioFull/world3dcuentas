@@ -363,6 +363,7 @@ export default function App() {
   );
   // Tarjetas de trabajo: resumidas por defecto; las que abrís quedan abiertas
   const [abiertas, setAbiertas] = useState(() => new Set());
+  const [gruposCerrados, setGruposCerrados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("w3d-grupos-cerrados")||"[]")); } catch (e) { return new Set(); } });
   const alternarTarjeta = (id) => setAbiertas(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [statPeriod, setStatPeriod] = useState("month");
   const [matCosts, setMatCosts] = useState({});
@@ -2126,7 +2127,7 @@ export default function App() {
               if(j.orderId) {
                 if(rendered.has(j.orderId)) return null;
                 rendered.add(j.orderId);
-                return <OrderGroup key={j.orderId} orderId={j.orderId} jobs={lista.filter(x=>x.orderId===j.orderId)} />;
+                return <Fragment key={j.orderId}>{OrderGroup({ orderId:j.orderId, jobs:lista.filter(x=>x.orderId===j.orderId) })}</Fragment>;
               }
               return (
                 <div key={j.id}>
@@ -2898,7 +2899,9 @@ export default function App() {
 
   // ─── ORDER GROUP ─────────────────────────────────────────────────────────
   const OrderGroup = ({ orderId, jobs: groupJobs }) => {
-    const [collapsed, setCollapsed] = useState(false);
+    // Se guarda arriba (no dentro del grupo): así sigue cerrado aunque la pantalla se actualice sola
+    const collapsed = gruposCerrados.has(orderId);
+    const setCollapsed = () => setGruposCerrados(prev => { const n = new Set(prev); n.has(orderId) ? n.delete(orderId) : n.add(orderId); try { localStorage.setItem("w3d-grupos-cerrados", JSON.stringify([...n])); } catch (e) {} return n; });
     const clientName = groupJobs[0]?.clientName || "";
     const total = groupJobs.filter(j=>j.price).reduce((s,j)=>s+Number(j.price),0);
     const allDone = groupJobs.every(j=>j.status==="shipped");
