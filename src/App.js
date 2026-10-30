@@ -1776,11 +1776,12 @@ export default function App() {
       {key:"all",      label:"Todo",        count:printJobs.filter(j=>j.status!=="shipped").length},
       {key:"printing", label:"Imprimiendo", count:[...printing,...paused].filter(j=>j.jobType!=="design").length},
       {key:"pending",  label:"En cola",     count:pending.filter(j=>j.jobType!=="design").length},
-      {key:"listos",   label:"Listos",      count:[...done,...shipping].filter(j=>j.jobType!=="design").length},
+      {key:"done",     label:"Listos",      count:done.filter(j=>j.jobType!=="design").length},
+      {key:"shipping", label:"Para entregar", count:shipping.filter(j=>j.jobType!=="design").length},
       {key:"design",   label:"Diseño",      count:designJobs.filter(j=>j.status!=="shipped").length},
       {key:"shipped",  label:"Entregados",  count:null},
     ];
-    const etapaActiva = ["done","shipping"].includes(fStatus) ? "listos" : fStatus;
+    const etapaActiva = fStatus==="listos" ? "done" : fStatus;
     const [verFiltros, setVerFiltros] = useState(false);
     const SORT_OPTIONS = [
       {key:"priority", label:"Prioridad"},
@@ -2158,7 +2159,8 @@ export default function App() {
             const secciones = [
               { k:"act", titulo:des?"En diseño":"Imprimiendo ahora", color:C.green, lista:sortedFiltered.filter(j=>["printing","paused"].includes(j.status)) },
               { k:"pen", titulo:des?"Por empezar":"En cola", sub:queueSort==="priority"?"en orden de impresión":null, color:C.yellow, lista:sortedFiltered.filter(j=>j.status==="pending"), extra:des?null:botonOrden },
-              { k:"lis", titulo:"Listos para entregar", color:C.purple, lista:sortedFiltered.filter(j=>["done","shipping"].includes(j.status)) },
+              { k:"lis", titulo:des?"Diseño listo":"Listos", sub:des?null:"terminados, falta prepararlos para entregar", color:STATUS.done.dot, lista:sortedFiltered.filter(j=>j.status==="done") },
+              { k:"env", titulo:"Para entregar", sub:"preparados, esperando que los recojan o se envíen", color:C.purple, lista:sortedFiltered.filter(j=>j.status==="shipping") },
             ].filter(x=>x.lista.length);
             return secciones.map(x=>(
               <section key={x.k} style={{ marginBottom:22 }}>
