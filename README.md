@@ -38,6 +38,12 @@ Con la pantalla apagada o la app cerrada, el aviso que llega es el de **Telegram
 
 Cada trabajo guarda cuándo arrancó el tramo actual (`runStart`) y cuánto faltaba en ese momento (`remaining`). Cada pantalla calcula lo que falta con el reloj, sin escribir en la base, así tener varias pantallas abiertas ya no acelera el contador. Al pausar se congela lo que falta.
 
+## Datos al día (kiosco)
+
+La cola escucha a Firestore en vivo. Si la conexión se corta y no vuelve sola (por ejemplo el iPad días en kiosco y iOS suspendiendo la app), el Manager lo detecta: reconecta a los 1,5 min, recarga la página a los 6 min (si no estás cargando un pedido), recarga al volver a la app después de 30 min dormida, y el kiosco se recarga solo una vez de madrugada (4:00). Mientras no está al día muestra *Reconectando… · Actualizar ahora*; el kiosco muestra *En vivo* cuando todo está bien.
+
+El cierre automático de impresiones terminadas solo corre con datos al día y con una transacción que vuelve a leer del servidor: una pantalla con datos viejos ya no puede pisar un trabajo entregado.
+
 ## Sin conexión
 
 La cola se guarda en el dispositivo (caché de Firestore en IndexedDB). Si se corta el internet se sigue viendo todo y lo que tocás se guarda al instante; se sube solo cuando vuelve la señal. Arriba aparece un aviso mientras no hay conexión. La pestaña Web sí necesita internet.

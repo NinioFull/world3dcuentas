@@ -61,8 +61,15 @@ const sinEsperarRed = (p) => Promise.race([p, new Promise(r => setTimeout(r, 150
 export const collection = DEMO ? (_db, col) => ({ col }) : fs.collection;
 export const doc = DEMO ? (_db, col, id) => ({ col, id }) : fs.doc;
 export const onSnapshot = DEMO
-  ? (ref, cb) => { const o = { col: ref.col, cb }; oyentes.push(o); setTimeout(() => cb(foto(ref.col)), 50); return () => oyentes.splice(oyentes.indexOf(o), 1); }
+  ? (ref, a, b) => { const cb = typeof a === "function" ? a : b; const o = { col: ref.col, cb }; oyentes.push(o); setTimeout(() => cb(foto(ref.col)), 50); return () => oyentes.splice(oyentes.indexOf(o), 1); }
   : fs.onSnapshot;
+// Transacción: lee del servidor y escribe solo si el dato sigue igual. Sin conexión falla y no escribe nada.
+export const runTransaction = DEMO
+  ? async (_db, fn) => fn({
+      get: async (ref) => { const d = (memoria[ref.col] || {})[ref.id]; return { exists: () => !!d, data: () => ({ ...d }) }; },
+      update: (ref, data) => { const c = memoria[ref.col] || {}; c[ref.id] = { ...(c[ref.id] || {}), ...data }; avisar(ref.col); },
+    })
+  : fs.runTransaction;
 export const addDoc = DEMO
   ? async (ref, data) => { const id = "d" + (++sec); (memoria[ref.col] = memoria[ref.col] || {})[id] = data; avisar(ref.col); return { id }; }
   : (ref, data) => { const r = fs.doc(ref); return sinEsperarRed(fs.setDoc(r, data)).then(() => r); };  // id generado en el dispositivo
