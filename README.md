@@ -22,7 +22,7 @@ Se entra solo con Google, con la cuenta admin de WORLD3D (la que está en la tab
 
 ## Modo kiosco
 
-Arriba se elige **Máquinas** (una columna por impresora con lo que imprime y lo que sigue) o **Calendario** (las entregas de la semana, un día por columna; con el iPad parado se ve como agenda, un día por fila). Tocando una entrega se ve el detalle y su acción principal (iniciar, terminado, entregado…). Las flechas cambian de semana y *Hoy* vuelve a la actual. La vista elegida queda guardada en el iPad.
+Arriba se elige **Pedidos** (todos los trabajos por etapa en tarjetas grandes: En cola, Imprimiendo, Listos y Para entregar, cada uno con su botón; en vertical se ven una etapa debajo de la otra) o **Calendario** (las entregas de la semana, un día por columna; con el iPad parado se ve como agenda, un día por fila). Tocando una entrega se ve el detalle y su acción principal (iniciar, terminado, entregado…). Las flechas cambian de semana y *Hoy* vuelve a la actual. La vista elegida queda guardada en el iPad.
 
 ## Agregar a inicio en el iPad
 

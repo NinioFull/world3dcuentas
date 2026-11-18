@@ -294,7 +294,8 @@ export default function App() {
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view, kioskMode]);
   const [kioskPinInput, setKioskPinInput] = useState("");
   // Kiosco: "maquinas" (una columna por impresora) o "calendario" (entregas de la semana). Se recuerda en el dispositivo.
-  const [kioskVista, setKioskVistaE] = useState(() => { try { return localStorage.getItem("w3d-kiosco-vista") || "maquinas"; } catch (e) { return "maquinas"; } });
+  // Kiosco: "tablero" (todos los pedidos por etapa) o "calendario". "maquinas" era la vista vieja por impresora.
+  const [kioskVista, setKioskVistaE] = useState(() => { try { const v = localStorage.getItem("w3d-kiosco-vista"); return v === "calendario" ? v : "tablero"; } catch (e) { return "tablero"; } });
   const setKioskVista = (v) => { setKioskVistaE(v); try { localStorage.setItem("w3d-kiosco-vista", v); } catch (e) {} };
   const [kioskSemana, setKioskSemana] = useState(0);
   const [kioskSel, setKioskSel] = useState(null);   // id del trabajo tocado en el calendario
@@ -3164,7 +3165,7 @@ export default function App() {
             </div>
           </div>
           <div role="tablist" aria-label="Vista del kiosco" style={{ display:"flex", background:C.bg2, border:`1px solid ${C.bg5}`, borderRadius:C.rPill, padding:4, gap:4 }}>
-            {[["maquinas","Máquinas",Printer],["calendario","Calendario",CalendarDays]].map(([k,l,Ic])=>(
+            {[["tablero","Pedidos",ListOrdered],["calendario","Calendario",CalendarDays]].map(([k,l,Ic])=>(
               <button key={k} role="tab" aria-selected={kioskVista===k} onClick={()=>{ setKioskVista(k); setKioskSemana(0); }} style={{ display:"flex", alignItems:"center", gap:8, minHeight:44, padding:"0 18px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:15, fontWeight:900, background:kioskVista===k?C.orange:"transparent", color:kioskVista===k?"#191513":C.t2 }}><Ic size={18} aria-hidden="true" />{l}</button>
             ))}
           </div>
@@ -3175,107 +3176,80 @@ export default function App() {
 
         {kioskVista==="calendario" && CalendarioKiosco()}
         {/* Una columna por máquina: lo que imprime ahora en grande, lo que sigue abajo */}
-        {kioskVista==="maquinas" && (() => {
-          const maquinas = printers.filter(p=>p.connected!==false || jobs.some(j=>j.printer===p.id && ["printing","paused","pending"].includes(j.status)));
-          const sinMaquina = jobs.filter(j=>["printing","paused","pending"].includes(j.status) && (j.jobType==="design" || !printers.some(p=>p.id===j.printer)));
-          const columnas = [...maquinas.map(p=>({ id:p.id, nombre:p.name, tipo:p.type, jobs:jobs.filter(j=>j.printer===p.id && j.jobType!=="design") })),
-                            ...(sinMaquina.length?[{ id:"__diseno", nombre:"Diseño / sin máquina", tipo:"", jobs:sinMaquina }]:[])];
-          const listos = [...done, ...shipping];
-          const BotonGrande = ({ onClick, children, bg, color="#191513" }) => (
-            <button onClick={onClick} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:10, minHeight:64, background:bg, color, border:"none", borderRadius:C.rMd, fontSize:20, fontWeight:900, cursor:"pointer" }}>{children}</button>
+        {/* ── TABLERO: todos los pedidos por etapa, en tarjetas grandes (sin agrupar por máquina) ── */}
+        {kioskVista==="tablero" && (() => {
+          const porPrioridad = (x,y)=>(x.priority??x.createdAt??0)-(y.priority??y.createdAt??0);
+          const porEntrega = (x,y)=>(x.deliveryAt||9e15)-(y.deliveryAt||9e15) || (x.endedAt||0)-(y.endedAt||0);
+          const ETAPAS_K = [
+            { k:"cola",  titulo:"En cola",       color:C.yellow, icono:Hourglass,    lista:[...pending].sort(porPrioridad) },
+            { k:"imp",   titulo:"Imprimiendo",   color:C.green,  icono:Printer,      lista:[...printing, ...paused].sort((a,b)=>(a.status==="paused")-(b.status==="paused")||avanceJob(b)-avanceJob(a)) },
+            { k:"lis",   titulo:"Listos",        color:STATUS.done.dot, icono:CheckCircle2, lista:[...done].sort(porEntrega) },
+            { k:"env",   titulo:"Para entregar", color:C.purple, icono:Truck,        lista:[...shipping].sort(porEntrega) },
+          ];
+          const horizontal = w >= 1000;
+          const BotonGrande = ({ onClick, children, bg, color="#191513", borde }) => (
+            <button onClick={e=>{ e.stopPropagation(); onClick(); }} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:10, minHeight:60, background:bg, color, border:borde||"none", borderRadius:C.rMd, fontSize:18, fontWeight:900, cursor:"pointer", padding:"0 12px" }}>{children}</button>
           );
-          return (<>
-          <div style={{ padding:"20px 16px", display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:16, alignItems:"start" }}>
-            {columnas.map(col => {
-              const actual = col.jobs.find(j=>j.status==="printing") || col.jobs.find(j=>j.status==="paused");
-              const cola = col.jobs.filter(j=>j.status==="pending").sort((x,y)=>(x.priority??x.createdAt??0)-(y.priority??y.createdAt??0));
-              const siguiente = !actual ? cola[0] : null;
-              const despues = actual ? cola.slice(0,3) : cola.slice(1,4);
-              const imprimiendo = actual?.status==="printing", pausado = actual?.status==="paused";
-              const qty = Number(actual?.quantity)||1;
-              const pct = actual ? avanceJob(actual) : 0;
-              const estado = imprimiendo ? { t:"Imprimiendo", c:C.green } : pausado ? { t:"Pausada", c:"#E53212" } : { t:"Libre", c:C.t3 };
-              return (
-                <section key={col.id} aria-label={col.nombre} style={{ background:C.bg2, border:`1.5px solid ${imprimiendo?STATUS.printing.border:pausado?STATUS.paused.border:C.bg4}`, borderRadius:C.r, overflow:"hidden" }}>
-                  {/* Máquina */}
-                  <div style={{ display:"flex", alignItems:"center", gap:10, padding:"14px 18px", borderBottom:`1px solid ${C.bg4}`, background:C.bg1 }}>
-                    <Printer size={20} color={C.t2} aria-hidden="true" />
-                    <div style={{ flex:1, minWidth:0, fontSize:17, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{col.nombre}</div>
-                    {mantPendiente.some(m=>m.p.id===col.id) && <span title={mantPendiente.filter(m=>m.p.id===col.id).map(m=>m.t.nombre).join(", ")} style={{ fontSize:12, fontWeight:900, color:"#191513", background:C.yellow, borderRadius:C.rPill, padding:"3px 9px", whiteSpace:"nowrap" }}>Mantenimiento</span>}
-                    <span style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, fontWeight:800, color:estado.c }}>
-                      <span style={{ width:10, height:10, borderRadius:"50%", background:estado.c, boxShadow:imprimiendo?`0 0 10px ${estado.c}`:undefined }} />{estado.t}
-                    </span>
+          const entregaTxt = (j) => {
+            if (!j.deliveryAt) return null;
+            const d = new Date(j.deliveryAt), hoy = startOfDay(), dia = new Date(d).setHours(0,0,0,0);
+            const hora = d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"});
+            const tarde = j.status!=="shipped" && j.deliveryAt < Date.now() && ["pending","printing","paused","done","shipping"].includes(j.status);
+            const txt = dia===hoy ? `Hoy ${hora}` : dia===hoy+DIA ? `Mañana ${hora}` : d.toLocaleDateString("es-ES",{weekday:"short",day:"numeric",month:"short"})+` ${hora}`;
+            return { txt: tarde ? `Atrasado · ${txt}` : txt, tarde, hoy: dia===hoy };
+          };
+          const Tarjeta = (j, etapa) => {
+            const qty = Number(j.quantity)||1, imp = j.status==="printing", pau = j.status==="paused";
+            const pct = (imp||pau) ? avanceJob(j) : 0, ent = entregaTxt(j);
+            const maq = j.jobType==="design" ? "Diseño" : printers.find(p=>p.id===j.printer)?.name;
+            const tiempo = j.status==="pending" && j.duration>0 ? fmtTime(minutosTotales(j)) : null;
+            return (
+              <article key={j.id} onClick={()=>setKioskSel(j.id)} style={{ background:C.bg2, border:`1.5px solid ${ent?.tarde?"#5C1F14":imp?STATUS.printing.border:pau?STATUS.paused.border:C.bg4}`, borderLeft:`6px solid ${ent?.tarde?"#E53212":etapa.color}`, borderRadius:C.r, padding:"16px 16px 14px", marginBottom:12, cursor:"pointer" }}>
+                <div style={{ fontSize:22, fontWeight:900, color:C.t1, lineHeight:1.2, overflowWrap:"anywhere" }}>{j.fileName}{qty>1 && <span style={{ color:C.purple }}> ×{qty}</span>}</div>
+                {j.clientName && <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:17, fontWeight:700, color:C.t2, marginTop:6 }}><User size={17} aria-hidden="true" />{j.clientName}</div>}
+                <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10 }}>
+                  {[j.material, j.color, maq, tiempo].filter(Boolean).map((t,i)=><span key={i} style={{ fontSize:14, fontWeight:700, color:C.t2, background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rPill, padding:"3px 10px" }}>{t}</span>)}
+                  {ent && <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:14, fontWeight:900, color:ent.tarde?"#191513":ent.hoy?"#191513":C.t1, background:ent.tarde?"#E53212":ent.hoy?C.yellow:C.bg4, borderRadius:C.rPill, padding:"3px 10px" }}><CalendarClock size={14} aria-hidden="true" />{ent.txt}</span>}
+                  {sinRecoger(j) && <span style={{ fontSize:14, fontWeight:900, color:C.yellow, background:C.yellowBg, borderRadius:C.rPill, padding:"3px 10px" }}>Listo {haceDias(j.endedAt)} · sin recoger</span>}
+                </div>
+                {(imp||pau) && (<>
+                  <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:14 }}>
+                    <span style={{ fontSize:42, fontWeight:900, color:imp?C.green:"#E53212", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pau ? "Pausado" : `${pct}%`}</span>
+                    <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:20, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={18} aria-hidden="true" />{j.duration>0 ? fmtTime(j.remaining) : "sin tiempo"}</span>
                   </div>
-
-                  <div style={{ padding:"18px" }}>
-                    {actual ? (<>
-                      <div style={{ fontSize:24, fontWeight:900, color:C.t1, lineHeight:1.2 }}>{actual.fileName}{qty>1 && <span style={{ color:C.purple }}> ×{qty}</span>}</div>
-                      <div style={{ display:"flex", flexWrap:"wrap", gap:"4px 14px", fontSize:15, color:C.t2, marginTop:6 }}>
-                        {actual.clientName && <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><User size={15} aria-hidden="true" />{actual.clientName}</span>}
-                        {(actual.material||actual.color) && <span>{[actual.material, actual.color].filter(Boolean).join(" · ")}</span>}
-                      </div>
-                      {/* Avance en grande, legible a un metro */}
-                      <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:18 }}>
-                        <span style={{ fontSize:56, fontWeight:900, color:imprimiendo?C.green:"#E53212", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pct}%</span>
-                        <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:22, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={20} aria-hidden="true" />{fmtTime(actual.remaining)}</span>
-                      </div>
-                      <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${actual.fileName}`} style={{ height:14, background:C.bg4, borderRadius:10, marginTop:10, overflow:"hidden" }}>
-                        <div style={{ height:"100%", width:`${pct}%`, background:imprimiendo?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:10, transition:"width 1s" }} />
-                      </div>
-                      <div style={{ display:"flex", gap:10, marginTop:18 }}>
-                        {imprimiendo
-                          ? <BotonGrande onClick={()=>completeJ(actual.id)} bg={C.blueD}><CheckCircle2 size={24} aria-hidden="true" />Terminado</BotonGrande>
-                          : <BotonGrande onClick={()=>resumeJ(actual.id)} bg={C.greenD}><Play size={24} aria-hidden="true" />Reanudar</BotonGrande>}
-                        {imprimiendo && <button onClick={()=>pauseJ(actual.id)} aria-label="Pausar" style={{ width:64, minHeight:64, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rMd, cursor:"pointer" }}><Pause size={24} aria-hidden="true" /></button>}
-                        {col.id!=="__diseno" && <button onClick={()=>abrirFalla(actual)} style={{ minWidth:80, minHeight:64, padding:"0 12px", background:C.redBg, color:"#FF8A6B", border:"1px solid #5C1F14", borderRadius:C.rMd, fontSize:16, fontWeight:900, cursor:"pointer" }}>Falló</button>}
-                      </div>
-                    </>) : siguiente ? (<>
-                      <div style={{ fontSize:14, fontWeight:800, color:C.yellow, textTransform:"uppercase", letterSpacing:.8 }}>Sigue</div>
-                      <div style={{ fontSize:22, fontWeight:900, color:C.t1, lineHeight:1.2, marginTop:4 }}>{siguiente.fileName}{Number(siguiente.quantity)>1 && <span style={{ color:C.purple }}> ×{siguiente.quantity}</span>}</div>
-                      <div style={{ fontSize:15, color:C.t2, marginTop:4 }}>{[siguiente.clientName, siguiente.duration>0 && fmtTime(siguiente.duration*(Number(siguiente.quantity)>1?Number(siguiente.quantity):1))].filter(Boolean).join(" · ")}</div>
-                      <div style={{ display:"flex", marginTop:18 }}>
-                        <BotonGrande onClick={()=>startJ(siguiente)} bg={C.greenD}><Play size={24} aria-hidden="true" />{col.id==="__diseno"?"Empezar":"Iniciar impresión"}</BotonGrande>
-                      </div>
-                    </>) : (
-                      <div style={{ textAlign:"center", padding:"26px 0", color:C.t3, fontSize:16 }}>Sin trabajos en cola</div>
-                    )}
-
-                    {despues.length>0 && (
-                      <div style={{ marginTop:18, paddingTop:14, borderTop:`1px solid ${C.bg4}` }}>
-                        <div style={{ fontSize:13, fontWeight:800, color:C.t3, textTransform:"uppercase", letterSpacing:.8, marginBottom:8 }}>Después{cola.length>despues.length+(siguiente?1:0) ? ` · ${cola.length} en cola` : ""}</div>
-                        {despues.map((j,i)=>(
-                          <div key={j.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderBottom:i<despues.length-1?`1px solid ${C.bg3}`:"none" }}>
-                            <span style={{ width:24, height:24, flexShrink:0, borderRadius:12, background:C.bg4, color:C.t2, fontSize:13, fontWeight:900, display:"flex", alignItems:"center", justifyContent:"center" }}>{i+1}</span>
-                            <span style={{ flex:1, minWidth:0, fontSize:15, fontWeight:700, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}{Number(j.quantity)>1?` ×${j.quantity}`:""}</span>
-                            {j.duration>0 && <span style={{ fontSize:14, color:C.t3, flexShrink:0 }}>{fmtTime(j.duration*(Number(j.quantity)>1?Number(j.quantity):1))}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${j.fileName}`} style={{ height:12, background:C.bg4, borderRadius:10, marginTop:8, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${pct}%`, background:imp?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:10, transition:"width 1s" }} />
                   </div>
-                </section>
-              );
-            })}
-          </div>
-
-          {/* Listos para entregar: abajo, en fila */}
-          {listos.length>0 && (
-            <div style={{ padding:"0 16px 24px" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:15, fontWeight:900, color:C.purple, marginBottom:10 }}><PackageOpen size={18} aria-hidden="true" />Listos para entregar · {listos.length}</div>
-              <div style={{ display:"flex", gap:12, overflowX:"auto", paddingBottom:6 }}>
-                {listos.map(j=>(
-                  <div key={j.id} style={{ flex:"0 0 260px", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.rMd, padding:14 }}>
-                    <div style={{ fontSize:16, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}</div>
-                    <div style={{ fontSize:14, color:C.t2, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.clientName||"Sin cliente"}</div>
-                    <button onClick={()=> j.status==="done" ? toShipJ(j.id) : shippedJ(j.id,j)} style={{ width:"100%", marginTop:10, minHeight:48, display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:j.status==="done"?C.purpleBg:C.tealBg, color:j.status==="done"?C.purple:C.teal, border:`1px solid ${j.status==="done"?"#4A3F36":"#372F2C"}`, borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:"pointer" }}>
-                      {j.status==="done" ? <><PackageOpen size={18} aria-hidden="true" />Para envío</> : <><Truck size={18} aria-hidden="true" />Entregado</>}
-                    </button>
-                  </div>
-                ))}
+                </>)}
+                <div style={{ display:"flex", flexWrap:"wrap", gap:10, marginTop:14 }}>
+                  {j.status==="pending" && <BotonGrande onClick={()=>startJ(j)} bg={C.greenD}><Play size={22} aria-hidden="true" />{j.jobType==="design"?"Empezar diseño":"Iniciar impresión"}</BotonGrande>}
+                  {imp && <div style={{ flex:"1 1 100%", display:"flex" }}><BotonGrande onClick={()=>completeJ(j.id)} bg={C.blueD}><CheckCircle2 size={22} aria-hidden="true" />Terminado</BotonGrande></div>}
+                  {pau && <div style={{ flex:"1 1 100%", display:"flex" }}><BotonGrande onClick={()=>resumeJ(j.id)} bg={C.greenD}><Play size={22} aria-hidden="true" />Reanudar</BotonGrande></div>}
+                  {imp && <button onClick={e=>{ e.stopPropagation(); pauseJ(j.id); }} style={{ flex:1, minHeight:52, display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rMd, fontSize:16, fontWeight:900, cursor:"pointer" }}><Pause size={20} aria-hidden="true" />Pausar</button>}
+                  {(imp||pau) && j.jobType!=="design" && <button onClick={e=>{ e.stopPropagation(); abrirFalla(j); }} style={{ flex:1, minHeight:52, padding:"0 10px", background:C.redBg, color:"#FF8A6B", border:"1px solid #5C1F14", borderRadius:C.rMd, fontSize:16, fontWeight:900, cursor:"pointer" }}>Falló</button>}
+                  {j.status==="done" && <BotonGrande onClick={()=>toShipJ(j.id)} bg={C.purpleBg} color={C.purple} borde="1px solid #4A3F36"><PackageOpen size={22} aria-hidden="true" />Para entregar</BotonGrande>}
+                  {j.status==="shipping" && <BotonGrande onClick={()=>shippedJ(j.id,j)} bg={C.orange}><Truck size={22} aria-hidden="true" />Entregado{porCobrarDe(j)>0?` · cobrar ${fmtMoney(porCobrarDe(j))}`:""}</BotonGrande>}
+                </div>
+              </article>
+            );
+          };
+          const Columna = (et) => (
+            <section key={et.k} aria-label={et.titulo} style={horizontal ? { display:"flex", flexDirection:"column", minWidth:0, background:C.bg1, border:`1px solid ${C.bg4}`, borderRadius:C.r, maxHeight:"calc(100vh - 110px)" } : { marginBottom:22 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, padding:horizontal?"14px 16px":"4px 2px 12px", borderBottom:horizontal?`1px solid ${C.bg4}`:"none", flexShrink:0 }}>
+                <et.icono size={22} color={et.color} aria-hidden="true" />
+                <h2 style={{ margin:0, fontSize:20, fontWeight:900, color:C.t1 }}>{et.titulo}</h2>
+                <span style={{ marginLeft:"auto", minWidth:34, textAlign:"center", fontSize:18, fontWeight:900, color:"#191513", background:et.color, borderRadius:C.rPill, padding:"2px 10px" }}>{et.lista.length}</span>
               </div>
+              <div style={horizontal ? { padding:12, overflowY:"auto", flex:1 } : { display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:12 }}>
+                {et.lista.length ? et.lista.map(j=>horizontal ? Tarjeta(j, et) : <div key={j.id}>{Tarjeta(j, et)}</div>) : <div style={{ textAlign:"center", color:C.t4, fontSize:16, padding:"28px 0" }}>Nada por aquí</div>}
+              </div>
+            </section>
+          );
+          return (
+            <div style={{ padding:"16px", ...(horizontal ? { display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:14, alignItems:"start" } : {}) }}>
+              {ETAPAS_K.map(Columna)}
             </div>
-          )}
-          </>);
+          );
         })()}
 
         {/* Exit PIN modal */}
