@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, setDoc,
+  deleteDoc, doc, setDoc, runTransaction,
 } from "./datos";
 import { getAuth, onAuthStateChanged, signInWithCredential, GoogleAuthProvider, signOut } from "firebase/auth";
 import * as XLSX from "xlsx";
@@ -571,6 +571,7 @@ export default function App() {
   const borrarBorr = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
   const [borradorAviso, setBorradorAviso] = useState(null);   // cuándo se guardó el borrador que se recuperó
   const formOriginal = useRef("");   // al editar: cómo estaba el trabajo, para no guardar borrador si no cambiaste nada
+  useEffect(() => { showFormRef.current = showForm; }, [showForm]);
   useEffect(() => {
     if (!showForm) return;
     if (multiMode) {
@@ -675,15 +676,49 @@ export default function App() {
     await setDoc(doc(db,"config","matCosts"),updated); setMatCosts(updated);
   };
 
+  // ── ¿Los datos están al día? ──
+  // Firestore muestra primero lo guardado en el dispositivo y después se conecta. Si la conexión se cae y no vuelve
+  // (iPad días en kiosco, la app suspendida por iOS), la pantalla queda mostrando datos viejos sin avisar.
+  // alDia = el último aviso de la cola vino del servidor. Si no, se reconecta y, si hace falta, se recarga la página.
+  const [reintentoFs, setReintentoFs] = useState(0);
+  const [alDia, setAlDia] = useState(false);
+  const [sinDiaDesde, setSinDiaDesde] = useState(Date.now());
+  const alDiaRef = useRef(false), sinDiaDesdeRef = useRef(Date.now()), ultimaVezVisible = useRef(Date.now());
+  const marcarAlDia = (v) => { if (v === alDiaRef.current) return; alDiaRef.current = v; setAlDia(v); if (!v) { sinDiaDesdeRef.current = Date.now(); setSinDiaDesde(Date.now()); } };
+  const showFormRef = useRef(false);
+  useEffect(() => {
+    if (!fbUser || DEMO) return;
+    const revisar = () => {
+      if (alDiaRef.current || !navigator.onLine) return;
+      const min = (Date.now() - sinDiaDesdeRef.current) / 60000;
+      if (min > 6 && !showFormRef.current) window.location.reload();   // nada volvió a conectar: empezar de cero
+      else if (min > 1.5) setReintentoFs(n => n + 1);                    // reconectar la cola
+    };
+    const t = setInterval(revisar, 45000);
+    const alVolver = () => {
+      if (document.visibilityState !== "visible") { ultimaVezVisible.current = Date.now(); return; }
+      const fuera = (Date.now() - ultimaVezVisible.current) / 60000;
+      if (fuera > 30 && !showFormRef.current) { window.location.reload(); return; }   // estuvo dormida mucho rato
+      if (fuera > 2) setReintentoFs(n => n + 1);
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("online", alVolver);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", alVolver); window.removeEventListener("online", alVolver); };
+  }, [fbUser]);
+
   useEffect(() => {
     if (!fbUser) return;
-    const unsubJ = onSnapshot(collection(db,"jobs"),(snap) => { setJobs(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false); }, ()=>setLoading(false));
+    const unsubJ = onSnapshot(collection(db,"jobs"), { includeMetadataChanges:true }, (snap) => {
+      setJobs(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false);
+      marcarAlDia(!(snap.metadata && snap.metadata.fromCache));
+    }, (e) => { console.error("Cola desconectada:", e); marcarAlDia(false); setLoading(false); setTimeout(()=>setReintentoFs(n=>n+1), 15000); });
     const unsubProd = onSnapshot(collection(db,"products"),(snap)=>{ setProducts(snap.docs.map(d=>({id:d.id,...d.data()}))); });
     const unsubStock = onSnapshot(collection(db,"stock"),(snap)=>{ const s={}; snap.docs.forEach(d=>{s[d.id]=d.data();}); setStock(s); });
     const unsubF = onSnapshot(collection(db,"fallas"),(snap)=>setFallas(snap.docs.map(d=>({id:d.id,...d.data()}))));
     const unsubP = onSnapshot(collection(db,"printers"),(snap) => { const data=snap.docs.map(d=>({id:d.id,...d.data()})); if(data.length===0) DEFAULT_PRINTERS.forEach(p=>setDoc(doc(db,"printers",p.id),p)); else setPrinters(data); });
     return () => { unsubJ(); unsubP(); unsubProd(); unsubStock(); unsubF(); };
-  }, [fbUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fbUser, reintentoFs]);
 
   // ── Contador de impresión ──
   // Antes cada pantalla abierta restaba 1 minuto por su cuenta: con iPad + celu + compu el tiempo corría 3 veces más rápido.
@@ -694,20 +729,33 @@ export default function App() {
     return () => clearInterval(timerRef.current);
   }, []);
   const cerrando = useRef(new Set());
+  // Cerrar solo lo que terminó: SOLO con datos al día, y con una transacción que vuelve a leer del servidor y
+  // escribe únicamente si el trabajo sigue imprimiendo igual. Así una pantalla con datos viejos nunca pisa
+  // un trabajo que ya se entregó (pasó el 18/11 con el iPad: volvió a "Listo" dos máscaras ya entregadas).
   useEffect(() => {
+    if (!alDia && !DEMO) return;
     jobsDb.forEach(j => {
       if (j.status !== "printing" || j.jobType === "design" || cerrando.current.has(j.id)) return;
+      const ref = doc(db,"jobs",j.id);
+      const siSigueIgual = (cambios) => {
+        cerrando.current.add(j.id);
+        runTransaction(db, async (tx) => {
+          const s = await tx.get(ref); if (!s.exists()) return;
+          const d = s.data();
+          if (d.status !== "printing" || Number(d.runStart||0) !== Number(j.runStart||0)) return;
+          tx.update(ref, cambios);
+        }).catch(e => console.warn("No se cerró (sin conexión o cambió):", e)).finally(()=>cerrando.current.delete(j.id));
+      };
       // Trabajos que ya imprimían con la versión anterior: arrancan a contar desde ahora con lo que les quedaba
-      if (!j.runStart) { cerrando.current.add(j.id); updateDoc(doc(db,"jobs",j.id),{runStart:Date.now()}).finally(()=>cerrando.current.delete(j.id)); return; }
+      if (!j.runStart) { siSigueIgual({ runStart:Date.now() }); return; }
       const dur = Number(j.duration) || 0, falta = (Number(j.remaining) || 0) - Math.floor(Math.max(0, ahora - j.runStart) / 60000);
       if (dur > 0 && falta <= 0) {
-        cerrando.current.add(j.id);
         // finAuto = endedAt: marca que terminó solo (por el contador). El aviso de Telegram usa esa marca.
         const fin = Date.now();
-        updateDoc(doc(db,"jobs",j.id),{status:"done",endedAt:fin,finAuto:fin,remaining:0,runStart:null}).finally(()=>cerrando.current.delete(j.id));
+        siSigueIgual({ status:"done", endedAt:fin, finAuto:fin, remaining:0, runStart:null });
       }
     });
-  }, [jobsDb, ahora]);
+  }, [jobsDb, ahora, alDia]);
 
   // Botones de guardar: un solo envío a la vez (un doble toque ya no crea el trabajo dos veces)
   const [guardando, setGuardando] = useState(false);
@@ -3071,9 +3119,33 @@ export default function App() {
     );
   };
 
+  // Aviso cuando la pantalla no recibe datos nuevos (con internet). Botón para recargar a mano.
+  const AvisoDesactualizado = (grande) => (
+    <div role="alert" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", background:C.yellowBg, borderBottom:"1px solid #4A3F36", color:C.t1, fontSize:grande?16:13, fontWeight:800, padding:grande?"12px 20px":"8px 14px", textAlign:"center" }}>
+      <AlertTriangle size={grande?20:16} color={C.yellow} aria-hidden="true" />
+      Reconectando… lo que ves puede no estar actualizado (desde las {new Date(sinDiaDesde).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})})
+      <button onClick={()=>window.location.reload()} style={{ minHeight:grande?48:36, padding:"0 16px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:grande?15:13, fontWeight:900, cursor:"pointer" }}>Actualizar ahora</button>
+    </div>
+  );
+
+  // Kiosco: se recarga solo una vez por madrugada (entre 4 y 5) para arrancar el día con todo fresco
+  useEffect(() => {
+    if (!kioskMode || DEMO) return;
+    const t = setInterval(() => {
+      const h = new Date().getHours();
+      let ultima = 0; try { ultima = Number(localStorage.getItem("w3d-kiosco-recarga")) || 0; } catch (e) {}
+      if (h === 4 && Date.now() - ultima > 20 * 3600000 && !showFormRef.current) {
+        try { localStorage.setItem("w3d-kiosco-recarga", String(Date.now())); } catch (e) {}
+        window.location.reload();
+      }
+    }, 5 * 60000);
+    return () => clearInterval(t);
+  }, [kioskMode]);
+
   const KioskView = () => {
     return (
       <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg0, minHeight:"100vh", color:C.t1 }}>
+        {!DEMO && !alDia && Date.now()-sinDiaDesde > 20000 && AvisoDesactualizado(true)}
         {/* Kiosk Header */}
         <div style={{ background:C.bg0, borderBottom:`1px solid ${C.bg4}`, padding:"16px 24px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -3085,6 +3157,9 @@ export default function App() {
                 {pending.length>0 && <span style={{ color:C.yellow, fontWeight:700 }}>{pending.length} en cola · </span>}
                 {paused.length>0 && <span style={{ color:C.red, fontWeight:700 }}>{paused.length} pausado · </span>}
                 {done.length>0 && <span style={{ color:C.t3 }}>{done.length} listos</span>}
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, fontWeight:800, marginTop:2, color:alDia||DEMO?C.green:C.yellow }}>
+                <span style={{ width:8, height:8, borderRadius:"50%", background:alDia||DEMO?C.green:C.yellow }} />{alDia||DEMO?"En vivo":"Reconectando…"}
               </div>
             </div>
           </div>
@@ -3445,6 +3520,7 @@ export default function App() {
         </div>
       </div>
 
+      {enLinea && !alDia && !DEMO && !loading && Date.now()-sinDiaDesde > 20000 && AvisoDesactualizado()}
       {!enLinea && (
         <div role="status" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:C.redBg, borderBottom:`1px solid #5C1F14`, color:C.t1, fontSize:13, fontWeight:700, padding:"8px 14px", textAlign:"center" }}>
           <WifiOff size={16} color={C.red} aria-hidden="true" />
