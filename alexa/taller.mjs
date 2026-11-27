@@ -78,14 +78,25 @@ export function separarCantidad(texto) {
 }
 export function precio(productos, dicho, cantidad) {
   const conPrecio = productos.filter((p) => p.name && num(p.price) > 0);
-  const pts = conPrecio.map((p) => [p, parecidoTrabajo({ fileName: p.name }, dicho)]).filter(([, x]) => x >= 0.6);
+  const puntaje = conPrecio.map((p) => [p, parecidoTrabajo({ fileName: p.name }, dicho)]);
+  let pts = puntaje.filter(([, x]) => x >= 0.6), parcial = false;
+  if (!pts.length) { pts = puntaje.filter(([, x]) => x >= 0.5); parcial = true; }   // "llaveros personalizados" → los llaveros
   if (!pts.length) return `No encontré "${dicho}" en el catálogo con precio. Los personalizados se cotizan en la web.`;
   const mejor = Math.max(...pts.map(([, x]) => x));
   const top = pts.filter(([, x]) => x >= mejor - 0.01).map(([p]) => p).sort((a, b) => a.name.length - b.name.length);
   const cant = Math.max(1, Math.round(num(cantidad)) || 1);
-  if (top.length > 1) return `Encontré ${top.length}: ${lista(top.map((p) => `${p.name.trim()}, ${bs(num(p.price))}`), 4)}.` + (cant > 1 ? ` Decime cuál y te saco el total de ${cant}.` : "");
+  if (top.length > 3) {
+    const precios = top.map((p) => num(p.price)), min = Math.min(...precios), max = Math.max(...precios);
+    const cuenta = {}; precios.forEach((x) => { cuenta[x] = (cuenta[x] || 0) + 1; });
+    const moda = Number(Object.keys(cuenta).sort((a, b) => cuenta[b] - cuenta[a])[0]);
+    let palabra = String(dicho).trim().split(/\s+/)[0].toLowerCase();
+    if (!/s$/.test(palabra)) palabra += /[aeiouáéó]$/.test(palabra) ? "s" : "es";
+    return `${parcial ? `No tengo "${dicho}" exacto, pero hay` : "Hay"} ${top.length} ${palabra} en el catálogo, ${min === max ? `todos a ${bs(min)}` : `entre ${min} y ${bs(max)}; el precio más común es ${bs(moda)}`}.` +
+      (cant > 1 ? ` ${cant} a ${moda} serían ${bs(cant * moda)}.` : "") + " Si querés uno en especial, decime su nombre.";
+  }
+  if (top.length > 1) return `${parcial ? "No lo tengo exacto. Parecidos" : `Encontré ${top.length}`}: ${lista(top.map((p) => `${p.name.trim()}, ${bs(num(p.price))}`), 3)}.` + (cant > 1 ? ` Decime cuál y te saco el total de ${cant}.` : "");
   const p = top[0], u = num(p.price);
-  return `${p.name.trim()} cuesta ${bs(u)} cada uno, precio de lista.` + (cant > 1 ? ` ${cant} serían ${bs(u * cant)}.` : "");
+  return `${parcial ? `No tengo "${dicho}" exacto; lo más parecido es ` : ""}${p.name.trim()}, ${bs(u)} cada uno, precio de lista.` + (cant > 1 ? ` ${cant} serían ${bs(u * cant)}.` : "");
 }
 
 // ── Mantenimiento por horas impresas ──
