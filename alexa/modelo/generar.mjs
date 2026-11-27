@@ -43,6 +43,27 @@ const intents = [
     "pedido de {cantidad} {producto} para {cliente}", "anota un {producto} para {cliente}", "anota una {producto} para {cliente}", "anota un {producto} {color} para {cliente}",
     "que anote {cantidad} {producto} para {cliente}", "que anote {cantidad} {producto} {color} para {cliente}", "que anote un pedido",
     "{cliente} quiere {cantidad} {producto}", "{cliente} pidió {cantidad} {producto}", "{cliente} pidió {cantidad} {producto} {color}" ] },
+  { name: "ListoIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+    "marca como listo", "marca como listo lo de la {impresora}", "marca listo lo de la {impresora}", "marca como listo lo de {cliente}", "marca como listo {trabajo}",
+    "marca como listo el {trabajo}", "marca como listos los {trabajo}", "marca como listo {trabajo} de {cliente}", "terminó la {impresora}", "ya terminó la {impresora}",
+    "la {impresora} terminó", "la {impresora} ya terminó", "listo lo de la {impresora}", "está listo lo de la {impresora}", "ya está listo lo de {cliente}",
+    "está listo lo de {cliente}", "{trabajo} ya está listo", "ya terminé {trabajo}", "terminé lo de {cliente}", "terminó la impresión" ] },
+  { name: "IniciarIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+    "inicia lo siguiente en la {impresora}", "inicia la {impresora}", "arranca la {impresora}", "arranca lo siguiente en la {impresora}", "pon a imprimir la {impresora}",
+    "empieza a imprimir en la {impresora}", "empieza lo siguiente en la {impresora}", "reanuda la {impresora}", "continúa la {impresora}", "sigue con la {impresora}",
+    "inicia {trabajo}", "inicia el {trabajo}", "inicia {trabajo} en la {impresora}", "arranca {trabajo}", "arranca {trabajo} en la {impresora}", "inicia lo de {cliente}",
+    "inicia lo de {cliente} en la {impresora}", "reanuda {trabajo}", "inicia lo siguiente", "empieza a imprimir {trabajo}" ] },
+  { name: "PausarIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+    "pausa la {impresora}", "pausa lo de la {impresora}", "pon en pausa la {impresora}", "pon en pausa lo de la {impresora}", "detén la {impresora}",
+    "pausa {trabajo}", "pausa el {trabajo}", "pausa lo de {cliente}", "pausa la impresión", "pon en pausa la impresión" ] },
+  { name: "EntregadoIntent", slots: [{ name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+    "{cliente} ya recogió", "{cliente} recogió", "ya recogió {cliente}", "{cliente} ya vino a recoger", "ya vino {cliente}", "vino {cliente} a recoger",
+    "entregué lo de {cliente}", "ya entregué lo de {cliente}", "marca como entregado lo de {cliente}", "entrega lo de {cliente}", "ya le entregué a {cliente}",
+    "le entregué a {cliente}", "{cliente} se llevó su pedido", "{cliente} ya se llevó su pedido", "entregué {trabajo}", "marca como entregado {trabajo}",
+    "entregué {trabajo} a {cliente}", "{cliente} recogió {trabajo}" ] },
+  { name: "ElegirIntent", slots: [{ name: "orden", type: "ORDEN" }], samples: ["{orden}", "el {orden}", "la {orden}", "número {orden}", "el número {orden}", "opción {orden}", "la opción {orden}"] },
+  { name: "PagoIntent", slots: [{ name: "metodo", type: "METODO" }], samples: ["{metodo}", "en {metodo}", "por {metodo}", "con {metodo}", "me pagó en {metodo}", "pagó en {metodo}",
+    "pagó por {metodo}", "me pagó por {metodo}", "me pagó con {metodo}", "{metodo} nomás", "fue en {metodo}", "fue por {metodo}"] },
   { name: "AMAZON.YesIntent", samples: [] },
   { name: "AMAZON.NoIntent", samples: [] },
   { name: "AMAZON.HelpIntent", samples: ["qué puedes hacer", "qué le puedo preguntar"] },
@@ -73,6 +94,18 @@ const SIN_COLOR = { "Blanco": ["blancos", "blancas", "blanca"], "Negro": ["negro
   "Dorado pintado con spray": ["dorado pintado", "dorado con spray"], "Dorado bronce pintado con spray": ["bronce", "dorado bronce"] };
 types.push({ name: "COLOR", values: COLORES.map((v) => ({ name: { value: v.toLowerCase(), synonyms: SIN_COLOR[v] || [] } })) });
 
+types.push({ name: "ORDEN", values: [
+  { id: "1", name: { value: "uno", synonyms: ["primero", "primera", "el uno"] } },
+  { id: "2", name: { value: "dos", synonyms: ["segundo", "segunda"] } },
+  { id: "3", name: { value: "tres", synonyms: ["tercero", "tercera"] } },
+  { id: "4", name: { value: "cuatro", synonyms: ["cuarto", "cuarta"] } },
+  { id: "todos", name: { value: "todos", synonyms: ["todas", "los dos", "las dos", "ambos", "ambas", "todos ellos"] } },
+] });
+types.push({ name: "METODO", values: [
+  { id: "efectivo", name: { value: "efectivo", synonyms: ["cash", "en mano", "billetes", "plata en mano", "al contado"] } },
+  { id: "qr", name: { value: "qr", synonyms: ["cu erre", "cuerre", "transferencia", "el banco", "código qr", "qr del banco"] } },
+  { id: "debe", name: { value: "queda debiendo", synonyms: ["debe", "fiado", "no pagó", "quedó debiendo", "después paga", "todavía no paga", "me debe"] } },
+] });
 const PREGUNTAS = {
   producto: "¿Qué producto es?",
   cliente: "¿Para quién es el pedido?",
