@@ -11,7 +11,7 @@ import { sb, DEMO, esAdmin, sesionGuardada, entrarConGoogle, salir as salirSupab
 import WebView from "./WebView";
 import LoginView from "./LoginView";
 import Icono from "./Icono";
-import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, ChevronRight, ChevronLeft, CalendarDays, Wallet, Search, Banknote, QrCode, MessageCircle, Plus, Video } from "lucide-react";
+import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, ChevronRight, ChevronLeft, CalendarDays, Wallet, Search, Banknote, QrCode, MessageCircle, Plus, Video } from "lucide-react";
 import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
 const firebaseConfig = {
@@ -333,15 +333,12 @@ export default function App() {
   const [kioskMode, setKioskMode] = useState(false);
   // Al cambiar de sección o entrar/salir del kiosco se empieza desde arriba
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view, kioskMode]);
-  const [kioskPinInput, setKioskPinInput] = useState("");
   // Kiosco: "maquinas" (una columna por impresora) o "calendario" (entregas de la semana). Se recuerda en el dispositivo.
   // Kiosco: "tablero" (todos los pedidos por etapa) o "calendario". "maquinas" era la vista vieja por impresora.
   const [kioskVista, setKioskVistaE] = useState(() => { try { const v = localStorage.getItem("w3d-kiosco-vista"); return v === "calendario" ? v : "tablero"; } catch (e) { return "tablero"; } });
   const setKioskVista = (v) => { setKioskVistaE(v); try { localStorage.setItem("w3d-kiosco-vista", v); } catch (e) {} };
   const [kioskSemana, setKioskSemana] = useState(0);
   const [kioskSel, setKioskSel] = useState(null);   // id del trabajo tocado en el calendario
-  const [showKioskExit, setShowKioskExit] = useState(false);
-  const KIOSK_PIN = "1234";
   const [showRevenue, setShowRevenue] = useState(false); // default pin
   const [printers, setPrinters] = useState([]);
   // ── Puente de impresoras: lo que la PC (o el celu de respaldo) lee de cada máquina por el wifi ──
@@ -3529,10 +3526,26 @@ export default function App() {
               <button key={k} role="tab" aria-selected={kioskVista===k} onClick={()=>{ setKioskVista(k); setKioskSemana(0); }} style={{ display:"flex", alignItems:"center", gap:8, minHeight:44, padding:"0 18px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:16, fontWeight:900, background:kioskVista===k?C.orange:"transparent", color:kioskVista===k?"#191513":C.t2 }}><Ic size={18} aria-hidden="true" />{l}</button>
             ))}
           </div>
-          <button onClick={()=>setShowKioskExit(true)} style={{ background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"10px 18px", color:C.t3, fontSize:13, fontWeight:700, cursor:"pointer" }}>
-            <Lock size={16} aria-hidden="true" style={{ verticalAlign:"-3px", marginRight:6 }} />Salir del kiosco
+          <button onClick={()=>setKioskMode(false)} style={{ minHeight:44, background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"0 18px", color:C.t3, fontSize:13, fontWeight:700, cursor:"pointer" }}>
+            <X size={16} aria-hidden="true" style={{ verticalAlign:"-3px", marginRight:6 }} />Salir del kiosco
           </button>
         </div>
+        {/* Cámaras de todas las máquinas conectadas, siempre a mano (no solo de las que están imprimiendo) */}
+        {(() => {
+          const conCam = puenteVivo ? maquinas.filter(m => m.camara && m.estado !== "apagada") : [];
+          if (!conCam.length || !(camTema || DEMO)) return null;
+          return (
+            <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", padding:"12px 24px 0" }}>
+              <span style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, fontWeight:800, color:C.t3 }}><Video size={18} color={C.orange} aria-hidden="true" />Cámaras</span>
+              {conCam.map(m => { const e = ESTADO_M[m.estado] || ESTADO_M.libre; return (
+                <button key={m.id} onClick={()=>abrirCamara(m.id)} style={{ display:"flex", alignItems:"center", gap:8, minHeight:48, padding:"0 16px", background:C.bg2, border:`1px solid ${C.bg5}`, borderRadius:C.rPill, color:C.t1, fontSize:15, fontWeight:800, cursor:"pointer" }}>
+                  <span style={{ width:8, height:8, borderRadius:"50%", background:e.c }} />{nombreImp(pidDeMaq(m), m)}
+                  {m.estado==="imprimiendo" && m.progreso!=null && <span style={{ color:C.t3, fontWeight:700 }}>{m.progreso}%</span>}
+                </button>
+              ); })}
+            </div>
+          );
+        })()}
 
         {kioskVista==="calendario" && CalendarioKiosco()}
         {/* Una columna por máquina: lo que imprime ahora en grande, lo que sigue abajo */}
@@ -3614,38 +3627,6 @@ export default function App() {
           );
         })()}
 
-        {/* Exit PIN modal */}
-        {showKioskExit && (
-          <div className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.9)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-            <div style={{ background:C.bg2, borderRadius:C.r, padding:"32px 28px", width:"100%", maxWidth:320, border:`1px solid ${C.bg4}`, textAlign:"center" }}>
-              <div style={{ fontSize:40, marginBottom:16 }}><Icono e="🔒" size={42} /></div>
-              <div style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:6 }}>Salir del modo kiosco</div>
-              <div style={{ fontSize:13, color:C.t3, marginBottom:24 }}>Ingresa el PIN para continuar</div>
-              {/* PIN dots */}
-              <div style={{ display:"flex", justifyContent:"center", gap:12, marginBottom:24 }}>
-                {[0,1,2,3].map(i=>(
-                  <div key={i} style={{ width:16, height:16, borderRadius:"50%", background:kioskPinInput.length>i?C.orange:C.bg4, border:`2px solid ${kioskPinInput.length>i?C.orange:C.bg5}`, transition:"background .15s" }} />
-                ))}
-              </div>
-              {/* Numpad */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:16 }}>
-                {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i)=>(
-                  <button key={i} onClick={()=>{
-                    if(k==="⌫") { setKioskPinInput(p=>p.slice(0,-1)); return; }
-                    if(k==="") return;
-                    const next = kioskPinInput+k;
-                    setKioskPinInput(next);
-                    if(next.length===4) {
-                      if(next===KIOSK_PIN) { setKioskMode(false); setShowKioskExit(false); setKioskPinInput(""); }
-                      else { setTimeout(()=>setKioskPinInput(""),400); }
-                    }
-                  }} style={{ padding:"18px 0", borderRadius:C.rSm, background:k===""?"transparent":C.bg3, border:k===""?"none":`1px solid ${C.bg5}`, color:C.t1, fontSize:20, fontWeight:800, cursor:k===""?"default":"pointer" }}>{k}</button>
-                ))}
-              </div>
-              <button onClick={()=>{setShowKioskExit(false);setKioskPinInput("");}} style={{ width:"100%", padding:"12px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
-            </div>
-          </div>
-        )}
       </div>
     );
   };
