@@ -4,7 +4,7 @@
 // La clave la crea el Manager (Impresoras → Conexión) y vive en config/puente: no hay variables nuevas en Vercel.
 import { timingSafeEqual } from "node:crypto";
 import { cuentaServicio, tokenGoogle, aObjeto } from "../alexa/datos.mjs";
-import { impresoraDe, terminoAhora, cierreDe, limpiarMaquina, PC_VIVA_MS } from "../impresoras/logica.mjs";
+import { impresoraDe, terminoAhora, cierreDe, impresionDe, limpiarMaquina, PC_VIVA_MS } from "../impresoras/logica.mjs";
 
 const base = () => `https://firestore.googleapis.com/v1/projects/${cuentaServicio().project_id}/databases/(default)/documents`;
 const aValor = (x) => x === null || x === undefined ? { nullValue: null }
@@ -89,12 +89,15 @@ export async function POST(request) {
         const printer = impresoraDe(m, lista);
         const { antes, id, ...datos } = m;
         await escribir(`maquinas/${id}`, { ...datos, printer, at: ahora, fuente, ...(antes !== m.estado ? { cambioAt: ahora, estadoAntes: antes } : {}) });
+        let jobId = null;
         if (printer && terminoAhora(m)) {
           for (const j of await trabajosImprimiendo(printer)) {
             const cambios = cierreDe(j, m, ahora);
-            if (cambios && await escribir(`jobs/${j.id}`, cambios, j._updateTime)) cerrados++;
+            if (cambios && await escribir(`jobs/${j.id}`, cambios, j._updateTime)) { cerrados++; jobId = j.id; }
           }
         }
+        const imp = impresionDe(m, printer, ahora);
+        if (imp) await escribir(`impresiones/${imp.id}`, { ...imp.datos, jobId });
       }
     }
     return Response.json({ ok: true, espera: false, cerrados });

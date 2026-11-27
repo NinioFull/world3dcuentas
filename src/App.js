@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import { initializeApp } from "firebase/app";
 import {
   getFirestore, collection, onSnapshot, addDoc, updateDoc,
-  deleteDoc, doc, setDoc, runTransaction,
+  deleteDoc, doc, setDoc, runTransaction, query, where,
 } from "./datos";
 import { getAuth, onAuthStateChanged, signInWithCredential, GoogleAuthProvider, signOut } from "firebase/auth";
 import { C, STATUS, COLORS, ISOTIPO, FUENTE_TEXTO, etiquetaColor } from "./tema";
@@ -11,7 +11,7 @@ import { sb, DEMO, esAdmin, sesionGuardada, entrarConGoogle, salir as salirSupab
 import WebView from "./WebView";
 import LoginView from "./LoginView";
 import Icono from "./Icono";
-import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, PackageCheck, ChevronRight, ChevronLeft, CalendarDays, Wallet, Search, Banknote, QrCode, MessageCircle, Plus } from "lucide-react";
+import { WifiOff, Undo2, ChevronDown, Play, Pause, CheckCircle2, Clock, User, PackageOpen, Lock, Home, ListOrdered, Globe, Truck, Users, BarChart3, Package, Printer, MoreHorizontal, FileSpreadsheet, MonitorSmartphone, X, Hourglass, CalendarClock, AlertTriangle, ChevronRight, ChevronLeft, CalendarDays, Wallet, Search, Banknote, QrCode, MessageCircle, Plus, Video } from "lucide-react";
 import { desbloquearSonido, sonarCampana, ponerNumerito, leerAvisados, guardarAvisados } from "./aviso";
 
 const firebaseConfig = {
@@ -117,11 +117,14 @@ const ESTADO_M = {
   pausada:{ t:"Pausada", c:"#E53212" }, terminada:{ t:"Terminó", c:"#E9521E" }, cancelada:{ t:"Cancelada", c:"#E53212" }, apagada:{ t:"Apagada", c:"#473D39" },
 };
 const MAQ_DEMO = [
-  { id:"creality-k1max", marca:"Creality", modelo:"K1 Max", nombre:"K1Max-3A2F", ip:"192.168.1.40", estado:"imprimiendo", archivo:"Soporte_pikachu_x2", progreso:22, faltaSeg:5880, printer:"p1", at:Date.now() },
+  { id:"creality-k1max", marca:"Creality", modelo:"K1 Max", nombre:"K1Max-3A2F", ip:"192.168.1.40", estado:"imprimiendo", archivo:"Soporte_pikachu_x2", progreso:22, faltaSeg:5880, printer:"p1", camara:true, at:Date.now() },
   { id:"creality-hi-7c1d", marca:"Creality", modelo:"Creality Hi", nombre:"Hi-7C1D", ip:"192.168.1.41", estado:"imprimiendo", archivo:"llavero_nightwing_negro", progreso:61, faltaSeg:1500, printer:"p2", at:Date.now(), cambioAt:Date.now()-40*60000 },
   { id:"elegoo-CC2DEMO", marca:"Elegoo", modelo:"Centauri Carbon 2", nombre:"Centauri Carbon 2", ip:"192.168.1.42", estado:"pausada", archivo:"PortaMochilas", progreso:48, faltaSeg:3600, printer:"p3", at:Date.now(), cambioAt:Date.now()-5*60000 },
   { id:"creality-hi-90be", marca:"Creality", modelo:"Creality Hi", nombre:"Hi-90BE", ip:"192.168.1.43", estado:"libre", printer:null, at:Date.now() },
 ];
+const DENSIDAD = { PLA:1.24, PETG:1.27, ABS:1.04, ASA:1.07, TPU:1.21, NYLON:1.14 };
+const gramosDeMm = (mm, material) => Number(mm) > 0 ? Math.round(Number(mm) * Math.PI * 0.875 * 0.875 / 1000 * (DENSIDAD[String(material||"").toUpperCase().replace(/[^A-Z]/g,"")] || 1.24) * 10) / 10 : null;
+const normNombre = (t) => String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
 const palabrasDe = (t) => String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(/[^a-z0-9]+/).filter(x=>x.length>2 && !["gcode","copia","the"].includes(x));
 const parecido = (a, b) => { const x = palabrasDe(a), y = palabrasDe(b); if (!x.length || !y.length) return 0; return x.filter(w=>y.some(v=>v.startsWith(w)||w.startsWith(v))).length / Math.max(x.length, y.length); };
 // Listo hace más de 3 días y nadie lo recogió
@@ -1063,7 +1066,10 @@ export default function App() {
   const [falla, setFalla] = useState(null);   // { job, motivo, gramos, minutos }
   const abrirFalla = (job) => {
     const hecho = job.status==="done" ? 1 : avanceJob(job)/100;
-    setFalla({ job, motivo:"", gramos:String(Math.round((Number(job.weight)||0)*unidades(job)*hecho)), minutos:Math.round(minutosTotales(job)*hecho) });
+    // Si la impresora informó cuánto filamento gastó hasta cortarse, eso es lo perdido
+    const mq = maqDe(job.printer), gReal = mq && OCUPADA_M.concat("cancelada").includes(mq.estado) ? gramosDeMm(mq.usadoMm, job.material) : null;
+    const minReal = mq && mq.tiempoSeg > 0 && OCUPADA_M.concat("cancelada").includes(mq.estado) ? Math.round(mq.tiempoSeg/60) : null;
+    setFalla({ job, motivo:"", gramos:String(gReal != null ? Math.round(gReal) : Math.round((Number(job.weight)||0)*unidades(job)*hecho)), minutos: minReal ?? Math.round(minutosTotales(job)*hecho), real: gReal != null });
   };
   const registrarFalla = async () => {
     if (!falla || !falla.motivo) return;
@@ -1257,10 +1263,34 @@ export default function App() {
   const porHoraMaq = (Number(operacion.luzHora)||0) + (Number(operacion.desgasteHora)||0);
   const costoDe = (j) => {
     if (j.jobType==="design") return { mat:0, maq:0, luz:0, desgaste:0, total:0, sinMat:false, sinPeso:false, sinDatos:true };
-    const g = (Number(j.weight)||0)*unidades(j), kg = matCosts[j.material]||0, horas = minutosTotales(j)/60;
+    // Si la impresora informó lo que gastó de verdad, se usa eso (gramos y minutos reales del trabajo entero)
+    const g = Number(j.gramosReales) > 0 ? Number(j.gramosReales) : (Number(j.weight)||0)*unidades(j), kg = matCosts[j.material]||0;
+    const horas = (Number(j.minReales) > 0 && ["done","shipping","shipped"].includes(j.status) ? Number(j.minReales) : minutosTotales(j))/60;
     const luz = horas*(Number(operacion.luzHora)||0), desgaste = horas*(Number(operacion.desgasteHora)||0);
     const mat = kg>0 ? g/1000*kg : 0, maq = luz+desgaste;
-    return { mat, maq, luz, desgaste, horas, total:mat+maq, sinMat:g>0&&!kg, sinPeso:!g&&horas>0, sinDatos:!g&&!horas };
+    return { mat, maq, luz, desgaste, horas, total:mat+maq, sinMat:g>0&&!kg, sinPeso:!g&&horas>0, sinDatos:!g&&!horas, real: Number(j.gramosReales) > 0 || Number(j.minReales) > 0 };
+  };
+  // Promedio real por unidad de cada producto: trabajos que la impresora cerró de una sola vez (sin tandas)
+  const realesPorProducto = useMemo(() => {
+    const m = {};
+    jobsDb.forEach(j => {
+      if (!j.finImpresora || Number(j.tandas) > 0 || !(Number(j.minReales) > 0) || !["done","shipping","shipped"].includes(j.status)) return;
+      const k = normNombre(j.fileName); (m[k] = m[k] || []).push(j);
+    });
+    const out = {};
+    Object.entries(m).forEach(([k, l]) => {
+      const ult = l.sort((a,b)=>Number(b.endedAt||0)-Number(a.endedAt||0)).slice(0, 10);
+      const min = ult.reduce((t,j)=>t+Number(j.minReales)/unidades(j),0)/ult.length;
+      const conG = ult.filter(j=>Number(j.gramosReales)>0);
+      out[k] = { veces: l.length, min: Math.round(min), g: conG.length ? Math.round(conG.reduce((t,j)=>t+Number(j.gramosReales)/unidades(j),0)/conG.length*10)/10 : null };
+    });
+    return out;
+  }, [jobsDb]);
+  const realDeProducto = (prod) => realesPorProducto[normNombre(prod?.name)] || null;
+  const usarReales = (prod, r) => {
+    const cambios = { duration: String(r.min), ...(r.g ? { weight: String(Math.round(r.g)) } : {}) };
+    updateDoc(doc(db,"products",prod.id), cambios);
+    toast_(`${prod.name}: ahora ${fmtTime(r.min)}${r.g?` y ${Math.round(r.g)} g`:""} por unidad`);
   };
   const precioSugerido = (j) => { const m = Math.min(90, Number(operacion.margenMin)||30)/100; return costoDe(j).total/(1-m); };
 
@@ -1501,6 +1531,7 @@ export default function App() {
                     <span>Costo {fmtMoney(c.total)} <span style={{ color:C.t3 }}>= filamento {c.sinPeso?"—":fmtMoney(c.mat)} · luz {fmtMoney(c.luz)} · desgaste {fmtMoney(c.desgaste)}</span></span>
                     <span style={{ fontWeight:900, color:gan<0?"#FF8A6B":bajo?C.yellow:C.green }}>Ganás {fmtMoney(gan)} · {margen.toFixed(0)}%</span>
                   </div>
+                  {c.real && <div style={{ color:C.t3, marginTop:3 }}>Con lo que gastó de verdad según la impresora:{Number(job.gramosReales)>0?` ${Math.round(job.gramosReales)} g`:""}{Number(job.minReales)>0?` · ${fmtTime(Number(job.minReales))}`:""}{Number(job.tandas)>0?` (en ${Number(job.tandas)+(job.status==="paused"?0:1)} tandas)`:""}</div>}
                   {c.sinMat && <div style={{ color:C.yellow, marginTop:3 }}>Falta el costo del {job.material||"material"} en Stats › Utilidad: el filamento no se está contando</div>}
                   {c.sinPeso && (
                     <div style={{ marginTop:6 }}>
@@ -1647,6 +1678,9 @@ export default function App() {
             <div style={{ fontSize:12, color:C.t4 }}>{viva && OCUPADA_M.includes(viva.estado) ? <span style={{ color:C.orange, fontWeight:700 }}>Imprimiendo «{viva.archivo||"sin nombre"}» sin pedido en el Manager · </span> : null}{pPend(p.id)>0?`${pPend(p.id)} trabajo${pPend(p.id)>1?"s":""} esperando`:"Sin trabajos pendientes"}</div>
           )}
         </div>
+        {viva?.camara && (camTema || DEMO) && (
+          <button onClick={()=>abrirCamara(viva.id)} aria-label={`Ver la cámara de ${p.name}`} style={{ minHeight:44, minWidth:44, padding:"0 10px", borderRadius:C.rSm, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:"pointer", color:C.t1, display:"flex", alignItems:"center", gap:6, fontSize:13, fontWeight:800, flexShrink:0 }}><Video size={18} color={C.orange} aria-hidden="true" />{isDesktop?"Cámara":""}</button>
+        )}
         {showActions && (
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             <button onClick={()=>openEP(p)} style={{ padding:"8px 12px", borderRadius:C.rSm, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:"pointer", fontSize:13, color:C.t2 }}><Icono e="✏️" /></button>
@@ -1680,6 +1714,15 @@ export default function App() {
   const [shipSearch, setShipSearch] = useState("");
   const [clientSearch, setClientSearch] = useState("");
   const [statsTab, setStatsTab] = useState('stats');
+  // Impresiones registradas por el puente (solo se leen con Stats › Máquinas abierta: últimos 31 días)
+  const [impresiones, setImpresiones] = useState(null);
+  const [usoDias, setUsoDias] = useState(7);
+  useEffect(() => {
+    if (!fbUser || view !== "stats" || statsTab !== "maquinas") return;
+    const q = query(collection(db,"impresiones"), where("fin", ">=", Date.now() - 31*DIA));
+    return onSnapshot(q, (snap) => setImpresiones(snap.docs.map(d=>({id:d.id,...d.data()}))), () => setImpresiones([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fbUser, view, statsTab]);
   const [showDetail, setShowDetail] = useState(false);
 
   const DashboardView = () => {
@@ -1702,11 +1745,14 @@ export default function App() {
             <button onClick={d.seguir} style={{ minHeight:44, padding:"0 16px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:900, cursor:"pointer", flexShrink:0 }}>Seguir</button>
           </div>
         ))}
-        <div className="stats-row" style={{ marginBottom:8 }}>
-          {[
-            { status:"printing", Icon:Printer,   label:"Imprimiendo", count:enMarcha.length, sub:enMarcha[0]&&`${enMarcha[0].fileName} · ${enMarcha[0].status==="paused"?"en pausa":`quedan ${fmtTime(enMarcha[0].remaining)}`}`, color:C.green },
-            { status:"pending",  Icon:Hourglass, label:"En cola",     count:enCola.length,   sub:enCola[0]&&`Sigue: ${enCola[0].fileName}`, color:C.yellow },
-          ].map(({ status, Icon, label, count, sub, color }) => (
+        {/* Las etapas en el mismo orden que la cola: En cola → Imprimiendo → Listos → Para entregar */}
+        <div className="stats-row-4" style={{ marginBottom:8 }}>
+          {(() => { const listosL = done.filter(j=>j.jobType!=="design"), envL = shipping.filter(j=>j.jobType!=="design"); return [
+            { status:"pending",  Icon:Hourglass,    label:"En cola",       count:enCola.length,   sub:enCola[0]&&`Sigue: ${enCola[0].fileName}`, color:C.yellow },
+            { status:"printing", Icon:Printer,      label:"Imprimiendo",   count:enMarcha.length, sub:enMarcha[0]&&`${enMarcha[0].fileName} · ${enMarcha[0].status==="paused"?"en pausa":`quedan ${fmtTime(enMarcha[0].remaining)}`}`, color:C.green },
+            { status:"done",     Icon:CheckCircle2, label:"Listos",        count:listosL.length,  sub:listosL[0]&&listosL[0].fileName, color:C.blue },
+            { status:"shipping", Icon:Truck,        label:"Para entregar", count:envL.length,     sub:envL[0]&&(envL[0].clientName||envL[0].fileName), color:C.purple },
+          ]; })().map(({ status, Icon, label, count, sub, color }) => (
             <button key={status} onClick={()=>abrirCola(status)} style={{ textAlign:"left", background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"16px", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:10 }}><Icon size={16} aria-hidden="true" />{label}<ChevronRight size={16} style={{ marginLeft:"auto", opacity:.7 }} aria-hidden="true" /></div>
               <div style={{ fontSize:36, fontWeight:900, color:C.t1, lineHeight:1 }}>{count}</div>
@@ -1714,17 +1760,15 @@ export default function App() {
             </button>
           ))}
         </div>
-        {/* Lo de hoy: lo que pide una acción, no totales históricos */}
-        <div className="stats-row-sm" style={{ marginBottom:16 }}>
+        {/* Al final, lo que pide atención: web, atrasados y lo de hoy */}
+        <div className="stats-row-sm" style={{ marginBottom:16, gridTemplateColumns:"repeat(3,1fr)" }}>
           {(() => {
             const hoy = jobs.filter(esParaHoy);
             const atrasados = jobs.filter(esAtrasado);
-            const listos = done.length + shipping.length;
             return [
-              { key:"hoy",   Icon:CalendarClock, n:hoy.length,       label:"Entregar hoy",   color:C.yellow, bg:C.yellowBg, borde:"#4A3F36", ir:()=>abrirCola("hoy") },
-              { key:"atr",   Icon:AlertTriangle, n:atrasados.length, label:"Atrasados",      color:atrasados.length?"#E53212":C.t3, bg:atrasados.length?C.redBg:C.bg2, borde:atrasados.length?"#5C1F14":C.bg4, ir:()=>abrirCola("atrasados") },
               { key:"web",   Icon:Globe,         n:webAtencion,      label:"Web por atender",color:webAtencion?C.orange:C.t3, bg:webAtencion?C.orangeBg:C.bg2, borde:webAtencion?`${C.orange}55`:C.bg4, ir:()=>setView("web") },
-              { key:"listo", Icon:PackageCheck,  n:listos,           label:"Listos p/ entregar", color:C.purple, bg:C.purpleBg, borde:"#4A3F36", ir:()=>setView("shipping_view") },
+              { key:"atr",   Icon:AlertTriangle, n:atrasados.length, label:"Atrasados",      color:atrasados.length?"#E53212":C.t3, bg:atrasados.length?C.redBg:C.bg2, borde:atrasados.length?"#5C1F14":C.bg4, ir:()=>abrirCola("atrasados") },
+              { key:"hoy",   Icon:CalendarClock, n:hoy.length,       label:"Entregar hoy",   color:C.yellow, bg:C.yellowBg, borde:"#4A3F36", ir:()=>abrirCola("hoy") },
             ].map(({ key, Icon, n, label, color, bg, borde, ir }) => (
               <button key={key} onClick={ir} style={{ background:bg, border:`1px solid ${borde}`, borderRadius:C.r, padding:"12px 8px", textAlign:"center", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
                 <Icon size={20} color={color} aria-hidden="true" style={{ marginBottom:4 }} />
@@ -2517,6 +2561,7 @@ export default function App() {
       {/* Tab switcher */}
       <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:6 }}>
         <button onClick={()=>setStatsTab('stats')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='stats'?C.orange:"transparent", color:statsTab==='stats'?"#191513":C.t3, boxShadow:statsTab==='stats'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Estadísticas</button>
+        <button onClick={()=>setStatsTab('maquinas')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='maquinas'?C.orange:"transparent", color:statsTab==='maquinas'?"#191513":C.t3, boxShadow:statsTab==='maquinas'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Máquinas</button>
         <button onClick={()=>setStatsTab('utility')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='utility'?C.orange:"transparent", color:statsTab==='utility'?"#191513":C.t3, boxShadow:statsTab==='utility'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Utilidad</button>
       </div>
       {statsTab==='stats' && <><div style={{ display:"flex", gap:6, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:6 }}>
@@ -2652,6 +2697,7 @@ export default function App() {
     </>
     }
     {statsTab==='utility' && <UtilityContent />}
+    {statsTab==='maquinas' && UsoMaquinas()}
     </div>
   );
   };
@@ -2909,6 +2955,15 @@ export default function App() {
                               {prod.duration>0 && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}><Icono e="⏱" size={14} style={{marginRight:3}} />{Number(prod.duration)>=60?`${Math.floor(Number(prod.duration)/60)}h${Number(prod.duration)%60>0?" "+Number(prod.duration)%60+"m":""}`:prod.duration+"min"}</span>}
                               {prod.weight>0  && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}><Icono e="⚖" size={14} style={{marginRight:3}} />{prod.weight}g</span>}
                             </div>
+                            {(()=>{ const r = realDeProducto(prod); if (!r) return null;
+                              const difT = Math.abs(r.min - (Number(prod.duration)||0)) >= Math.max(3, (Number(prod.duration)||0)*0.1);
+                              const difG = r.g && Math.abs(r.g - (Number(prod.weight)||0)) >= Math.max(2, (Number(prod.weight)||0)*0.1);
+                              return (
+                                <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", marginTop:6, fontSize:12, color:difT||difG?C.orange:C.t3, fontWeight:700 }}>
+                                  <span>Real: {fmtTime(r.min)}{r.g?` · ${Math.round(r.g)} g`:""} por unidad <span style={{ color:C.t4, fontWeight:600 }}>({r.veces} {r.veces===1?"vez":"veces"})</span></span>
+                                  {(difT||difG) && <button onClick={()=>usarReales(prod, r)} style={{ minHeight:32, padding:"0 10px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rXs, fontSize:12, fontWeight:900, cursor:"pointer" }}>Usar estos</button>}
+                                </div>
+                              ); })()}
                           </div>
                           <div style={{ textAlign:"right", flexShrink:0 }}>
                             {prod.price && <div style={{ fontSize:18, fontWeight:900, color:C.green }}>{Number(prod.price)>0?"Bs. "+Number(prod.price).toFixed(2):""}</div>}
@@ -3174,6 +3229,39 @@ export default function App() {
   };
   const [asignarM, setAsignarM] = useState(null);   // { m, pid }: elegir qué pedido está imprimiendo esa máquina
   const [verInstalarPuente, setVerInstalarPuente] = useState(false);
+  // ── Cámara en vivo: el puente manda cuadros por un canal de Supabase con nombre secreto (sale de la clave) ──
+  const [camVer, setCamVer] = useState(null);       // id de la máquina que se está mirando
+  const [camImg, setCamImg] = useState(null);       // { src, at } | { error }
+  const [camPausa, setCamPausa] = useState(false);  // se corta sola a los 3 min para no gastar datos
+  const [camTema, setCamTema] = useState(null);
+  useEffect(() => {
+    const k = puenteCfg?.clave; if (!k || !window.crypto?.subtle) return;
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(k)).then(b => setCamTema("w3d-cam-" + Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join("").slice(0,24)));
+  }, [puenteCfg?.clave]);
+  useEffect(() => {
+    if (!camVer || camPausa) return;
+    if (DEMO) { setCamImg({ src:`data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="100%" height="100%" fill="#221D1B"/><text x="50%" y="50%" fill="#F1841B" font-family="sans-serif" font-size="28" text-anchor="middle">Cámara de demo</text></svg>')}`, at:Date.now() }); return; }
+    if (!camTema) return;
+    setCamImg(null);
+    let vivo = true, intervalo; const partes = {};
+    const ch = sb.channel(camTema, { config: { broadcast: { self: false } } });
+    ch.on("broadcast", { event: "cuadro" }, ({ payload: p }) => {
+      if (!vivo || !p || p.maq !== camVer) return;
+      if (p.error) { setCamImg(c => c?.src ? c : { error: p.error }); return; }
+      (partes[p.cid] = partes[p.cid] || [])[p.i] = p.d;
+      if (partes[p.cid].filter(Boolean).length === p.n) {
+        const src = "data:image/jpeg;base64," + partes[p.cid].join("");
+        Object.keys(partes).forEach(k => { if (Number(k) <= p.cid) delete partes[k]; });
+        setCamImg({ src, at: Date.now() });
+      }
+    });
+    const pedir = () => ch.send({ type:"broadcast", event:"pedir", payload:{ maq: camVer } });
+    ch.subscribe(st => { if (st === "SUBSCRIBED" && vivo) { pedir(); intervalo = setInterval(pedir, 4000); } });
+    const corte = setTimeout(() => setCamPausa(true), 3 * 60000);
+    return () => { vivo = false; clearInterval(intervalo); clearTimeout(corte); sb.removeChannel(ch); };
+  }, [camVer, camTema, camPausa]);
+  const abrirCamara = (maqId) => { setCamPausa(false); setCamImg(null); setCamVer(maqId); };
+  const cerrarCamara = () => { setCamVer(null); setCamImg(null); setCamPausa(false); };
   const nombreImp = (pid, m) => printers.find(p=>p.id===pid)?.name || m?.nombre || m?.modelo || "impresora";
   const avisosMaq = () => {
     if (!puenteVivo) return [];
@@ -3257,6 +3345,33 @@ export default function App() {
             ))}
           </div>
           <button onClick={()=>setAsignarM(null)} style={{ width:"100%", marginTop:12, minHeight:44, background:"transparent", border:"none", color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+        </div>
+      </div>
+    );
+  };
+  const VisorCamara = () => {
+    if (!camVer) return null;
+    const m = maquinas.find(x => x.id === camVer), pid = m ? pidDeMaq(m) : null, nom = nombreImp(pid, m), e = m ? (ESTADO_M[m.estado] || ESTADO_M.libre) : null;
+    const viejo = camImg?.at && Date.now() - camImg.at > 15000;
+    return (
+      <div onClick={ev=>{ if(ev.target===ev.currentTarget) cerrarCamara(); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.92)", zIndex:80, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+        <div role="dialog" aria-modal="true" aria-labelledby="cam-titulo" style={{ width:"100%", maxWidth:960, background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, overflow:"hidden" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px" }}>
+            <Video size={20} color={C.orange} aria-hidden="true" />
+            <div style={{ flex:1, minWidth:0 }}>
+              <div id="cam-titulo" style={{ fontSize:16, fontWeight:900, color:C.t1 }}>{nom}</div>
+              {m && <div style={{ fontSize:12, color:e.c, fontWeight:800 }}>{e.t}{m.estado==="imprimiendo"&&m.progreso!=null?` ${m.progreso}%`:""}{m.archivo && OCUPADA_M.includes(m.estado) ? <span style={{ color:C.t3, fontWeight:600 }}> · «{m.archivo}»</span> : null}</div>}
+            </div>
+            <button onClick={cerrarCamara} aria-label="Cerrar cámara" style={{ minHeight:44, minWidth:44, background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}><X size={20} aria-hidden="true" /></button>
+          </div>
+          <div style={{ background:"#000", aspectRatio:"16 / 9", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
+            {camImg?.src ? <img src={camImg.src} alt={`Cámara de ${nom}`} style={{ width:"100%", height:"100%", objectFit:"contain", opacity: camPausa||viejo ? .5 : 1 }} />
+              : <div style={{ color:C.t3, fontSize:14, padding:20, textAlign:"center" }}>{camImg?.error ? "Esta impresora no está dando imagen." : camPausa ? "En pausa" : "Conectando con la cámara…"}</div>}
+            {camPausa && <button onClick={()=>setCamPausa(false)} style={{ position:"absolute", minHeight:48, padding:"0 22px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:"pointer" }}>Seguir mirando</button>}
+          </div>
+          <div style={{ padding:"10px 14px", fontSize:12, color:C.t3 }}>
+            {camPausa ? "Se pausó sola a los 3 minutos para no gastar datos." : camImg?.src ? (viejo ? "No llegan imágenes nuevas: ¿está prendida la PC (o el celu) del taller?" : "En vivo · una imagen cada 2 segundos, desde el puente del taller") : "Si en 15 segundos no aparece nada, revisá que el puente esté andando."}
+          </div>
         </div>
       </div>
     );
@@ -3439,7 +3554,8 @@ export default function App() {
                   <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${j.fileName}`} style={{ height:12, background:C.bg4, borderRadius:C.rSm, marginTop:8, overflow:"hidden" }}>
                     <div style={{ height:"100%", width:`${pct}%`, background:imp?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:C.rSm, transition:"width 1s" }} />
                   </div>
-                  {j.vivo && <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, color:C.t3, marginTop:8 }}><span style={{ width:8, height:8, borderRadius:"50%", background:(ESTADO_M[j.vivo.estado]||ESTADO_M.libre).c }} />En vivo desde la impresora{j.vivo.capas ? ` · capa ${j.vivo.capa||0} de ${j.vivo.capas}` : ""}</div>}
+                  {j.vivo && <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, color:C.t3, marginTop:8 }}><span style={{ width:8, height:8, borderRadius:"50%", background:(ESTADO_M[j.vivo.estado]||ESTADO_M.libre).c }} />En vivo desde la impresora{j.vivo.capas ? ` · capa ${j.vivo.capa||0} de ${j.vivo.capas}` : ""}
+                    {j.vivo.camara && (camTema || DEMO) && <button onClick={ev=>{ ev.stopPropagation(); abrirCamara(j.vivo.id); }} style={{ marginLeft:"auto", minHeight:44, padding:"0 14px", background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:14, fontWeight:800, cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}><Video size={18} color={C.orange} aria-hidden="true" />Cámara</button>}</div>}
                 </>)}
                 <div style={{ display:"flex", flexWrap:"wrap", gap:10, marginTop:14 }}>
                   {j.status==="pending" && <BotonGrande onClick={()=>startJ(j)} bg={C.greenD}><Play size={22} aria-hidden="true" />{j.jobType==="design"?"Empezar diseño":"Iniciar impresión"}</BotonGrande>}
@@ -3553,6 +3669,67 @@ export default function App() {
   if (fbUser === undefined) return <LoginView sesion={sesion} revisando />;
   if (!fbUser) return <LoginView sesion={sesion} reconectar={entrarConGoogle} error={fbError} />;
 
+  // ── Uso real de cada máquina (Stats › Máquinas) ──
+  // Horario del taller: lun–vie 9:00–12:15 y 15:00–19:00, sáb 8:30–13:00
+  const HORARIO = { 1:[[9,12.25],[15,19]], 2:[[9,12.25],[15,19]], 3:[[9,12.25],[15,19]], 4:[[9,12.25],[15,19]], 5:[[9,12.25],[15,19]], 6:[[8.5,13]] };
+  const tramosLaborales = (desde, hasta) => {
+    const out = []; const d = new Date(desde); d.setHours(0,0,0,0);
+    for (; d.getTime() < hasta; d.setDate(d.getDate()+1)) (HORARIO[d.getDay()]||[]).forEach(([a,b]) => {
+      const i = d.getTime()+a*3600000, f = d.getTime()+b*3600000; if (f > desde && i < hasta) out.push([Math.max(i,desde), Math.min(f,hasta)]);
+    });
+    return out;
+  };
+  const solape = (a1,a2,b1,b2) => Math.max(0, Math.min(a2,b2) - Math.max(a1,b1));
+  const UsoMaquinas = () => {
+    if (impresiones === null) return <div style={{ color:C.t3, fontSize:14, padding:"20px 0" }}>Cargando…</div>;
+    const ahoraU = Date.now(), desde = ahoraU - usoDias*DIA, lab = tramosLaborales(desde, ahoraU), horasLab = lab.reduce((t,[a,b])=>t+(b-a),0);
+    const primera = impresiones.reduce((m,i)=>Math.min(m, Number(i.inicio)||ahoraU), ahoraU);
+    const fdm = printers.filter(p => p.type !== "Resina");
+    // Lo que se está imprimiendo ahora también cuenta
+    const enCurso = maquinas.filter(m => OCUPADA_M.includes(m.estado) && puenteVivo).map(m => ({ printer: pidDeMaq(m), inicio: Number(m.inicio) || (m.tiempoSeg ? ahoraU - m.tiempoSeg*1000 : null), fin: ahoraU, estado:"imprimiendo" })).filter(x=>x.inicio);
+    const filas = fdm.map(p => {
+      const lista = impresiones.filter(i => i.printer === p.id).concat(enCurso.filter(i => i.printer === p.id));
+      let ms = 0, msLab = 0;
+      lista.forEach(i => { const a = Number(i.inicio), b = Number(i.fin); if (!a || !b) return; ms += solape(a,b,desde,ahoraU); lab.forEach(([x,y]) => { msLab += solape(a,b,x,y); }); });
+      const enRango = lista.filter(i => Number(i.fin) >= desde);
+      return { p, horas: ms/3600000, pct: ms/(ahoraU-desde)*100, pctLab: horasLab ? msLab/horasLab*100 : 0, n: enRango.filter(i=>i.estado==="terminada").length, canc: enRango.filter(i=>i.estado==="cancelada").length, paradaLab: Math.max(0, horasLab - msLab)/3600000 };
+    });
+    const prom = filas.length ? filas.reduce((t,f)=>t+f.pct,0)/filas.length : 0;
+    return (
+      <div>
+        <div style={{ display:"flex", gap:6, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:6 }}>
+          {[[7,"7 días"],[30,"30 días"]].map(([k,l]) => (
+            <button key={k} onClick={()=>setUsoDias(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:usoDias===k?C.orange:"transparent", color:usoDias===k?"#191513":C.t3 }}>{l}</button>
+          ))}
+        </div>
+        {!impresiones.length && !enCurso.length ? (
+          <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"18px 16px", color:C.t2, fontSize:14, lineHeight:1.6 }}>Todavía no hay impresiones registradas. El puente anota cada impresión que termina o se cancela; en unos días vas a ver acá cuánto trabaja cada máquina.</div>
+        ) : (<>
+          <div style={{ fontSize:13, color:C.t3, marginBottom:12 }}>{primera > desde ? `Datos desde el ${new Date(primera).toLocaleDateString("es-ES",{day:"numeric",month:"long"})} (cuando se instaló el puente).` : `Últimos ${usoDias} días.`} Promedio de las máquinas: <b style={{ color:C.t1 }}>{Math.round(prom)}% del día imprimiendo</b>.</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {filas.map(f => (
+              <div key={f.p.id} style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"14px 16px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8, flexWrap:"wrap" }}>
+                  <div style={{ fontSize:16, fontWeight:900, color:C.t1 }}>{f.p.name}</div>
+                  <div style={{ fontSize:22, fontWeight:900, color:C.orange, fontVariantNumeric:"tabular-nums" }}>{Math.round(f.pct)}%</div>
+                </div>
+                <div role="progressbar" aria-valuenow={Math.round(f.pct)} aria-valuemin={0} aria-valuemax={100} aria-label={`Uso de ${f.p.name}`} style={{ height:10, background:C.bg4, borderRadius:C.rXs, margin:"8px 0", overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${Math.min(100,f.pct)}%`, background:`linear-gradient(90deg,${C.orangeD},${C.orange})` }} />
+                </div>
+                <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontSize:13, color:C.t2 }}>
+                  <span><b style={{ color:C.t1 }}>{Math.round(f.horas)} h</b> imprimiendo</span>
+                  <span>En horario del taller: <b style={{ color:C.t1 }}>{Math.round(f.pctLab)}%</b> · parada {Math.round(f.paradaLab)} h</span>
+                  <span>{f.n} impresiones{f.canc ? <span style={{ color:"#FF8A6B" }}> · {f.canc} canceladas</span> : null}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize:12, color:C.t4, marginTop:12, lineHeight:1.6 }}>% del día = horas imprimiendo sobre las 24 h (cuenta las noches). Si todas pasan del 80%, hace falta otra máquina; si andan por debajo del 50%, conviene armar mejor la cola.</div>
+        </>)}
+      </div>
+    );
+  };
+
   // Cuánto tardó en abrir la última vez en este dispositivo (para saber si el iPad anda lento)
   const TextoArranque = () => {
     let a = null; try { a = JSON.parse(localStorage.getItem("w3d-arranque") || "null"); } catch (e) {}
@@ -3624,7 +3801,7 @@ export default function App() {
               <button key={m} onClick={()=>setFalla(f=>({...f, motivo:m}))} aria-pressed={falla.motivo===m} style={{ minHeight:52, padding:"8px 10px", borderRadius:C.rSm, fontSize:14, fontWeight:800, cursor:"pointer", background:falla.motivo===m?C.orange:C.bg3, color:falla.motivo===m?"#191513":C.t1, border:`1px solid ${falla.motivo===m?C.orange:C.bg5}` }}>{m}</button>
             ))}
           </div>
-          <div style={{ fontSize:14, color:C.t2, fontWeight:800, margin:"16px 0 8px" }}>Filamento perdido (gramos)</div>
+          <div style={{ fontSize:14, color:C.t2, fontWeight:800, margin:"16px 0 8px" }}>Filamento perdido (gramos){falla.real && <span style={{ color:C.orange, fontWeight:700 }}> · según la impresora</span>}</div>
           <input type="number" inputMode="numeric" value={falla.gramos} onChange={e=>setFalla(f=>({...f, gramos:e.target.value}))} style={{ ...inputSt, fontSize:18 }} />
           <div style={{ fontSize:13, color:C.t3, marginTop:6 }}>Calculado según lo que llevaba impreso ({fmtTime(falla.minutos)}). Pérdida: <b style={{ color:"#FF8A6B" }}>{fmtMoney(costo)}</b></div>
           <button onClick={registrarFalla} disabled={!falla.motivo} style={{ width:"100%", marginTop:18, minHeight:54, background:falla.motivo?`linear-gradient(135deg,${C.orange},${C.orangeD})`:C.bg4, color:falla.motivo?"#191513":C.t3, border:"none", borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:falla.motivo?"pointer":"not-allowed" }}>Anotar y volver a la cola</button>
@@ -3694,7 +3871,7 @@ export default function App() {
   };
 
   return (
-    kioskMode ? <>{KioskView()}{DetalleKiosco()}{CartelPedido()}{ModalCobro()}{ModalFalla()}{ModalAsignarM()}</> :
+    kioskMode ? <>{KioskView()}{DetalleKiosco()}{CartelPedido()}{ModalCobro()}{ModalFalla()}{ModalAsignarM()}{VisorCamara()}</> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
       <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
@@ -4344,6 +4521,7 @@ export default function App() {
       {ModalCobro()}
       {ModalFalla()}
       {ModalAsignarM()}
+      {VisorCamara()}
       {nuevoColor && (
         <div onClick={e=>{ if(e.target===e.currentTarget) setNuevoColor(null); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:80, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
           <div role="dialog" aria-modal="true" aria-labelledby="color-titulo" style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:380 }}>

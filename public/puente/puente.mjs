@@ -8,6 +8,9 @@
 //
 // Uso: node puente.mjs            (lee puente.json de esta misma carpeta)
 //      node puente.mjs --probar   (solo busca impresoras y muestra lo que ven, sin mandar nada)
+//
+// También: cámara en vivo cuando alguien la abre en el Manager (por el canal de tiempo real de Supabase,
+// cifrado y con un nombre secreto sacado de la clave), y se actualiza solo cuando sale una versión nueva.
 
 import net from "node:net";
 import dgram from "node:dgram";
@@ -15,8 +18,12 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
+// Clave pública del sitio (la misma que usa la web): solo sirve para el canal de la cámara
+const SUPABASE_RT = "wss://swlmlwmjicsewwtudeah.supabase.co/realtime/v1/websocket";
+const SUPABASE_KEY = "sb_publishable_pbWjcSpwmO1fhBNiYVAoow_OsUHX-y0";
 const CARPETA = path.dirname(fileURLToPath(import.meta.url));
 const ARCH_CONFIG = process.env.PUENTE_CONFIG || path.join(CARPETA, "puente.json");
 const ARCH_LOG = path.join(CARPETA, "puente.log");
@@ -118,6 +125,27 @@ function buscarElegoo(base, extras = []) {
   });
 }
 
+// ─── Cámara: un cuadro JPEG (mjpg-streamer en el puerto 8080) ────────────────
+// Si el puerto da una foto suelta, se usa; si da el video, se corta el primer cuadro.
+async function cuadroJPEG(ip, ms = 5000) {
+  const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(`http://${ip}:8080/?action=snapshot`, { signal: ctrl.signal });
+    if (!r.ok) return null;
+    if (/image\/jpeg/i.test(r.headers.get("content-type") || "")) return Buffer.from(await r.arrayBuffer());
+    const lector = r.body.getReader();
+    let buf = Buffer.alloc(0);
+    while (buf.length < 3_000_000) {
+      const { value, done } = await lector.read();
+      if (done) break;
+      buf = Buffer.concat([buf, Buffer.from(value)]);
+      const ini = buf.indexOf(Buffer.from([0xff, 0xd8]));
+      if (ini >= 0) { const fin = buf.indexOf(Buffer.from([0xff, 0xd9]), ini + 2); if (fin > 0) { ctrl.abort(); return buf.subarray(ini, fin + 2); } }
+    }
+    return null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
+
 // ─── Creality (puerto 9999) ───────────────────────────────────────────────────
 class Creality {
   constructor(ip, alCambiar) {
@@ -145,12 +173,21 @@ class Creality {
       if (m.retGcodeFileInfo || m.retGcodeFileInfo2) return;   // listado de archivos: no hace falta
       Object.assign(this.d, m);
       this.ultimo = Date.now();
-      if (!this.vivo) { this.vivo = true; log(`Conectada ${this.nombre()} (${this.ip})`); }
+      if (!this.vivo) { this.vivo = true; log(`Conectada ${this.nombre()} (${this.ip})`); this.probarCamara(); }
       this.avisar();
     };
     ws.onclose = () => { if (this.ws === ws) { this.ws = null; this.reintentar(); } };
     ws.onerror = () => {};
   }
+  // Las que tienen cámara por video simple (K1, K1 Max con firmware viejo) dan foto; las de WebRTC (Hi) no
+  async probarCamara() {
+    if (this.probandoCam || (this.camara && Date.now() - (this.camaraAt || 0) < 1800000)) return;
+    this.probandoCam = true;
+    const antes = this.camara;
+    this.camara = !!(await cuadroJPEG(this.ip, 4000)); this.camaraAt = Date.now(); this.probandoCam = false;
+    if (antes !== this.camara) { log(`${this.nombre()}: cámara ${this.camara ? "disponible" : "no compatible (usa WebRTC)"}`); this.avisar(); }
+  }
+  cuadro() { return cuadroJPEG(this.ip); }
   pedir() { try { this.ws?.readyState === 1 && this.ws.send(JSON.stringify({ method: "get", params: { ReqPrinterPara: 1 } })); } catch {} }
   reintentar() { if (!this.cerrada) setTimeout(() => this.conectar(), 15000); }
   vigilar() {
@@ -197,6 +234,9 @@ class Creality {
       progreso: Number.isFinite(Number(d.printProgress)) ? Math.max(0, Math.min(100, Math.round(Number(d.printProgress)))) : null,
       faltaSeg: Number.isFinite(Number(d.printLeftTime)) ? Math.max(0, Math.round(Number(d.printLeftTime))) : null,
       inicio, capa: Number(d.layer) || null, capas: Number(d.TotalLayer) || null, error: this.error(),
+      tiempoSeg: Number(d.printJobTime) >= 0 && archivo ? Math.round(Number(d.printJobTime)) : null,
+      usadoMm: Number(d.usedMaterialLength) >= 0 && archivo ? Math.round(Number(d.usedMaterialLength)) : null,
+      camara: !!this.camara,
     };
   }
   avisar() { if (this.d.model || !this.vivo) this.alCambiar(this); }
@@ -333,10 +373,89 @@ class Elegoo {
       progreso: Number.isFinite(Number(prog)) ? Math.max(0, Math.min(100, Math.round(Number(prog)))) : null,
       faltaSeg: Number.isFinite(Number(ps.remaining_time_sec)) ? Math.max(0, Math.round(Number(ps.remaining_time_sec))) : null,
       inicio: this.inicioCalc, capa: Number(ps.current_layer) || null, capas: Number(ps.total_layer) || null, error: this.error(),
+      tiempoSeg: Number(ps.print_duration) >= 0 && archivo ? Math.round(Number(ps.print_duration)) : null, usadoMm: null,
+      camara: this.d.external_device ? !!this.d.external_device.camera : true,
     };
+  }
+  // La cámara de la Elegoo se prende a pedido (método 1042) y da video por el puerto 8080
+  async cuadro() {
+    if (!this.camPrendidaAt || Date.now() - this.camPrendidaAt > 120000) {
+      this.m?.publicar(`elegoo/${this.sn}/${this.clientId}/api_request`, JSON.stringify({ id: Date.now() % 100000, method: 1042, params: { enable: true } }));
+      this.camPrendidaAt = Date.now();
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    return cuadroJPEG(this.ip);
   }
   avisar() { this.alCambiar(this); }
   cerrar() { this.cerrada = true; clearInterval(this.reloj); try { this.m?.cerrar(); } catch {} }
+}
+
+// ─── Cámara en vivo a pedido ──────────────────────────────────────────────────
+// El Manager pide "cámara de tal máquina" por un canal con nombre secreto; mientras la sigan pidiendo
+// (cada pocos segundos) se manda un cuadro cada ~2 s, partido en pedazos.
+class CanalCamara {
+  constructor() {
+    this.tema = "realtime:w3d-cam-" + createHash("sha256").update(String(config.clave)).digest("hex").slice(0, 24);
+    this.pedidos = new Map(); this.ref = 1; this.cerrado = false; this.mandando = false;
+    this.conectar();
+    this.reloj = setInterval(() => this.tick(), 2000);
+  }
+  conectar() {
+    if (this.cerrado) return;
+    const ws = new WebSocket(`${SUPABASE_RT}?apikey=${SUPABASE_KEY}&vsn=1.0.0`);
+    this.ws = ws;
+    ws.onopen = () => {
+      this.enviar({ topic: this.tema, event: "phx_join", payload: { config: { broadcast: { self: false, ack: false }, presence: { key: "" }, private: false } } });
+      this.latido = setInterval(() => this.enviar({ topic: "phoenix", event: "heartbeat", payload: {} }), 25000);
+    };
+    ws.onmessage = (e) => {
+      let m; try { m = JSON.parse(e.data); } catch { return; }
+      if (m.event === "broadcast" && m.payload?.event === "pedir" && m.payload.payload?.maq) {
+        const id = String(m.payload.payload.maq);
+        if (!this.pedidos.has(id)) log(`Abrieron la cámara de ${id}`);
+        this.pedidos.set(id, Date.now() + 12000);
+      }
+    };
+    ws.onclose = () => { clearInterval(this.latido); if (!this.cerrado) setTimeout(() => this.conectar(), 10000); };
+    ws.onerror = () => {};
+  }
+  enviar(o) { try { this.ws?.readyState === 1 && this.ws.send(JSON.stringify({ ...o, ref: String(this.ref++) })); } catch {} }
+  async tick() {
+    if (this.mandando) return;
+    this.mandando = true;
+    try {
+      for (const [id, hasta] of this.pedidos) {
+        if (Date.now() > hasta) { this.pedidos.delete(id); continue; }
+        const p = [...impresoras.values()].find((x) => x.id === id);
+        if (!p) continue;
+        const jpg = await p.cuadro();
+        if (!jpg) { this.enviar({ topic: this.tema, event: "broadcast", payload: { type: "broadcast", event: "cuadro", payload: { maq: id, error: "sin imagen" } } }); continue; }
+        const b64 = jpg.toString("base64"), TAM = 120000, n = Math.ceil(b64.length / TAM), cid = Date.now();
+        for (let i = 0; i < n; i++) this.enviar({ topic: this.tema, event: "broadcast", payload: { type: "broadcast", event: "cuadro", payload: { maq: id, cid, i, n, d: b64.slice(i * TAM, (i + 1) * TAM) } } });
+      }
+    } finally { this.mandando = false; }
+  }
+  cerrar() { this.cerrado = true; clearInterval(this.reloj); clearInterval(this.latido); try { this.ws?.close(); } catch {} }
+}
+let canal = null;
+const prenderCanal = () => { if (!canal && !PROBAR && config.clave) canal = new CanalCamara(); };
+const apagarCanal = () => { canal?.cerrar(); canal = null; };
+
+// ─── Se actualiza solo ────────────────────────────────────────────────────────
+const numVersion = (v) => String(v).split(".").map(Number).reduce((a, x) => a * 1000 + (x || 0), 0);
+async function actualizar() {
+  try {
+    const url = new URL("/puente/puente.mjs", config.servidor).href;
+    const r = await fetch(url + "?v=" + Date.now(), { signal: AbortSignal.timeout(30000) });
+    if (!r.ok) return;
+    const texto = await r.text(), v = (texto.match(/const VERSION = "([\d.]+)"/) || [])[1];
+    if (!v || numVersion(v) <= numVersion(VERSION) || !texto.includes("WORLD3D · Puente")) return;
+    const destino = fileURLToPath(import.meta.url);
+    fs.writeFileSync(destino + ".nuevo", texto);
+    fs.renameSync(destino + ".nuevo", destino);
+    log(`Actualizado a la versión ${v}. Reiniciando...`);
+    process.exit(0);   // el arranque (PC o celu) lo vuelve a levantar en unos segundos
+  } catch {}
 }
 
 // ─── Coordinación ─────────────────────────────────────────────────────────────
@@ -348,7 +467,7 @@ function alCambiar() {
   if (PROBAR) return;
   const hayUrgente = [...impresoras.values()].some((p) => {
     const r = p.datos(), a = enviado.get(r.id);
-    return !a || a.estado !== r.estado || a.archivo !== r.archivo || a.error !== r.error;
+    return !a || a.estado !== r.estado || a.archivo !== r.archivo || a.error !== r.error || a.camara !== r.camara;
   });
   if (hayUrgente && !urgente) urgente = setTimeout(() => { urgente = null; enviar(false); }, 1500);
 }
@@ -379,7 +498,7 @@ async function enviar(latido) {
   if (!enEspera) for (const p of impresoras.values()) {
     if (!p.vivo && !enviado.has(p.id) && !p.d.model && !p.sn) continue;   // nunca respondió
     const r = p.datos(), a = enviado.get(r.id);
-    const cambio = !a || a.estado !== r.estado || a.archivo !== r.archivo || a.error !== r.error || a.ip !== r.ip
+    const cambio = !a || a.estado !== r.estado || a.archivo !== r.archivo || a.error !== r.error || a.ip !== r.ip || a.camara !== r.camara
       || a.progreso !== r.progreso || Math.abs((a.faltaSeg ?? 0) - (r.faltaSeg ?? 0)) >= 120;
     if (cambio) maquinas.push({ ...r, antes: a ? a.estado : null });
   }
@@ -398,10 +517,10 @@ async function enviar(latido) {
     if (j.espera && !enEspera) {
       enEspera = true; log("La PC está prendida: este aparato queda de respaldo, sin conectarse a las impresoras.");
       for (const p of impresoras.values()) p.cerrar();
-      impresoras.clear(); enviado.clear();
+      impresoras.clear(); enviado.clear(); apagarCanal();
     } else if (!j.espera && enEspera) {
       enEspera = false; log("La PC no responde: este aparato toma el control de las impresoras.");
-      buscar();
+      buscar(); prenderCanal();
     }
   } catch (e) {
     log("No pude hablar con el Manager (" + (e.cause?.code || e.name || e.message) + "). Reintento en un rato.");
@@ -413,15 +532,17 @@ if (PROBAR) {
   log("Buscando impresoras en el wifi...");
   await buscar();
   setTimeout(() => {
-    for (const p of impresoras.values()) console.log(JSON.stringify(p.datos()));
+    for (const p of impresoras.values()) { const d = p.datos(); console.log(`${d.modelo} (${d.ip}): ${d.estado}${d.archivo ? " · " + d.archivo : ""}${d.progreso != null && d.estado !== "libre" ? " · " + d.progreso + "%" : ""}${d.camara ? " · con cámara" : ""}`); }
     for (const p of impresoras.values()) p.cerrar();
     process.exit(0);
   }, 12000);
 } else {
   log(`Puente WORLD3D ${VERSION} (${config.fuente === "celu" ? "celular, respaldo" : "PC, principal"}) · Node ${process.version}`);
   if (config.fuente === "celu") await enviar(true);   // primero pregunta si la PC está activa
-  if (!enEspera) await buscar();
+  if (!enEspera) { await buscar(); prenderCanal(); }
   setTimeout(() => enviar(true), 8000);
+  setTimeout(actualizar, 60000);
+  setInterval(actualizar, 6 * 3600000);
   setInterval(() => enviar(Date.now() - ultimoLatido > (enEspera ? 55000 : 110000)), 30000);
   setInterval(() => buscar(), 5 * 60000);
   process.on("SIGINT", () => process.exit(0));

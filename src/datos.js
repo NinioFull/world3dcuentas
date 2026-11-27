@@ -41,6 +41,13 @@ for (let i = 0; i < 380; i++) {
   const t = ahora - (i + 3) * 20 * h;
   memoria.jobs["h" + i] = { fileName: ["Trofeo", "Llavero", "Soporte de mando", "Organizador", "Figura"][i % 5] + " #" + i, printer: ["p1", "p2", "p3"][i % 3], material: "PLA", color: "Negro", weight: 20, duration: 60, remaining: 0, status: "shipped", quantity: 1 + (i % 4), price: 50 + (i % 7) * 10, unitPrice: 50, deposit: 50, clientName: i < 300 ? "Cliente " + (i % 60) : "Antiguo " + (i % 8), clientPhone: i < 300 ? "7" + String(1000000 + (i % 60)) : "6" + String(1000000 + (i % 8)), createdAt: t, endedAt: t + h, shippedAt: t + 2 * h, priority: 100 + i };
 }
+// Puente de impresoras: impresiones de la última semana y tiempos reales de dos productos (para probar Stats y Productos)
+memoria.impresiones = {};
+for (let d = 0; d < 7; d++) for (const [pid, mq, hs] of [["p1", "creality-k1max", 9], ["p2", "creality-hi-7c1d", 6], ["p3", "elegoo-CC2DEMO", 3]]) {
+  const ini = ahora - (d + 1) * 24 * h + 8 * h;
+  memoria.impresiones[`${mq}-${d}`] = { maquina: mq, printer: pid, archivo: "demo", inicio: ini, fin: ini + hs * h, seg: hs * 3600, estado: d === 3 && pid === "p3" ? "cancelada" : "terminada" };
+}
+for (let i = 0; i < 4; i++) memoria.jobs["r" + i] = { fileName: "Soporte de mando de Pikachu", printer: "p1", material: "PLA", weight: 30, duration: 70, quantity: 2, remaining: 0, status: "shipped", finImpresora: true, minReales: 166 + i * 4, gramosReales: 70 + i, createdAt: ahora - (i + 2) * 30 * h, endedAt: ahora - (i + 2) * 28 * h, shippedAt: ahora - (i + 2) * 27 * h, price: 160, deposit: 160 };
 let sec = 100;
 const oyentes = [];
 const avisar = (col) => oyentes.filter(o => o.col === col).forEach(o => o.cb(foto(col)));
@@ -84,6 +91,9 @@ export const setDoc = DEMO
 export const updateDoc = DEMO
   ? async (ref, data) => { const c = memoria[ref.col] || {}; c[ref.id] = { ...(c[ref.id] || {}), ...data }; avisar(ref.col); }
   : (...a) => sinEsperarRed(fs.updateDoc(...a));
+// Consultas con filtro (en demo se ignora el filtro: la base de ejemplo es chica)
+export const query = DEMO ? (ref) => ref : fs.query;
+export const where = DEMO ? () => null : fs.where;
 export const deleteDoc = DEMO
   ? async (ref) => { delete (memoria[ref.col] || {})[ref.id]; avisar(ref.col); }
   : (...a) => sinEsperarRed(fs.deleteDoc(...a));
