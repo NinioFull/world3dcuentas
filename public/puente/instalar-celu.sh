@@ -13,10 +13,15 @@ echo ""
 
 # 1. Node 22 o más nuevo
 version_node() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
-if ! command -v node >/dev/null 2>&1 || [ "$(version_node)" -lt 22 ]; then
-  echo "Instalando Node (una sola vez)..."
-  yes | pkg update >/dev/null 2>&1 || true
-  pkg install -y nodejs
+# Termux tiene que estar al día antes: si no, el Node nuevo no arranca ("CANNOT LINK EXECUTABLE node").
+if ! node -v >/dev/null 2>&1 || [ "$(version_node)" -lt 22 ]; then
+  echo "Actualizando Termux e instalando Node (una sola vez, unos minutos)..."
+  yes | pkg upgrade -y || true
+  yes | pkg install -y nodejs || true
+  if ! node -v >/dev/null 2>&1; then
+    echo "Node no arranca todavía. Escribí:  yes | pkg upgrade  y después pegá de nuevo la línea del Manager."
+    exit 1
+  fi
 fi
 
 # 2. Programa del puente
