@@ -166,5 +166,5 @@ npm start
 - Cuando una máquina termina de verdad se cierra el trabajo que imprimía en ella (`finImpresora`, y Telegram como siempre). Varias unidades con mucho por delante = terminó una tanda: queda en pausa con lo que falta.
 - Mientras una máquina dice que sigue imprimiendo, ni el Manager ni el Apps Script cierran el trabajo por tiempo. El avance y lo que falta salen de la impresora ("según la impresora").
 - Avisos arriba de cada pantalla y en el kiosco: imprime algo sin pedido (elegís cuál con un toque), pausa, cancelación, error, impresora nueva sin identificar. Telegram avisa pausas, cancelaciones, errores y si una se apaga en plena impresión.
-- Instalar: Máquinas → Conexión con las impresoras → Instalar. PC: `irm https://world3dcuentas.vercel.app/puente/instalar.ps1 | iex` en PowerShell. Celu: Termux + Termux:Boot (F-Droid) y `curl -fsSL https://world3dcuentas.vercel.app/puente/instalar-celu.sh | bash`.
+- Instalar: Máquinas → Conexión con las impresoras → Instalar. El Manager arma una línea con la clave adentro: en la PC se pega en PowerShell (`$env:W3D_CLAVE=...; irm …/puente/instalar.ps1 | iex`); en el celu, con Termux + Termux:Boot de F-Droid, se pega en Termux (`curl -fsSL …/puente/instalar-celu.sh | W3D_CLAVE=... bash`).
 - Pruebas sin red: `node impresoras/prueba.mjs`.

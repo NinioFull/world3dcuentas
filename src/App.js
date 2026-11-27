@@ -3281,7 +3281,9 @@ export default function App() {
       : { c:C.yellow, t:`El puente no responde desde ${haceTxt(puenteAt).replace("hace ","hace ")}: mientras tanto se calcula por tiempo. ¿La PC y el celular están apagados?` };
     const fdm = printers.filter(p => p.type !== "Resina");
     const base = typeof window !== "undefined" ? window.location.origin : "https://world3dcuentas.vercel.app";
-    const cmdPc = `irm ${base}/puente/instalar.ps1 | iex`, cmdCelu = `curl -fsSL ${base}/puente/instalar-celu.sh | bash`;
+    // Con la clave adentro: se copia y se pega una sola línea
+    const k = puenteCfg?.clave || "";
+    const cmdPc = `$env:W3D_CLAVE='${k}'; irm ${base}/puente/instalar.ps1 | iex`, cmdCelu = `curl -fsSL ${base}/puente/instalar-celu.sh | W3D_CLAVE=${k} bash`;
     const bloque = (titulo, cmd) => (
       <div style={{ marginTop:10 }}>
         <div style={{ fontSize:13, color:C.t2, fontWeight:800, marginBottom:6 }}>{titulo}</div>
@@ -3330,15 +3332,15 @@ export default function App() {
                 <button onClick={()=>copiar(puenteCfg.clave, "Clave copiada")} style={{ minHeight:44, padding:"0 14px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer" }}>Copiar</button>
               </div>
             ) : <button onClick={crearClavePuente} style={{ minHeight:44, padding:"0 16px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:900, cursor:"pointer" }}>Crear clave</button>}
-            {bloque("2. En la PC (Windows): abrí PowerShell y pegá esto. Te pide la clave.", cmdPc)}
+            {puenteCfg?.clave && bloque("2. En la PC (Windows): tocá Inicio, escribí PowerShell, abrilo y pegá esto (clic derecho pega). Ya trae la clave.", cmdPc)}
             <div style={{ fontSize:13, color:C.t2, fontWeight:800, margin:"14px 0 4px" }}>3. En el celular Android</div>
             <ol style={{ margin:"0 0 0 18px", padding:0, fontSize:13, color:C.t2, lineHeight:1.7 }}>
               <li>Instalá <b>Termux</b> y <b>Termux:Boot</b> desde F-Droid (f-droid.org). La de Play Store no sirve.</li>
               <li>Abrí Termux:Boot una vez (así arranca solo al prender el celu).</li>
-              <li>Abrí Termux y pegá el comando de abajo. Te pide la clave.</li>
+              <li>Abrí Termux y pegá el comando de abajo (ya trae la clave).</li>
               <li>Ajustes → Batería → Termux → <b>Sin restricciones</b>, y dejá el celu enchufado en el wifi del taller.</li>
             </ol>
-            {bloque("Comando para Termux:", cmdCelu)}
+            {puenteCfg?.clave && bloque("Comando para Termux:", cmdCelu)}
           </div>
         )}
       </div>

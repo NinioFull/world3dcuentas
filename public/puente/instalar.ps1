@@ -1,5 +1,6 @@
 # WORLD3D - Instalador del puente de impresoras para la PC (Windows).
-# Uso: abrir PowerShell y pegar:  irm https://world3dcuentas.vercel.app/puente/instalar.ps1 | iex
+# Uso: copiar la linea del Manager (Maquinas -> Instalar) y pegarla en PowerShell. Trae la clave:
+#   $env:W3D_CLAVE='...'; irm https://world3dcuentas.vercel.app/puente/instalar.ps1 | iex
 # Deja todo en %LOCALAPPDATA%\WORLD3D-Puente y lo hace arrancar solo al prender la PC (sin ventana).
 
 $ErrorActionPreference = 'Stop'
@@ -47,14 +48,15 @@ Invoke-WebRequest "$base/puente/puente.mjs" -OutFile (Join-Path $dir 'puente.mjs
 $archConfig = Join-Path $dir 'puente.json'
 $viejo = $null
 if (Test-Path $archConfig) { try { $viejo = Get-Content $archConfig -Raw | ConvertFrom-Json } catch {} }
-$clave = ''
+$clave = "$env:W3D_CLAVE".Trim()
 while ($clave.Length -lt 16) {
   $pista = if ($viejo -and $viejo.clave) { ' (Enter = la misma de antes)' } else { '' }
   $clave = (Read-Host "Pega la clave del puente que te muestra el Manager$pista").Trim()
   if (-not $clave -and $viejo -and $viejo.clave) { $clave = $viejo.clave }
   if ($clave.Length -lt 16) { Write-Host 'Esa clave es muy corta. Copiala de nuevo desde el Manager.' -ForegroundColor Red }
 }
-$elegoo = (Read-Host 'Clave de acceso de la Elegoo (Enter si no le pusiste)').Trim()
+# La Elegoo sin clave de acceso usa la de fabrica (el puente la prueba solo). Si le pusiste una: $env:W3D_ELEGOO='...'
+$elegoo = "$env:W3D_ELEGOO".Trim()
 if (-not $elegoo -and $viejo -and $viejo.elegooClave) { $elegoo = $viejo.elegooClave }
 $cfg = [ordered]@{ clave = $clave; fuente = 'pc'; servidor = "$base/api/puente" }
 if ($elegoo) { $cfg.elegooClave = $elegoo }
