@@ -99,7 +99,10 @@ export function confirmar(tipo, js, printers, ahora = Date.now()) {
   const j = js[0], p = printers.find((x) => x.id === j.printer), enImp = p ? ` en la ${nombreImp(p)}` : "";
   const accion = { tipo, trabajos: js.map(foto) };
   if (tipo === "listo") return { accion, pregunta: js.length > 1 ? `¿Marco como listos ${lista(js.map(nombreTrabajo), 4)}?` : `¿Marco ${nombreTrabajo(j)}${j.clientName ? " de " + j.clientName.trim() : ""} como listo?` };
-  if (tipo === "pausar") return { accion, pregunta: `¿Pauso ${nombreTrabajo(j)}${enImp}? Le faltan ${tiempo(faltan(j, ahora))}.` };
+  if (tipo === "pausar") {
+    const f = faltan(j, ahora);
+    return { accion, pregunta: `¿Pauso ${nombreTrabajo(j)}${enImp}? ${f > 0 ? `Le faltan ${tiempo(f)}.` : "Según el contador ya debería haber terminado."}` };
+  }
   if (tipo === "iniciar") return { accion, pregunta: j.status === "paused" ? `¿Reanudo ${nombreTrabajo(j)}${enImp}?` : `¿Inicio ${nombreTrabajo(j)}${enImp}?` };
   if (tipo === "entregar") {
     const saldo = js.reduce((s, x) => s + saldoDe(x), 0), quien = j.clientName?.trim() || "el cliente";
