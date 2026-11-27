@@ -127,7 +127,45 @@ const gramosDeMm = (mm, material) => Number(mm) > 0 ? Math.round(Number(mm) * Ma
 const normNombre = (t) => String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
 // Cámaras WebRTC (K1 Max, Hi): el puente manda un cuadro suelto en MP4 (H.264). Se dibuja en un canvas y
 // queda como imagen, igual que las JPEG.
-const mp4AImagen = (b64) => new Promise((res) => {
+// 1º el decodificador del navegador (WebCodecs: Chrome y Safari 16.4+, también en iPad); si no, un <video> oculto.
+const cajasMp4 = (u8, ini, fin, cb) => { for (let i = ini; i + 8 <= fin;) { const n = new DataView(u8.buffer, u8.byteOffset + i).getUint32(0); const t = String.fromCharCode(u8[i+4], u8[i+5], u8[i+6], u8[i+7]); if (n < 8) break; cb(t, i + 8, i + n); i += n; } };
+const mp4WebCodecs = async (u8) => {
+  if (typeof window.VideoDecoder === "undefined") return null;
+  let avcC = null, datos = null;
+  const buscar = (ini, fin) => cajasMp4(u8, ini, fin, (t, a, b) => {
+    if (["moov","trak","mdia","minf","stbl"].includes(t)) buscar(a, b);
+    else if (t === "stsd") buscar(a + 8, b);
+    else if (t === "avc1") buscar(a + 78, b);
+    else if (t === "avcC") avcC = u8.slice(a, b);
+    else if (t === "mdat" && !datos) datos = u8.slice(a, b);
+  });
+  buscar(0, u8.length);
+  if (!avcC || !datos) return null;
+  const hex = (x) => x.toString(16).padStart(2, "0"), codec = `avc1.${hex(avcC[1])}${hex(avcC[2])}${hex(avcC[3])}`;
+  return new Promise((res) => {
+    let listo = false; const fin = (r) => { if (!listo) { listo = true; res(r); } };
+    const dec = new window.VideoDecoder({
+      output: (frame) => {
+        try { const c = document.createElement("canvas"); c.width = frame.displayWidth; c.height = frame.displayHeight; c.getContext("2d").drawImage(frame, 0, 0); fin(c.toDataURL("image/jpeg", 0.85)); }
+        catch (e) { fin(null); } finally { frame.close(); }
+      },
+      error: () => fin(null),
+    });
+    try {
+      dec.configure({ codec, description: avcC, optimizeForLatency: true });
+      dec.decode(new window.EncodedVideoChunk({ type: "key", timestamp: 0, data: datos }));
+      dec.flush().then(() => setTimeout(() => fin(null), 50), () => fin(null)).finally(() => { try { dec.close(); } catch (e) {} });
+    } catch (e) { fin(null); }
+    setTimeout(() => fin(null), 4000);
+  });
+};
+const mp4AImagen = async (b64) => {
+  let u8;
+  try { const bin = atob(b64); u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); } catch (e) { return null; }
+  try { const r = await mp4WebCodecs(u8); if (r) return r; } catch (e) {}
+  return mp4Video(b64);
+};
+const mp4Video = (b64) => new Promise((res) => {
   let url = null, hecho = false;
   const fin = (r) => { if (hecho) return; hecho = true; if (url) URL.revokeObjectURL(url); res(r); };
   try {
@@ -3389,7 +3427,7 @@ export default function App() {
           </div>
           <div style={{ background:"#000", aspectRatio:"16 / 9", display:"flex", alignItems:"center", justifyContent:"center", position:"relative" }}>
             {camImg?.src ? <img src={camImg.src} alt={`Cámara de ${nom}`} style={{ width:"100%", height:"100%", objectFit:"contain", opacity: camPausa||viejo ? .5 : 1 }} />
-              : <div style={{ color:C.t3, fontSize:14, padding:20, textAlign:"center" }}>{camImg?.error ? "Esta impresora no está dando imagen." : camPausa ? "En pausa" : "Conectando con la cámara…"}</div>}
+              : <div style={{ color:C.t3, fontSize:14, padding:20, textAlign:"center" }}>{camImg?.error ? (camImg.error.includes("navegador") ? "Llegan imágenes pero este navegador no las puede mostrar. Actualizá el iPad/celu o probá desde Chrome." : "Esta impresora no está dando imagen.") : camPausa ? "En pausa" : "Conectando con la cámara…"}</div>}
             {camPausa && <button onClick={()=>setCamPausa(false)} style={{ position:"absolute", minHeight:48, padding:"0 22px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:"pointer" }}>Seguir mirando</button>}
           </div>
           <div style={{ padding:"10px 14px", fontSize:12, color:C.t3 }}>
