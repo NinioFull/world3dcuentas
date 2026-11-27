@@ -8,7 +8,7 @@ import { createSign } from "node:crypto";
 const SUPABASE_URL = "https://swlmlwmjicsewwtudeah.supabase.co";
 
 let cuenta = null;
-function cuentaServicio() {
+export function cuentaServicio() {
   if (cuenta) return cuenta;
   let raw = process.env.FIREBASE_SERVICE_ACCOUNT || "";
   if (!raw.trim().startsWith("{")) raw = Buffer.from(raw, "base64").toString("utf8"); // por si se pegó en base64
@@ -22,7 +22,7 @@ const b64url = (x) => Buffer.from(typeof x === "string" ? x : JSON.stringify(x))
 
 // Se pide una vez y se reutiliza mientras dure (también entre consultas en paralelo)
 let token = { promesa: null, hasta: 0 };
-function tokenGoogle() {
+export function tokenGoogle() {
   if (token.promesa && token.hasta > Date.now() + 60000) return token.promesa;
   token = { promesa: pedirToken(), hasta: Date.now() + 3000000 };
   token.promesa.catch(() => { token = { promesa: null, hasta: 0 }; });
@@ -58,7 +58,7 @@ function valor(v) {
   if ("arrayValue" in v) return (v.arrayValue.values || []).map(valor);
   return "";
 }
-const aObjeto = (d) => { const o = { id: d.name.split("/").pop() }; for (const k in d.fields || {}) o[k] = valor(d.fields[k]); return o; };
+export const aObjeto = (d) => { const o = { id: d.name.split("/").pop() }; for (const k in d.fields || {}) o[k] = valor(d.fields[k]); return o; };
 const aFirestore = (x) => x === null || x === undefined ? { nullValue: null }
   : typeof x === "number" ? (Number.isInteger(x) ? { integerValue: String(x) } : { doubleValue: x })
   : typeof x === "boolean" ? { booleanValue: x } : { stringValue: String(x) };

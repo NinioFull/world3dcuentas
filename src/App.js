@@ -96,7 +96,8 @@ const fmtDateShort = (ts) => { if (!ts) return ""; return new Date(ts).toLocaleD
 // "duration" es por unidad; "remaining" guarda lo que falta para TODAS las unidades (desde esta versión).
 const unidades = (j) => Math.max(1, Number(j?.quantity) || 1);
 const minutosTotales = (j) => (Number(j?.duration) || 0) * unidades(j);
-const avanceJob = (j) => { const t = minutosTotales(j); return t > 0 ? Math.max(0, Math.min(100, Math.round((1 - (Number(j.remaining) || 0) / t) * 100))) : 0; };
+const avanceJob = (j) => { if (j?.vivo && j.vivo.progreso != null) return Math.max(0, Math.min(100, Math.round(j.vivo.progreso)));   // lo que dice la impresora
+  const t = minutosTotales(j); return t > 0 ? Math.max(0, Math.min(100, Math.round((1 - (Number(j.remaining) || 0) / t) * 100))) : 0; };
 // ── Entregas ──
 // Atrasado = la fecha acordada ya pasó y el trabajo todavía no está hecho (en cola, imprimiendo o en pausa).
 // Lo que ya está listo o para envío no se cuenta como atrasado: solo falta entregarlo.
@@ -108,6 +109,21 @@ const esParaHoy = (j) => j.status !== "shipped" && !!j.deliveryAt && Number(j.de
 const saldoDe = (j) => Math.max(0, (Number(j?.price) || 0) - (Number(j?.deposit) || 0));
 const porCobrarDe = (j) => j.status === "shipped" ? (j.debe ? saldoDe(j) : 0) : saldoDe(j);
 const DIA = 86400000;
+// Puente de impresoras: estados que manda la PC/celu del taller (public/puente/puente.mjs)
+const OCUPADA_M = ["preparando","imprimiendo","pausada"];
+const ESTADO_M = {
+  // Solo colores de la marca (tema.js): naranja = en marcha, heliconia = listo, rojo = problema, crema = esperando
+  libre:{ t:"Libre", c:"#9C8E85" }, preparando:{ t:"Preparando", c:"#FFF0DE" }, imprimiendo:{ t:"Imprimiendo", c:"#F1841B" },
+  pausada:{ t:"Pausada", c:"#E53212" }, terminada:{ t:"Terminó", c:"#E9521E" }, cancelada:{ t:"Cancelada", c:"#E53212" }, apagada:{ t:"Apagada", c:"#473D39" },
+};
+const MAQ_DEMO = [
+  { id:"creality-k1max", marca:"Creality", modelo:"K1 Max", nombre:"K1Max-3A2F", ip:"192.168.1.40", estado:"imprimiendo", archivo:"Soporte_pikachu_x2", progreso:22, faltaSeg:5880, printer:"p1", at:Date.now() },
+  { id:"creality-hi-7c1d", marca:"Creality", modelo:"Creality Hi", nombre:"Hi-7C1D", ip:"192.168.1.41", estado:"imprimiendo", archivo:"llavero_nightwing_negro", progreso:61, faltaSeg:1500, printer:"p2", at:Date.now(), cambioAt:Date.now()-40*60000 },
+  { id:"elegoo-CC2DEMO", marca:"Elegoo", modelo:"Centauri Carbon 2", nombre:"Centauri Carbon 2", ip:"192.168.1.42", estado:"pausada", archivo:"PortaMochilas", progreso:48, faltaSeg:3600, printer:"p3", at:Date.now(), cambioAt:Date.now()-5*60000 },
+  { id:"creality-hi-90be", marca:"Creality", modelo:"Creality Hi", nombre:"Hi-90BE", ip:"192.168.1.43", estado:"libre", printer:null, at:Date.now() },
+];
+const palabrasDe = (t) => String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(/[^a-z0-9]+/).filter(x=>x.length>2 && !["gcode","copia","the"].includes(x));
+const parecido = (a, b) => { const x = palabrasDe(a), y = palabrasDe(b); if (!x.length || !y.length) return 0; return x.filter(w=>y.some(v=>v.startsWith(w)||w.startsWith(v))).length / Math.max(x.length, y.length); };
 // Listo hace más de 3 días y nadie lo recogió
 const sinRecoger = (j) => ["done", "shipping"].includes(j.status) && j.jobType !== "design" && !!j.endedAt && Date.now() - Number(j.endedAt) > 3 * DIA;
 const haceDias = (ts) => { const d = Math.floor((Date.now() - Number(ts)) / DIA); return d <= 0 ? "hoy" : d === 1 ? "ayer" : `hace ${d} días`; };
@@ -286,11 +302,6 @@ export default function App() {
   // jobsDb: tal cual vienen de Firebase. jobs: con el tiempo restante calculado al momento (ver más abajo)
   const [jobsDb, setJobs] = useState([]);
   const [ahora, setAhora] = useState(Date.now());
-  const jobs = useMemo(() => jobsDb.map(j => {
-    if (j.status !== "printing" || !j.runStart) return j;
-    const pasados = Math.floor(Math.max(0, ahora - j.runStart) / 60000);  // el reloj de la pantalla puede ir unos segundos atrás
-    return { ...j, remaining: Math.max(0, (Number(j.remaining) || 0) - pasados) };
-  }), [jobsDb, ahora]);
   const [kioskMode, setKioskMode] = useState(false);
   // Al cambiar de sección o entrar/salir del kiosco se empieza desde arriba
   useEffect(() => { try { window.scrollTo(0, 0); } catch (e) {} }, [view, kioskMode]);
@@ -305,6 +316,33 @@ export default function App() {
   const KIOSK_PIN = "1234";
   const [showRevenue, setShowRevenue] = useState(false); // default pin
   const [printers, setPrinters] = useState([]);
+  // ── Puente de impresoras: lo que la PC (o el celu de respaldo) lee de cada máquina por el wifi ──
+  const [maquinas, setMaquinas] = useState(DEMO ? MAQ_DEMO : []);
+  const [puenteCfg, setPuenteCfg] = useState(DEMO ? { clave:"demo-demo-demo-demo-demo", latidoPc:Date.now(), activo:"pc" } : null);
+  const puenteAt = Math.max(Number(puenteCfg?.latidoPc)||0, Number(puenteCfg?.latidoCelu)||0);
+  const puenteVivo = DEMO || (puenteAt > 0 && ahora - puenteAt < 6*60000);
+  // Máquina de una impresora del Manager: la elegida a mano (printer.maquina) o la que el servidor reconoció por el nombre
+  const maqDe = (pid) => {
+    const p = printers.find(x=>x.id===pid); if (!p) return null;
+    return (p.maquina && maquinas.find(m=>m.id===p.maquina)) || maquinas.find(m=>m.printer===pid && !printers.some(q=>q.maquina===m.id && q.id!==pid)) || null;
+  };
+  const vivaDe = (pid) => { const m = maqDe(pid); return m && puenteVivo && m.estado !== "apagada" ? m : null; };
+  const pidDeMaq = (m) => printers.find(p => maqDe(p.id)?.id === m.id)?.id || null;
+  // jobs: con el tiempo restante calculado al momento. Si la impresora está conectada, manda lo que dice ella.
+  const jobs = useMemo(() => jobsDb.map(j => {
+    if (j.status !== "printing" || !j.runStart) return j;
+    const pasados = Math.floor(Math.max(0, ahora - j.runStart) / 60000);  // el reloj de la pantalla puede ir unos segundos atrás
+    let rem = Math.max(0, (Number(j.remaining) || 0) - pasados);
+    const m = vivaDe(j.printer);
+    if (m && OCUPADA_M.includes(m.estado)) {
+      const fm = m.faltaSeg != null ? Math.ceil(m.faltaSeg / 60) : null;
+      // Varias unidades con mucho más por delante que esta impresión = quedan más tandas: se respeta el contador
+      if (fm != null && !(unidades(j) > 1 && rem - fm > Math.max(20, minutosTotales(j) * 0.25))) rem = fm;
+      return { ...j, remaining: rem, vivo: m };
+    }
+    return { ...j, remaining: rem };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [jobsDb, ahora, maquinas, puenteCfg, printers]);
   const [products, setProducts] = useState([]);
   const [stock, setStock] = useState({});
   const [prodTab, setProdTab] = useState("catalogo");
@@ -630,7 +668,7 @@ export default function App() {
 
   useEffect(() => {
     if (!fbUser) return;
-    const unsubC = onSnapshot(collection(db,"config"),(snap) => { snap.docs.forEach(d => { if(d.id==="matCosts") setMatCosts(d.data()||{}); if(d.id==="operacion") setOperacion({...OP0, ...(d.data()||{})}); if(d.id==="recontactos") setRecontactos(d.data()||{}); if(d.id==="colores") setColoresExtra(Array.isArray(d.data()?.lista)?d.data().lista:[]); }); });
+    const unsubC = onSnapshot(collection(db,"config"),(snap) => { snap.docs.forEach(d => { if(d.id==="matCosts") setMatCosts(d.data()||{}); if(d.id==="operacion") setOperacion({...OP0, ...(d.data()||{})}); if(d.id==="recontactos") setRecontactos(d.data()||{}); if(d.id==="colores") setColoresExtra(Array.isArray(d.data()?.lista)?d.data().lista:[]); if(d.id==="puente" && !DEMO) setPuenteCfg(d.data()||{}); }); });
     return () => unsubC();
   }, [fbUser]);
 
@@ -689,8 +727,9 @@ export default function App() {
     const unsubProd = onSnapshot(collection(db,"products"),(snap)=>{ setProducts(snap.docs.map(d=>({id:d.id,...d.data()}))); });
     const unsubStock = onSnapshot(collection(db,"stock"),(snap)=>{ const s={}; snap.docs.forEach(d=>{s[d.id]=d.data();}); setStock(s); });
     const unsubF = onSnapshot(collection(db,"fallas"),(snap)=>setFallas(snap.docs.map(d=>({id:d.id,...d.data()}))));
+    const unsubM = DEMO ? ()=>{} : onSnapshot(collection(db,"maquinas"),(snap)=>setMaquinas(snap.docs.map(d=>({id:d.id,...d.data()}))));
     const unsubP = onSnapshot(collection(db,"printers"),(snap) => { const data=snap.docs.map(d=>({id:d.id,...d.data()})); if(data.length===0) DEFAULT_PRINTERS.forEach(p=>setDoc(doc(db,"printers",p.id),p)); else setPrinters(data); });
-    return () => { unsubJ(); unsubP(); unsubProd(); unsubStock(); unsubF(); };
+    return () => { unsubJ(); unsubP(); unsubProd(); unsubStock(); unsubF(); unsubM(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fbUser, reintentoFs]);
 
@@ -735,6 +774,8 @@ export default function App() {
       };
       // Trabajos que ya imprimían con la versión anterior: arrancan a contar desde ahora con lo que les quedaba
       if (!j.runStart) { siSigueIgual({ runStart:Date.now() }); return; }
+      const m = vivaDe(j.printer);
+      if (m && OCUPADA_M.includes(m.estado)) return;   // la impresora dice que sigue: manda ella, no el contador
       const dur = Number(j.duration) || 0, falta = (Number(j.remaining) || 0) - Math.floor(Math.max(0, ahora - j.runStart) / 60000);
       if (dur > 0 && falta <= 0) {
         // finAuto = endedAt: marca que terminó solo (por el contador). El aviso de Telegram usa esa marca.
@@ -742,7 +783,8 @@ export default function App() {
         siSigueIgual({ status:"done", endedAt:fin, finAuto:fin, remaining:0, runStart:null });
       }
     });
-  }, [jobsDb, ahora, alDia]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobsDb, ahora, alDia, maquinas, puenteCfg]);
 
   // Botones de guardar: un solo envío a la vez (un doble toque ya no crea el trabajo dos veces)
   const [guardando, setGuardando] = useState(false);
@@ -1581,6 +1623,9 @@ export default function App() {
   const PrinterCard = ({ p, showActions=false }) => {
     const active = pActive(p.id);
     const pct = active ? avanceJob(active) : 0;
+    // Con el puente andando, "En línea" y lo que hace salen de la impresora misma
+    const mq = maqDe(p.id), viva = vivaDe(p.id), est = viva ? (ESTADO_M[viva.estado] || ESTADO_M.libre) : null;
+    const enLinea = mq && puenteVivo ? !!viva : p.connected;
     return (
       <div style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${active?STATUS.printing.border:C.bg4}`, display:"flex", alignItems:"center", gap:14 }}>
         <div style={{ width:56, height:56, borderRadius:C.rMd, background:p.imgBg||C.bg3, border:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>
@@ -1589,17 +1634,17 @@ export default function App() {
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
             <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{p.name}</div>
-            <div style={{ width:7, height:7, borderRadius:"50%", background:p.connected?C.green:C.bg5, boxShadow:p.connected?`0 0 6px ${C.green}`:undefined }} />
-            <span style={{ fontSize:12, color:p.connected?C.green:C.t4, fontWeight:700 }}>{p.connected?"En línea":"Offline"}</span>
+            <div style={{ width:7, height:7, borderRadius:"50%", background:est?est.c:enLinea?C.green:C.bg5, boxShadow:enLinea?`0 0 6px ${est?est.c:C.green}`:undefined }} />
+            <span style={{ fontSize:12, color:est?est.c:enLinea?C.green:C.t4, fontWeight:700 }}>{est ? `${est.t}${viva.estado==="imprimiendo"&&viva.progreso!=null?` ${viva.progreso}%`:""}` : mq && puenteVivo ? "Apagada" : enLinea?"En línea":"Offline"}</span>
           </div>
           <div style={{ fontSize:12, color:C.t3, marginBottom:active?6:0 }}>{p.brand} · {p.type}</div>
           {active ? (
             <>
-              <div style={{ fontSize:12, color:C.green, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:4 }}>{active.fileName} — quedan {fmtTime(active.remaining)}</div>
+              <div style={{ fontSize:12, color:C.green, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:4 }}>{active.fileName} — quedan {fmtTime(active.remaining)}{active.vivo ? " · según la impresora" : ""}</div>
               <div style={{ height:4, background:C.bg4, borderRadius:4 }}><div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#F1841B)`, borderRadius:4 }} /></div>
             </>
           ) : (
-            <div style={{ fontSize:12, color:C.t4 }}>{pPend(p.id)>0?`${pPend(p.id)} trabajo${pPend(p.id)>1?"s":""} esperando`:"Sin trabajos pendientes"}</div>
+            <div style={{ fontSize:12, color:C.t4 }}>{viva && OCUPADA_M.includes(viva.estado) ? <span style={{ color:C.orange, fontWeight:700 }}>Imprimiendo «{viva.archivo||"sin nombre"}» sin pedido en el Manager · </span> : null}{pPend(p.id)>0?`${pPend(p.id)} trabajo${pPend(p.id)>1?"s":""} esperando`:"Sin trabajos pendientes"}</div>
           )}
         </div>
         {showActions && (
@@ -2788,6 +2833,7 @@ export default function App() {
   const PrintersView = () => (
     <div className="view-pad" style={{ maxWidth:isDesktop?900:isTablet?700:"100%", margin:"0 auto" }}>
       {SectionLabel({color:C.t3, children:<>Tus impresoras</>})}
+      {PanelPuente()}
       {printers.map(p=><Fragment key={p.id}>{PrinterCard({p:p, showActions:true})}{PanelMant(p)}</Fragment>)}
       <button onClick={()=>{setEditP(null);setPForm(P0);setShowPForm(true);}} style={{ width:"100%", padding:"16px", background:C.bg2, border:`2px dashed ${C.bg5}`, borderRadius:C.r, color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:4 }}>
         + Agregar nueva impresora
@@ -3119,6 +3165,186 @@ export default function App() {
     </div>
   );
 
+  // ── Avisos de las impresoras conectadas (arriba de cada pantalla y en el kiosco) ──
+  const [ignoradosM, setIgnoradosM] = useState(() => { try { return JSON.parse(localStorage.getItem("w3d-maq-ignorados") || "{}"); } catch (e) { return {}; } });
+  const ignorarM = (k) => {
+    const n = { ...ignoradosM, [k]: Date.now() };
+    Object.keys(n).forEach(x => { if (Date.now() - n[x] > 3 * DIA) delete n[x]; });
+    setIgnoradosM(n); try { localStorage.setItem("w3d-maq-ignorados", JSON.stringify(n)); } catch (e) {}
+  };
+  const [asignarM, setAsignarM] = useState(null);   // { m, pid }: elegir qué pedido está imprimiendo esa máquina
+  const [verInstalarPuente, setVerInstalarPuente] = useState(false);
+  const nombreImp = (pid, m) => printers.find(p=>p.id===pid)?.name || m?.nombre || m?.modelo || "impresora";
+  const avisosMaq = () => {
+    if (!puenteVivo) return [];
+    const out = [];
+    maquinas.forEach(m => {
+      if (m.estado === "apagada") return;
+      const pid = pidDeMaq(m), nom = nombreImp(pid, m), clave = (t) => `${m.id}:${t}:${m.cambioAt || m.inicio || m.archivo || ""}`;
+      const enMgr = pid ? jobs.filter(j => j.printer === pid && j.status === "printing") : [];
+      const push = (t, a) => { if (!ignoradosM[clave(t)]) out.push({ ...a, k: clave(t), ignorar: () => ignorarM(clave(t)) }); };
+      if (!pid) {
+        push("nueva", { tono:"info", titulo:`Encontré una ${m.modelo || m.nombre} en el wifi`, texto:"Decime cuál de tus impresoras es para mostrar su estado real.", acciones:[{ t:"Elegir", principal:true, fn:()=>{ setKioskMode(false); setView("printers"); } }] });
+        return;
+      }
+      if ((m.estado === "imprimiendo" || m.estado === "preparando") && !enMgr.length)
+        push("sinpedido", { tono:"aviso", titulo:`La ${nom} está imprimiendo${m.archivo ? ` «${m.archivo}»` : ""}`, texto:"En el Manager no hay nada imprimiendo ahí. ¿Qué pedido es?", acciones:[{ t:"Elegir pedido", principal:true, fn:()=>setAsignarM({ m, pid }) }] });
+      if (m.estado === "pausada")
+        push("pausada", { tono:"alerta", titulo:`La ${nom} está en pausa`, texto: enMgr[0] ? `«${enMgr[0].fileName}» quedó en pausa en la máquina. Revisá filamento o atasco.` : "Revisá la impresora (filamento, atasco)." });
+      if (m.estado === "cancelada" && enMgr.length)
+        push("cancelada", { tono:"alerta", titulo:`Se canceló la impresión en la ${nom}`, texto:`«${enMgr[0].fileName}» dejó de imprimir.`, acciones:[
+          { t:"Anotar falla", principal:true, fn:()=>abrirFalla(enMgr[0]) },
+          { t:"Volver a la cola", fn:()=>cambiarEstadoJ(enMgr[0].id, { status:"pending", remaining:minutosTotales(enMgr[0]), runStart:null, startedAt:null }, "Volvió a la cola") } ] });
+      if (m.estado === "terminada" && enMgr.length && Date.now() - Number(m.cambioAt || 0) > 90000)
+        push("termino", { tono:"aviso", titulo:`La ${nom} terminó`, texto:`«${enMgr[0].fileName}» sigue como imprimiendo en el Manager.`, acciones:[{ t:"Marcar listo", principal:true, fn:()=>enMgr.forEach(j=>completeJ(j.id)) }] });
+      if (m.error) push("error" + m.error, { tono:"alerta", titulo:`La ${nom} marca un error`, texto:`Código ${m.error}. Mirá la pantalla de la impresora.` });
+    });
+    return out;
+  };
+  const AvisosMaquinas = (grande) => {
+    const lista = avisosMaq();
+    if (!lista.length) return null;
+    const tonos = { alerta:{ bg:C.redBg, borde:"#7A2A18", c:"#FF8A6B" }, aviso:{ bg:C.orangeBg, borde:`${C.orange}66`, c:C.orange }, info:{ bg:C.bg2, borde:C.bg5, c:C.t2 } };
+    return (
+      <div style={{ display:"flex", flexDirection:"column", gap:10, padding: grande ? "14px 24px 0" : 0, marginBottom: grande ? 0 : 14 }}>
+        {lista.map(a => { const t = tonos[a.tono]; return (
+          <div key={a.k} role="status" style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap", background:t.bg, border:`1px solid ${t.borde}`, borderRadius:C.r, padding: grande ? "14px 16px" : "12px 14px" }}>
+            <Printer size={grande?26:20} color={t.c} aria-hidden="true" style={{ flexShrink:0 }} />
+            <div style={{ flex:"1 1 220px", minWidth:0 }}>
+              <div style={{ fontSize: grande?18:15, fontWeight:900, color:C.t1 }}>{a.titulo}</div>
+              <div style={{ fontSize: grande?15:13, color:C.t2, marginTop:2 }}>{a.texto}</div>
+            </div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              {(a.acciones||[]).map(b => (
+                <button key={b.t} onClick={b.fn} style={{ minHeight:44, padding:"0 16px", background:b.principal?C.orange:"transparent", color:b.principal?"#191513":C.t1, border:b.principal?"none":`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:14, fontWeight:900, cursor:"pointer" }}>{b.t}</button>
+              ))}
+              <button onClick={a.ignorar} aria-label="Ocultar este aviso" style={{ minHeight:44, minWidth:44, background:"transparent", color:C.t3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}><X size={18} aria-hidden="true" /></button>
+            </div>
+          </div>
+        ); })}
+      </div>
+    );
+  };
+  // Elegir qué pedido está imprimiendo una máquina: primero los que se parecen al nombre del archivo
+  const ModalAsignarM = () => {
+    if (!asignarM) return null;
+    const { m, pid } = asignarM, nom = nombreImp(pid, m), tipoDe = (j) => printers.find(p=>p.id===j.printer)?.type || "FDM";
+    const cands = jobs.filter(j => ["pending","paused"].includes(j.status) && j.jobType !== "design" && tipoDe(j) !== "Resina")
+      .map(j => ({ j, s: parecido(j.fileName, m.archivo) + (j.printer === pid ? .3 : 0) + (j.status === "paused" ? .2 : 0) }))
+      .sort((a,b) => b.s - a.s || (Number(a.j.priority||a.j.createdAt) - Number(b.j.priority||b.j.createdAt))).slice(0, 10);
+    const asignar = (j) => {
+      const t = Date.now(), ini = Number(m.inicio) > 0 && Number(m.inicio) < t ? Number(m.inicio) : t;
+      if (j.printer !== pid) updateDoc(doc(db,"jobs",j.id), { printer: pid });
+      cambiarEstadoJ(j.id, { status:"printing", startedAt: j.startedAt || ini, runStart: ini, remaining: j.status === "paused" ? (Number(j.remaining) || minutosTotales(j)) : minutosTotales(j) }, `«${j.fileName}» imprimiendo en la ${nom}`);
+      setAsignarM(null);
+    };
+    return (
+      <div onClick={e=>{ if(e.target===e.currentTarget) setAsignarM(null); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:70, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+        <div role="dialog" aria-modal="true" aria-labelledby="asignar-titulo" style={{ background:C.bg2, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:480, border:`1px solid ${C.bg4}`, maxHeight:"92vh", overflowY:"auto" }}>
+          <div style={{ fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:4 }}>{nom}</div>
+          <div id="asignar-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1 }}>¿Qué pedido está imprimiendo?</div>
+          {m.archivo && <div style={{ fontSize:13, color:C.t3, marginTop:4 }}>Archivo en la impresora: «{m.archivo}»{m.progreso!=null?` · ${m.progreso}%`:""}</div>}
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:16 }}>
+            {cands.length === 0 && <div style={{ fontSize:14, color:C.t3, padding:"12px 0" }}>No hay pedidos en cola. Anotalo primero y después elegilo acá.</div>}
+            {cands.map(({ j }) => (
+              <button key={j.id} onClick={()=>asignar(j)} style={{ display:"flex", alignItems:"center", gap:10, textAlign:"left", padding:"12px 14px", minHeight:56, background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rMd, cursor:"pointer", color:C.t1 }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:15, fontWeight:800, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}{unidades(j)>1?` ×${unidades(j)}`:""}</div>
+                  <div style={{ fontSize:12, color:C.t3 }}>{[j.clientName, j.status==="paused"?"en pausa":"en cola", j.printer!==pid ? `estaba en ${printers.find(p=>p.id===j.printer)?.name||"otra"}` : null].filter(Boolean).join(" · ")}</div>
+                </div>
+                <Play size={18} color={C.green} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+          <button onClick={()=>setAsignarM(null)} style={{ width:"100%", marginTop:12, minHeight:44, background:"transparent", border:"none", color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
+        </div>
+      </div>
+    );
+  };
+  // Panel en Impresoras: estado del puente, qué máquina es cada impresora y cómo instalarlo
+  const copiar = (t, msg) => { try { navigator.clipboard.writeText(t).then(()=>toast_(msg || "Copiado"), ()=>toast_("No pude copiar: seleccionalo a mano","err")); } catch (e) { toast_("No pude copiar: seleccionalo a mano","err"); } };
+  const crearClavePuente = () => {
+    const a = new Uint8Array(18); crypto.getRandomValues(a);
+    const clave = Array.from(a, b => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join("");
+    setDoc(doc(db,"config","puente"), { ...(puenteCfg||{}), clave, creadaAt: Date.now() }).then(()=>toast_("Clave creada"));
+  };
+  const vincularMaq = async (maqId, pid) => {
+    await Promise.all(printers.filter(p => p.maquina === maqId && p.id !== pid).map(p => updateDoc(doc(db,"printers",p.id), { maquina: null })));
+    if (pid) await updateDoc(doc(db,"printers",pid), { maquina: maqId });
+    toast_(pid ? `Listo: es la ${printers.find(p=>p.id===pid)?.name}` : "Desvinculada");
+  };
+  const haceTxt = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "recién" : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m/60)} h` : haceDias(t); };
+  const PanelPuente = () => {
+    const activo = puenteCfg?.activo, sinInstalar = !puenteAt;
+    const estado = sinInstalar ? { c:C.t3, t:"Todavía no instalaste el puente: el Manager calcula el fin de cada impresión por tiempo." }
+      : puenteVivo ? { c:C.green, t: activo === "celu" ? `El celular está leyendo las impresoras (la PC no responde) · ${haceTxt(puenteAt)}` : `La PC está leyendo las impresoras · ${haceTxt(puenteAt)}${Date.now()-Number(puenteCfg?.latidoCelu||0) < 10*60000 ? " · celular de respaldo listo" : ""}` }
+      : { c:C.yellow, t:`El puente no responde desde ${haceTxt(puenteAt).replace("hace ","hace ")}: mientras tanto se calcula por tiempo. ¿La PC y el celular están apagados?` };
+    const fdm = printers.filter(p => p.type !== "Resina");
+    const base = typeof window !== "undefined" ? window.location.origin : "https://world3dcuentas.vercel.app";
+    const cmdPc = `irm ${base}/puente/instalar.ps1 | iex`, cmdCelu = `curl -fsSL ${base}/puente/instalar-celu.sh | bash`;
+    const bloque = (titulo, cmd) => (
+      <div style={{ marginTop:10 }}>
+        <div style={{ fontSize:13, color:C.t2, fontWeight:800, marginBottom:6 }}>{titulo}</div>
+        <div style={{ display:"flex", gap:8, alignItems:"stretch" }}>
+          <code style={{ flex:1, minWidth:0, background:C.bg0, border:`1px solid ${C.bg4}`, borderRadius:C.rSm, padding:"10px 12px", fontSize:13, color:C.t1, overflowX:"auto", whiteSpace:"nowrap" }}>{cmd}</code>
+          <button onClick={()=>copiar(cmd)} style={{ minHeight:44, padding:"0 14px", background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}>Copiar</button>
+        </div>
+      </div>
+    );
+    return (
+      <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"16px", marginBottom:16 }}>
+        <div style={{ fontSize:16, fontWeight:900, color:C.t1 }}>Conexión con las impresoras</div>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:6 }}>
+          <span style={{ width:8, height:8, borderRadius:"50%", background:estado.c, flexShrink:0 }} />
+          <span style={{ fontSize:13, color:C.t2 }}>{estado.t}</span>
+        </div>
+        {maquinas.length > 0 && (
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:14 }}>
+            {maquinas.map(m => { const pid = pidDeMaq(m), e = ESTADO_M[m.estado] || ESTADO_M.libre; return (
+              <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", background:C.bg3, border:`1px solid ${pid?C.bg5:C.orange+"66"}`, borderRadius:C.rMd, padding:"10px 12px" }}>
+                <div style={{ flex:"1 1 200px", minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{m.modelo || m.nombre} <span style={{ color:C.t4, fontWeight:600, fontSize:12 }}>· {m.nombre !== m.modelo ? `${m.nombre} · ` : ""}{m.ip}</span></div>
+                  <div style={{ fontSize:12, color:e.c, fontWeight:800 }}>{e.t}{m.estado==="imprimiendo"&&m.progreso!=null?` ${m.progreso}%`:""}{m.archivo && OCUPADA_M.concat("terminada").includes(m.estado) ? <span style={{ color:C.t3, fontWeight:600 }}> · «{m.archivo}»</span> : null}</div>
+                </div>
+                <label style={{ display:"flex", alignItems:"center", gap:6, fontSize:13, color:C.t3 }}>Es la
+                  <select value={pid || ""} onChange={e=>vincularMaq(m.id, e.target.value || null)} style={{ minHeight:44, background:C.bg2, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"0 10px", fontSize:14, fontWeight:700 }}>
+                    <option value="">¿Cuál es?</option>
+                    {fdm.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </label>
+              </div>
+            ); })}
+            {maquinas.some(m => !pidDeMaq(m)) && <div style={{ fontSize:12, color:C.t3 }}>Si tenés dos iguales y no sabés cuál es cuál, fijate qué archivo está imprimiendo cada una.</div>}
+          </div>
+        )}
+        <button onClick={()=>setVerInstalarPuente(v=>!v)} aria-expanded={verInstalarPuente} style={{ display:"flex", alignItems:"center", gap:6, marginTop:12, minHeight:44, padding:0, background:"none", border:"none", color:C.orange, fontSize:14, fontWeight:800, cursor:"pointer" }}>
+          {verInstalarPuente ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}{sinInstalar ? "Instalar el puente" : "Instalar en otro aparato"}
+        </button>
+        {verInstalarPuente && (
+          <div style={{ borderTop:`1px solid ${C.bg4}`, paddingTop:12, marginTop:4 }}>
+            <div style={{ fontSize:13, color:C.t2, lineHeight:1.6 }}>El puente es un programita que queda prendido en la PC del taller (principal) y en un celular Android (respaldo). Lee las impresoras por el wifi y avisa acá. La de resina no tiene wifi: esa sigue a mano.</div>
+            <div style={{ fontSize:13, color:C.t2, fontWeight:800, margin:"12px 0 6px" }}>1. Clave del puente</div>
+            {puenteCfg?.clave ? (
+              <div style={{ display:"flex", gap:8 }}>
+                <code style={{ flex:1, background:C.bg0, border:`1px solid ${C.bg4}`, borderRadius:C.rSm, padding:"10px 12px", fontSize:14, color:C.t1, letterSpacing:1 }}>{puenteCfg.clave}</code>
+                <button onClick={()=>copiar(puenteCfg.clave, "Clave copiada")} style={{ minHeight:44, padding:"0 14px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer" }}>Copiar</button>
+              </div>
+            ) : <button onClick={crearClavePuente} style={{ minHeight:44, padding:"0 16px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:900, cursor:"pointer" }}>Crear clave</button>}
+            {bloque("2. En la PC (Windows): abrí PowerShell y pegá esto. Te pide la clave.", cmdPc)}
+            <div style={{ fontSize:13, color:C.t2, fontWeight:800, margin:"14px 0 4px" }}>3. En el celular Android</div>
+            <ol style={{ margin:"0 0 0 18px", padding:0, fontSize:13, color:C.t2, lineHeight:1.7 }}>
+              <li>Instalá <b>Termux</b> y <b>Termux:Boot</b> desde F-Droid (f-droid.org). La de Play Store no sirve.</li>
+              <li>Abrí Termux:Boot una vez (así arranca solo al prender el celu).</li>
+              <li>Abrí Termux y pegá el comando de abajo. Te pide la clave.</li>
+              <li>Ajustes → Batería → Termux → <b>Sin restricciones</b>, y dejá el celu enchufado en el wifi del taller.</li>
+            </ol>
+            {bloque("Comando para Termux:", cmdCelu)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Kiosco: se recarga solo una vez por madrugada (entre 4 y 5) para arrancar el día con todo fresco
   useEffect(() => {
     if (!kioskMode || DEMO) return;
@@ -3137,6 +3363,7 @@ export default function App() {
     return (
       <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg0, minHeight:"100vh", color:C.t1 }}>
         {!DEMO && !alDia && Date.now()-sinDiaDesde > 20000 && AvisoDesactualizado(true)}
+        {AvisosMaquinas(true)}
         {/* Kiosk Header */}
         <div style={{ background:C.bg0, borderBottom:`1px solid ${C.bg4}`, padding:"16px 24px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:10 }}>
           <div style={{ display:"flex", alignItems:"center", gap:14 }}>
@@ -3204,12 +3431,13 @@ export default function App() {
                 </div>
                 {(imp||pau) && (<>
                   <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginTop:14 }}>
-                    <span style={{ fontSize:42, fontWeight:900, color:imp?C.green:"#E53212", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pau ? "Pausado" : `${pct}%`}</span>
+                    <span style={{ fontSize:42, fontWeight:900, color:imp&&j.vivo?.estado!=="pausada"?C.green:"#E53212", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pau ? "Pausado" : j.vivo?.estado==="pausada" ? "En pausa" : `${pct}%`}</span>
                     <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:20, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={18} aria-hidden="true" />{j.duration>0 ? fmtTime(j.remaining) : "sin tiempo"}</span>
                   </div>
                   <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${j.fileName}`} style={{ height:12, background:C.bg4, borderRadius:C.rSm, marginTop:8, overflow:"hidden" }}>
                     <div style={{ height:"100%", width:`${pct}%`, background:imp?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:C.rSm, transition:"width 1s" }} />
                   </div>
+                  {j.vivo && <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:14, color:C.t3, marginTop:8 }}><span style={{ width:8, height:8, borderRadius:"50%", background:(ESTADO_M[j.vivo.estado]||ESTADO_M.libre).c }} />En vivo desde la impresora{j.vivo.capas ? ` · capa ${j.vivo.capa||0} de ${j.vivo.capas}` : ""}</div>}
                 </>)}
                 <div style={{ display:"flex", flexWrap:"wrap", gap:10, marginTop:14 }}>
                   {j.status==="pending" && <BotonGrande onClick={()=>startJ(j)} bg={C.greenD}><Play size={22} aria-hidden="true" />{j.jobType==="design"?"Empezar diseño":"Iniciar impresión"}</BotonGrande>}
@@ -3464,7 +3692,7 @@ export default function App() {
   };
 
   return (
-    kioskMode ? <>{KioskView()}{DetalleKiosco()}{CartelPedido()}{ModalCobro()}{ModalFalla()}</> :
+    kioskMode ? <>{KioskView()}{DetalleKiosco()}{CartelPedido()}{ModalCobro()}{ModalFalla()}{ModalAsignarM()}</> :
     <div style={{ fontFamily:FUENTE_TEXTO, background:C.bg1, minHeight:"100vh", color:C.t1, display:"flex", flexDirection:"column" }}>
       {/* ── HEADER ── */}
       <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
@@ -3547,6 +3775,7 @@ export default function App() {
             </div>
           ) : (
             <div style={{ width:"100%" }}>
+              {avisosMaq().length > 0 && <div className="view-pad" style={{ paddingBottom:0 }}>{AvisosMaquinas(false)}</div>}
               <div key={view} className="w3d-entra">{(views[view] || views.dashboard)()}</div>
             </div>
           )}
@@ -4112,6 +4341,7 @@ export default function App() {
       {BuscadorRapido()}
       {ModalCobro()}
       {ModalFalla()}
+      {ModalAsignarM()}
       {nuevoColor && (
         <div onClick={e=>{ if(e.target===e.currentTarget) setNuevoColor(null); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:80, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
           <div role="dialog" aria-modal="true" aria-labelledby="color-titulo" style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:380 }}>

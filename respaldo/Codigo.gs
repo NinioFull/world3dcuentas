@@ -4,6 +4,8 @@
 // - resumen(): calcula cobrado, vendido, por cobrar y atrasados de la semana pasada y lo manda al Telegram del
 //   negocio (función resumen-semanal de Supabase). Si Telegram falla, llega por correo.
 // - avisos(): cada 5 minutos revisa si terminó una impresión y avisa por Telegram (una sola vez por trabajo).
+//   Con el puente de impresoras andando, manda lo que dice cada máquina: no cierra por tiempo lo que sigue
+//   imprimiendo y avisa si una se pausa, se cancela, marca error o se apaga en plena impresión.
 // - instalar(): programa semanal() todos los lunes a las 8:00 (hora de Bolivia) y avisos() cada 5 minutos.
 // La clave RESUMEN_SECRETO va en Configuración del proyecto > Propiedades del script.
 
@@ -40,10 +42,42 @@ function telegram_(texto) {
 // trabajo igual que el Manager (status done, finAuto = endedAt). Avisa una vez por cada trabajo que terminó solo.
 function avisos() {
   const ahora = Date.now();
-  const docs = consulta_('jobs', 'status', ['printing', 'done']);
   const props = PropertiesService.getScriptProperties();
   let avisados = {};
   try { avisados = JSON.parse(props.getProperty('AVISADOS') || '{}'); } catch (e) {}
+  const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Puente de impresoras (PC o celu del taller): lo que dice cada máquina de verdad.
+  // Si la máquina sigue imprimiendo, no se cierra por tiempo; si se pausa, se cancela o se apaga, se avisa.
+  let maquinas = [], impresorasL = null;
+  try {
+    const cfg = leerDoc_('config/puente');
+    const latido = Math.max(num_(cfg && cfg.latidoPc), num_(cfg && cfg.latidoCelu));
+    if (ahora - latido < 6 * 60000) { maquinas = leer_('maquinas'); impresorasL = leer_('printers'); }
+  } catch (e) { console.warn('Puente: ' + e.message); }
+  const OCUPADA = ['preparando', 'imprimiendo', 'pausada'];
+  const maqDe = (pid) => {
+    if (!impresorasL) return null;
+    const p = impresorasL.filter(x => x.id === pid)[0];
+    return (p && p.maquina && maquinas.filter(m => m.id === p.maquina)[0]) || maquinas.filter(m => m.printer === pid && !impresorasL.some(q => q.maquina === m.id && q.id !== pid))[0] || null;
+  };
+  const nombreDe = (m) => { const p = impresorasL && impresorasL.filter(x => x.maquina === m.id || (!x.maquina && m.printer === x.id))[0]; return p ? p.name : (m.nombre || m.modelo || 'impresora'); };
+  maquinas.forEach(m => {
+    const cuando = num_(m.cambioAt);
+    if (!cuando || ahora - cuando > 30 * 60000) return;   // solo lo que pasó hace poco
+    const clave = 'm:' + m.id + ':' + m.estado + ':' + cuando, archivo = m.archivo ? '«' + esc(m.archivo) + '»' : 'La impresión';
+    let texto = null;
+    if (m.estado === 'pausada') texto = '⏸ <b>La ' + esc(nombreDe(m)) + ' está en pausa</b>\n' + archivo + (m.progreso != null ? ' al ' + m.progreso + '%' : '') + '. Revisá filamento o atasco.';
+    else if (m.estado === 'cancelada') texto = '⛔ <b>Se canceló la impresión en la ' + esc(nombreDe(m)) + '</b>\n' + archivo + (m.progreso != null ? ' iba al ' + m.progreso + '%' : '');
+    else if (m.estado === 'apagada' && OCUPADA.indexOf(m.estadoAntes) >= 0) texto = '🔌 <b>La ' + esc(nombreDe(m)) + ' dejó de responder mientras imprimía</b>\n¿Se cortó la luz o se desconectó del wifi?';
+    if (texto && !avisados[clave] && telegram_(texto)) avisados[clave] = ahora;
+    if (num_(m.error)) {
+      const ce = 'e:' + m.id + ':' + m.error;
+      if (!avisados[ce] && telegram_('⚠️ <b>La ' + esc(nombreDe(m)) + ' marca un error</b> (código ' + m.error + '). Mirá la pantalla de la impresora.')) avisados[ce] = ahora;
+    }
+  });
+
+  const docs = consulta_('jobs', 'status', ['printing', 'done']);
   const terminados = [];
   docs.forEach(d => {
     const j = d.datos;
@@ -51,6 +85,8 @@ function avisos() {
     if (j.status === 'printing') {
       const dur = num_(j.duration), resto = num_(j.remaining), inicio = num_(j.runStart);
       if (!dur || !inicio) return;
+      const m = maqDe(j.printer);
+      if (m && OCUPADA.indexOf(m.estado) >= 0) return;   // la impresora dice que sigue: manda ella
       if (resto - Math.floor((ahora - inicio) / 60000) > 0) return;
       const fin = inicio + resto * 60000;
       if (!cerrar_(d.nombre, d.updateTime, fin)) return;   // alguien lo cambió recién: se revisa en 5 min
@@ -60,22 +96,32 @@ function avisos() {
       terminados.push(j);
     }
   });
-  if (!terminados.length) return;
-  const impresoras = {}; leer_('printers').forEach(p => impresoras[p.id] = p.name || p.id);
-  const cola = consulta_('jobs', 'status', ['pending']).map(d => d.datos).filter(j => j.jobType !== 'design');
-  const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  terminados.forEach(j => {
-    const sigue = cola.filter(x => x.printer === j.printer).sort((a, b) => num_(a.priority || a.createdAt) - num_(b.priority || b.createdAt))[0];
-    const hora = Utilities.formatDate(new Date(num_(j.endedAt)), 'America/La_Paz', 'HH:mm');
-    const texto = [
-      '🖨 <b>Terminó: ' + esc(j.fileName) + '</b>' + (num_(j.quantity) > 1 ? ' (×' + num_(j.quantity) + ')' : ''),
-      'En ' + esc(impresoras[j.printer] || 'la impresora') + ' a las ' + hora + (j.clientName ? ' · ' + esc(j.clientName) : ''),
-      sigue ? '➡️ Sigue en esa impresora: ' + esc(sigue.fileName) : '✅ No hay nada más en cola para esa impresora',
-    ].join('\n');
-    if (telegram_(texto)) avisados[j.id] = num_(j.endedAt);
-  });
+  if (terminados.length) {
+    const impresoras = {}; (impresorasL || leer_('printers')).forEach(p => impresoras[p.id] = p.name || p.id);
+    const cola = consulta_('jobs', 'status', ['pending']).map(d => d.datos).filter(j => j.jobType !== 'design');
+    terminados.forEach(j => {
+      const sigue = cola.filter(x => x.printer === j.printer).sort((a, b) => num_(a.priority || a.createdAt) - num_(b.priority || b.createdAt))[0];
+      const hora = Utilities.formatDate(new Date(num_(j.endedAt)), 'America/La_Paz', 'HH:mm');
+      const texto = [
+        '🖨 <b>Terminó: ' + esc(j.fileName) + '</b>' + (num_(j.quantity) > 1 ? ' (×' + num_(j.quantity) + ')' : ''),
+        'En ' + esc(impresoras[j.printer] || 'la impresora') + ' a las ' + hora + (j.clientName ? ' · ' + esc(j.clientName) : '') + (j.finImpresora ? ' (según la impresora)' : ''),
+        sigue ? '➡️ Sigue en esa impresora: ' + esc(sigue.fileName) : '✅ No hay nada más en cola para esa impresora',
+      ].join('\n');
+      if (telegram_(texto)) avisados[j.id] = num_(j.endedAt);
+    });
+  }
   Object.keys(avisados).forEach(k => { if (ahora - avisados[k] > 2 * 86400000) delete avisados[k]; });
   props.setProperty('AVISADOS', JSON.stringify(avisados));
+}
+
+// Un documento suelto (null si no existe)
+function leerDoc_(ruta) {
+  const r = UrlFetchApp.fetch('https://firestore.googleapis.com/v1/projects/' + PROYECTO + '/databases/(default)/documents/' + ruta, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'x-goog-user-project': PROYECTO }, muteHttpExceptions: true });
+  if (r.getResponseCode() === 404) return null;
+  if (r.getResponseCode() !== 200) throw new Error(ruta + ' (' + r.getResponseCode() + ')');
+  const d = JSON.parse(r.getContentText()), o = { id: d.name.split('/').pop() };
+  Object.keys(d.fields || {}).forEach(k => o[k] = valor_(d.fields[k]));
+  return o;
 }
 
 // Trabajos con un campo dentro de una lista de valores (runQuery). Devuelve nombre, updateTime y datos.

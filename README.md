@@ -151,3 +151,13 @@ npm start
 - Al volver a la app después de un rato ya no recarga la página entera: se reconecta. Si en 6 min no quedó al día, recién ahí recarga.
 - En la app instalada (iPad/celu) el caché de la cola toma el control al instante en vez de esperar a una ventana anterior cerrada de golpe.
 - En "Más" (o abajo del menú lateral) dice cuánto tardó en abrir la última vez: "Abrió en X s · en vivo en Y s".
+
+### Puente de impresoras (estado real de cada máquina)
+- Un programita (`public/puente/puente.mjs`, Node 22+, sin dependencias) corre en la PC del taller (principal) y en un celular Android con Termux (respaldo). Busca solas las impresoras del wifi: Creality con Creality OS (K1 Max, Hi…) por el puerto 9999 y Elegoo Centauri Carbon 2 por MQTT. La de resina no tiene wifi.
+- Manda lo que ve a `/api/puente`, que lo guarda en `maquinas/<id>` con la cuenta de servicio de Firebase (la misma de Alexa). La clave la crea el Manager en Máquinas → Conexión y queda en `config/puente`.
+- El celular pregunta antes si la PC latió en los últimos ~3 minutos: si sí, queda en espera sin conectarse a las impresoras; si no, toma el control.
+- Cuando una máquina termina de verdad se cierra el trabajo que imprimía en ella (`finImpresora`, y Telegram como siempre). Varias unidades con mucho por delante = terminó una tanda: queda en pausa con lo que falta.
+- Mientras una máquina dice que sigue imprimiendo, ni el Manager ni el Apps Script cierran el trabajo por tiempo. El avance y lo que falta salen de la impresora ("según la impresora").
+- Avisos arriba de cada pantalla y en el kiosco: imprime algo sin pedido (elegís cuál con un toque), pausa, cancelación, error, impresora nueva sin identificar. Telegram avisa pausas, cancelaciones, errores y si una se apaga en plena impresión.
+- Instalar: Máquinas → Conexión con las impresoras → Instalar. PC: `irm https://world3dcuentas.vercel.app/puente/instalar.ps1 | iex` en PowerShell. Celu: Termux + Termux:Boot (F-Droid) y `curl -fsSL https://world3dcuentas.vercel.app/puente/instalar-celu.sh | bash`.
+- Pruebas sin red: `node impresoras/prueba.mjs`.
