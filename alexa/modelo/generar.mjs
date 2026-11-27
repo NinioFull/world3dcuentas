@@ -106,6 +106,7 @@ const intents = [
     "cuántos {busqueda} hay en stock", "cuántas {busqueda} hay en stock", "tengo {busqueda} en stock", "hay {busqueda} en stock", "cuántos {busqueda} tengo hechos", "stock de {busqueda}" ] },
   { name: "CierreIntent", slots: [], samples: [
     "el cierre del día", "cierre del día", "cómo cerró el día", "cómo me fue hoy", "cómo estuvo el día", "resumen del cierre", "cerremos el día", "dame el cierre", "el cierre" ] },
+  { name: "ProbarAvisoIntent", slots: [], samples: ["prueba el aviso", "prueba los avisos", "pruebe el aviso", "que pruebe el aviso", "haz un aviso de prueba", "manda un aviso de prueba", "probar avisos"] },
   { name: "AMAZON.YesIntent", samples: [] },
   { name: "AMAZON.NoIntent", samples: [] },
   { name: "AMAZON.HelpIntent", samples: ["qué puedes hacer", "qué le puedo preguntar"] },

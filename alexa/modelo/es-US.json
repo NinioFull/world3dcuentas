@@ -722,6 +722,19 @@
           ]
         },
         {
+          "name": "ProbarAvisoIntent",
+          "slots": [],
+          "samples": [
+            "prueba el aviso",
+            "prueba los avisos",
+            "pruebe el aviso",
+            "que pruebe el aviso",
+            "haz un aviso de prueba",
+            "manda un aviso de prueba",
+            "probar avisos"
+          ]
+        },
+        {
           "name": "AMAZON.YesIntent",
           "slots": [],
           "samples": []

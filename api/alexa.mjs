@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { leerCola, leerMovimientos, leerWeb, leerParaPedido, crearTrabajo, actualizarTrabajo, actualizarDoc, crearDoc,
   leerParaMantenimiento, leerStock, leerProductos, leerCostos } from "../alexa/datos.mjs";
 import * as T from "../alexa/taller.mjs";
+import { avisar, enSilencio } from "../alexa/avisar.mjs";
 import * as A from "../alexa/acciones.mjs";
 import * as R from "../alexa/respuestas.mjs";
 import { armarPedido } from "../alexa/pedidos.mjs";
@@ -212,6 +213,12 @@ async function responder(pedido) {
     case "PedidosWebIntent": {
       const web = await leerWebSinFallar();
       return decir(web === undefined ? "No pude leer los pedidos de la web ahora. Probá en un rato." : R.pedidosWeb(web));
+    }
+    case "ProbarAvisoIntent": {
+      if (!process.env.VOICEMONKEY_TOKEN || !process.env.VOICEMONKEY_DEVICE) return decir("Los avisos todavía no están configurados: faltan las claves de Voice Monkey en Vercel.");
+      if (enSilencio(ahora)) return decir("Ahora es horario de silencio, de diez de la noche a siete de la mañana, así que no mando avisos.");
+      const ok = await avisar("Prueba de aviso de WORLD3D. Si escuchás esto, los avisos funcionan.", ahora);
+      return decir(ok ? "Listo, mandé un aviso de prueba. En unos segundos lo vas a escuchar." : "No pude mandar el aviso. Revisá el token y el speaker de Voice Monkey.");
     }
     case "LibresIntent":
       return decir(R.libres(R.estado(await leerCola(), ahora), ahora));
