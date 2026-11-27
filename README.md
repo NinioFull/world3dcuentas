@@ -115,6 +115,15 @@ Consultar el Manager por voz desde el parlante: *"Alexa, abre mi taller"* (resum
 | pausa la ender · pausa lo de Linda | pausa y congela lo que falta |
 | Linda ya recogió · entregué lo de Linda | entrega todo lo listo de ese cliente; si hay saldo pregunta efectivo, QR o queda debiendo (igual que el Manager) |
 
+| qué impresoras están libres · estado de las impresoras | libres y qué tienen en cola; con el puente conectado, % y tiempo real de cada máquina, si se pausó o dio error, y lo que imprime fuera del Manager |
+| falló la ka uno (se despegó) · falló el freno de mano | como el botón *Falló*: motivo (si no lo dijiste, lo pregunta), gramos y costo perdidos; el trabajo vuelve a la cola |
+| cuánto cuestan veinte llaveros personalizados | precio de lista del catálogo × cantidad (los personalizados se siguen cotizando en la web) |
+| qué mantenimiento toca · ya lavé la cama de la ka uno | tareas vencidas y próximas por horas impresas; anota una tarea como hecha (como el botón *Hecho*) |
+| qué hay en stock · cuántos llaveros hay en stock | lo que hay en stock |
+| el cierre del día | cobrado hoy, pedidos nuevos, entregas, terminados, entregas de mañana y cola |
+
+**Avisos hablados (Voice Monkey)**: cuando el puente ve que una máquina terminó, se pausó o se canceló, el parlante lo dice solo ("Terminó Trofeo de pádel en la K1 Max"). Necesita una cuenta en voicemonkey.io con un *Speaker* vinculado al parlante y dos variables en Vercel: `VOICEMONKEY_TOKEN` y `VOICEMONKEY_DEVICE`. Entre las 22:00 y las 7:00 no avisa (se cambia con `VOICEMONKEY_SILENCIO`, por ejemplo `21-8`). Sin esas variables no hace nada. Código en `alexa/avisar.mjs`.
+
 **Mover la cola**: siempre lee lo que va a hacer y espera un *sí* (o la forma de pago). Si hay varios trabajos posibles los numera ("¿Cuál? 1: … 2: …") y se responde con el número (para *listo* también "todos"). Antes de guardar revisa que el trabajo no haya cambiado desde el Manager mientras se hablaba; si cambió, no toca nada. Los pedidos web se siguen moviendo solos con el Manager abierto (iPad), como siempre.
 
 **Anotar pedidos**: el trabajo entra a la cola como uno cargado a mano (estado *En cola*, primera impresora, nota "Anotado por voz con Alexa"). Con el catálogo completa material, color, tiempo y peso; si el precio es cero usa el precio de lista × cantidad. Si el cliente ya existe (nombre completo, o solo el nombre cuando hay uno solo así) copia su teléfono. La cantidad, si no se dice, es 1. El color se reconoce si va en la frase. Si Alexa repite el pedido no se duplica (id fijo por sesión y datos).

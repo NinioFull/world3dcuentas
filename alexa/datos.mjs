@@ -62,7 +62,11 @@ function valor(v) {
 export const aObjeto = (d) => { const o = { id: d.name.split("/").pop(), _upd: d.updateTime }; for (const k in d.fields || {}) o[k] = valor(d.fields[k]); return o; };
 const aFirestore = (x) => x === null || x === undefined ? { nullValue: null }
   : typeof x === "number" ? (Number.isInteger(x) ? { integerValue: String(x) } : { doubleValue: x })
-  : typeof x === "boolean" ? { booleanValue: x } : { stringValue: String(x) };
+  : typeof x === "boolean" ? { booleanValue: x }
+  : Array.isArray(x) ? { arrayValue: { values: x.map(aFirestore) } }
+  : typeof x === "object" ? { mapValue: { fields: Object.fromEntries(Object.entries(x).map(([k, v]) => [k, aFirestore(v)])) } }
+  : { stringValue: String(x) };
+const raiz = () => `https://firestore.googleapis.com/v1/projects/${cuentaServicio().project_id}/databases/(default)/documents`;
 const literal = (x) => typeof x === "number" ? { integerValue: String(Math.round(x)) } : typeof x === "boolean" ? { booleanValue: x } : { stringValue: String(x) };
 
 async function consulta(col, filtro, campos) {
@@ -85,33 +89,48 @@ export const ACTIVOS = ["pending", "printing", "paused", "done", "shipping"];
 
 // Todo lo que no está entregado + lo entregado que quedó debiendo + impresoras
 export async function leerCola() {
-  const [activos, deben, printers, maquinas, config] = await Promise.all([
+  const [activos, deben, printers, maquinas, puente] = await Promise.all([
     consulta("jobs", campo("status", "IN", ACTIVOS)),
     consulta("jobs", campo("debe", "EQUAL", true)),
     consulta("printers"),
     consulta("maquinas").catch(() => []),
-    consulta("config").catch(() => []),
+    leerDoc("config/puente").catch(() => null),
   ]);
-  return { jobs: conImpresoras(activos, printers, maquinas, config), deben: deben.filter((j) => j.status === "shipped"), printers };
+  return { jobs: activos, deben: deben.filter((j) => j.status === "shipped"), printers, maquinas, puente };
 }
 
-// Puente de impresoras: si la máquina está conectada, lo que falta sale de ella (igual que en el Manager)
-function conImpresoras(jobs, printers, maquinas, config) {
-  const cfg = config.find((d) => d.id === "puente") || {}, ahora = Date.now();
-  if (ahora - Math.max(Number(cfg.latidoPc) || 0, Number(cfg.latidoCelu) || 0) > 6 * 60000) return jobs;
-  const maqDe = (pid) => {
-    const p = printers.find((x) => x.id === pid); if (!p) return null;
-    return (p.maquina && maquinas.find((m) => m.id === p.maquina)) || maquinas.find((m) => m.printer === pid && !printers.some((q) => q.maquina === m.id && q.id !== pid)) || null;
-  };
-  return jobs.map((j) => {
-    if (j.status !== "printing" || !j.runStart) return j;
-    const m = maqDe(j.printer);
-    if (!m || !["preparando", "imprimiendo", "pausada"].includes(m.estado) || m.faltaSeg == null) return j;
-    const unidades = Math.max(1, Number(j.quantity) || 1), total = (Number(j.duration) || 0) * unidades;
-    const contador = Math.max(0, (Number(j.remaining) || 0) - Math.floor((ahora - Number(j.runStart)) / 60000)), fm = Math.ceil(m.faltaSeg / 60);
-    if (unidades > 1 && contador - fm > Math.max(20, total * 0.25)) return j;   // quedan más tandas: manda el contador
-    return { ...j, remaining: fm, runStart: ahora, vivo: { estado: m.estado, progreso: m.progreso } };
+export async function leerDoc(ruta) {
+  const r = await fetch(`${raiz()}/${ruta}`, { headers: { authorization: "Bearer " + (await tokenGoogle()) } });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error("leer " + ruta + " " + r.status);
+  return aObjeto(await r.json());
+}
+
+// Horas de cada impresora (como el Manager): todos los trabajos (campos justos) y las fallas
+export async function leerParaMantenimiento() {
+  const [trabajos, fallas, printers] = await Promise.all([
+    consulta("jobs", null, ["printer", "status", "jobType", "duration", "quantity", "remaining"]),
+    consulta("fallas", null, ["printer", "minutos"]).catch(() => []),
+    consulta("printers"),
+  ]);
+  return { trabajos, fallas, printers };
+}
+export const leerStock = async () => { const [stock, productos] = await Promise.all([consulta("stock"), consulta("products")]); return { stock, productos }; };
+export const leerProductos = () => consulta("products");
+export async function leerCostos() {
+  const [mat, op] = await Promise.all([leerDoc("config/matCosts").catch(() => null), leerDoc("config/operacion").catch(() => null)]);
+  return { matCosts: mat || {}, operacion: op || {} };
+}
+
+// Documento nuevo con id generado por Firestore
+export async function crearDoc(col, campos) {
+  const r = await fetch(`${raiz()}/${col}`, {
+    method: "POST",
+    headers: { authorization: "Bearer " + (await tokenGoogle()), "content-type": "application/json" },
+    body: JSON.stringify({ fields: Object.fromEntries(Object.entries(campos).map(([k, v]) => [k, aFirestore(v)])) }),
   });
+  if (!r.ok) throw new Error("crear " + col + " " + r.status + ": " + (await r.text()).slice(0, 200));
+  return aObjeto(await r.json()).id;
 }
 
 // Trabajos que tocan plata desde una fecha: tomados (adelanto) o entregados/cobrados (saldo)
@@ -161,11 +180,11 @@ export async function crearTrabajo(id, job) {
 }
 
 // Cambia campos de un trabajo solo si nadie lo tocó desde que se leyó (updateTime). Devuelve false si cambió.
-export async function actualizarTrabajo(id, cambios, updateTime) {
-  const c = cuentaServicio();
+export const actualizarTrabajo = (id, cambios, updateTime) => actualizarDoc("jobs", id, cambios, updateTime);
+export async function actualizarDoc(col, id, cambios, updateTime) {
   const mask = Object.keys(cambios).map((k) => "updateMask.fieldPaths=" + encodeURIComponent(k)).join("&");
   const pre = updateTime ? "&currentDocument.updateTime=" + encodeURIComponent(updateTime) : "";
-  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${c.project_id}/databases/(default)/documents/jobs/${encodeURIComponent(id)}?${mask}${pre}`, {
+  const r = await fetch(`${raiz()}/${col}/${encodeURIComponent(id)}?${mask}${pre}`, {
     method: "PATCH",
     headers: { authorization: "Bearer " + (await tokenGoogle()), "content-type": "application/json" },
     body: JSON.stringify({ fields: Object.fromEntries(Object.entries(cambios).map(([k, v]) => [k, aFirestore(v)])) }),

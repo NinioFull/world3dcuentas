@@ -68,7 +68,7 @@ function filtrar(jobs, { impresora, cliente, trabajo }, printers) {
 }
 
 // Lo que se guarda en la sesión para hacerlo después de la confirmación
-const foto = (j) => ({ id: j.id, upd: j._upd, printer: j.printer, fileName: j.fileName, quantity: j.quantity, remaining: j.remaining, runStart: j.runStart,
+export const foto = (j) => ({ id: j.id, upd: j._upd, printer: j.printer, _faltaVivo: j._faltaVivo ?? null, fileName: j.fileName, quantity: j.quantity, remaining: j.remaining, runStart: j.runStart,
   duration: j.duration, price: j.price, deposit: j.deposit, status: j.status, clientName: j.clientName });
 
 // Respuesta: { decir } (no hay nada que hacer), { elegir: [...] } (hay que preguntar cuál) o { accion, pregunta } (confirmar)

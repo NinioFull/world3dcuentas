@@ -5,6 +5,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { cuentaServicio, tokenGoogle, aObjeto } from "../alexa/datos.mjs";
 import { impresoraDe, terminoAhora, cierreDe, impresionDe, limpiarMaquina, PC_VIVA_MS } from "../impresoras/logica.mjs";
+import { avisar, avisoDeCambio } from "../alexa/avisar.mjs";
 
 const base = () => `https://firestore.googleapis.com/v1/projects/${cuentaServicio().project_id}/databases/(default)/documents`;
 const aValor = (x) => x === null || x === undefined ? { nullValue: null }
@@ -83,6 +84,7 @@ export async function POST(request) {
 
     const maquinas = (Array.isArray(cuerpo.maquinas) ? cuerpo.maquinas : []).slice(0, 12).map(limpiarMaquina).filter(Boolean);
     let cerrados = 0;
+    const avisos = [];
     if (maquinas.length) {
       const lista = await impresoras();
       for (const m of maquinas) {
@@ -90,16 +92,24 @@ export async function POST(request) {
         const { antes, id, ...datos } = m;
         await escribir(`maquinas/${id}`, { ...datos, printer, at: ahora, fuente, ...(antes !== m.estado ? { cambioAt: ahora, estadoAntes: antes } : {}) });
         let jobId = null;
+        let trabajos = [];
         if (printer && terminoAhora(m)) {
-          for (const j of await trabajosImprimiendo(printer)) {
+          trabajos = await trabajosImprimiendo(printer);
+          for (const j of trabajos) {
             const cambios = cierreDe(j, m, ahora);
             if (cambios && await escribir(`jobs/${j.id}`, cambios, j._updateTime)) { cerrados++; jobId = j.id; }
           }
+        } else if (printer && m.antes !== m.estado && ["pausada", "cancelada"].includes(m.estado)) {
+          trabajos = await trabajosImprimiendo(printer).catch(() => []);
         }
         const imp = impresionDe(m, printer, ahora);
         if (imp) await escribir(`impresiones/${imp.id}`, { ...imp.datos, jobId });
+        // Aviso hablado en el parlante (Voice Monkey), si está configurado
+        const texto = avisoDeCambio(m, lista.find((p) => p.id === printer), trabajos);
+        if (texto) avisos.push(texto);
       }
     }
+    if (avisos.length) await Promise.all(avisos.map((t) => avisar(t)));
     return Response.json({ ok: true, espera: false, cerrados });
   } catch (e) {
     console.error("Puente:", e);

@@ -3,12 +3,14 @@
 // Variables en Vercel: ALEXA_SKILL_ID, FIREBASE_SERVICE_ACCOUNT y (opcional) SUPABASE_SECRET_KEY.
 import { verificarAlexa } from "../alexa/verificar.mjs";
 import { createHash } from "node:crypto";
-import { leerCola, leerMovimientos, leerWeb, leerParaPedido, crearTrabajo, actualizarTrabajo } from "../alexa/datos.mjs";
+import { leerCola, leerMovimientos, leerWeb, leerParaPedido, crearTrabajo, actualizarTrabajo, actualizarDoc, crearDoc,
+  leerParaMantenimiento, leerStock, leerProductos, leerCostos } from "../alexa/datos.mjs";
+import * as T from "../alexa/taller.mjs";
 import * as A from "../alexa/acciones.mjs";
 import * as R from "../alexa/respuestas.mjs";
 import { armarPedido } from "../alexa/pedidos.mjs";
 
-const AYUDA = "Podés preguntarme qué tenés para hoy, qué se está imprimiendo, cuánto le falta a una impresora, qué hay en cola, qué entregas tenés, qué está atrasado, cuánto te deben, cuánto cobraste o si hay pedidos en la web. También podés anotar un pedido, por ejemplo: anota diez llaveros negros para Juan. Y cambiar la cola: marca como listo lo de la ka uno, inicia lo siguiente en la ender, pausa la hi, o Linda ya recogió.";
+const AYUDA = "Podés preguntarme qué tenés para hoy, qué se está imprimiendo, cuánto le falta a una impresora, qué hay en cola, qué entregas tenés, qué está atrasado, cuánto te deben, cuánto cobraste o si hay pedidos en la web. También podés anotar un pedido, por ejemplo: anota diez llaveros negros para Juan. Y cambiar la cola: marca como listo lo de la ka uno, inicia lo siguiente en la ender, pausa la hi, Linda ya recogió, o falló la ka uno. Además: qué impresoras están libres, cuánto cuestan veinte llaveros, qué mantenimiento toca, qué hay en stock, o el cierre del día.";
 
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 function decir(texto, { seguir = false, reprompt, directivas, sesion } = {}) {
@@ -65,7 +67,7 @@ function preguntar(r, printers) {
 }
 
 async function accionCola(tipo, intent) {
-  const cola = await leerCola();
+  const cola = R.anotarVivo(await leerCola(), Date.now());
   const busqueda = valorCrudo(intent, "busqueda");
   const objetivo = { impresora: slot(intent, "impresora"), cliente: valorCrudo(intent, "cliente"), trabajo: valorCrudo(intent, "trabajo"),
     ...(busqueda ? A.interpretar(busqueda, cola.jobs, cola.printers) : {}) };
@@ -78,7 +80,7 @@ async function elegir(sesion, intent) {
   const dicho = (slot(intent, "orden") || valorCrudo(intent, "orden")).toLowerCase();
   const NUM = { uno: 1, primero: 1, primera: 1, dos: 2, segundo: 2, segunda: 2, tres: 3, tercero: 3, tercera: 3, cuatro: 4, cuarto: 4, cuarta: 4 };
   const n = NUM[dicho] || parseInt(dicho, 10);
-  const cola = await leerCola();
+  const cola = R.anotarVivo(await leerCola(), Date.now());
   if (/tod|ambo|los dos|las dos/.test(dicho)) {
     if (!e.permiteTodos) return decir("Acá decime uno solo, con el número.", { seguir: true, sesion });
     return preguntar(A.confirmar(e.tipo, e.opciones, cola.printers), cola.printers);
@@ -86,10 +88,20 @@ async function elegir(sesion, intent) {
   const o = e.opciones[n - 1];
   if (!o) return decir(`Decí un número del 1 al ${e.opciones.length}.`, { seguir: true, sesion });
   if (e.porCliente) return preguntar(A.proponer("entregar", cola, { cliente: o.clientName }), cola.printers);
+  if (e.tipo === "falla") return seguirFalla(o.id, e.motivo);
   return preguntar(A.confirmar(e.tipo, [o], cola.printers), cola.printers);
 }
 
 async function ejecutar(p, metodo) {
+  if (p.tipo === "falla") {
+    if (!(await actualizarTrabajo(p.id, p.cambios, p.upd))) return decir("No anoté nada: ese trabajo cambió en el Manager mientras hablábamos. Pedímelo de nuevo.");
+    await crearDoc("fallas", p.falla);
+    return decir(`Listo, anoté la falla y ${p.falla.fileName} volvió a la cola.`);
+  }
+  if (p.tipo === "mant") {
+    if (!(await actualizarDoc("printers", p.printerId, { mant: p.mant }, p.upd))) return decir("No anoté nada: esa impresora cambió en el Manager mientras hablábamos. Pedímelo de nuevo.");
+    return decir("Listo, anotado. El contador de esa tarea arranca de cero.");
+  }
   const ahora = Date.now(), fallaron = [];
   for (const j of p.trabajos) {
     const ok = await actualizarTrabajo(j.id, A.cambios(p.tipo, j, ahora, metodo), j.upd);
@@ -100,6 +112,45 @@ async function ejecutar(p, metodo) {
   const aviso = fallaron.length ? ` Pero ${A.nombreTrabajo(fallaron[0])} cambió en el Manager y no lo toqué.` : "";
   const saldo = hechos.reduce((s, j) => s + Math.max(0, (Number(j.price) || 0) - (Number(j.deposit) || 0)), 0);
   return decir(A.hecho(p.tipo, hechos, metodo, saldo) + aviso);
+}
+
+// ── Falla: elegir trabajo → motivo → confirmar → guardar (como el botón Falló del Manager) ──
+async function anotarFalla(intent) {
+  const cola = R.anotarVivo(await leerCola(), Date.now());
+  const busqueda = valorCrudo(intent, "busqueda");
+  const objetivo = { impresora: slot(intent, "impresora"), cliente: valorCrudo(intent, "cliente"), trabajo: valorCrudo(intent, "trabajo"),
+    ...(busqueda ? A.interpretar(busqueda, cola.jobs, cola.printers) : {}) };
+  const motivo = T.motivoDe(slot(intent, "motivo") || valorCrudo(intent, "motivo"));
+  const c = T.candidatosFalla(cola, objetivo);
+  if (!c.length) return decir("No encontré qué trabajo falló. Decí, por ejemplo, falló la ka uno.");
+  if (c.length > 1) {
+    const opciones = c.slice(0, 4).map(A.foto);
+    const pregunta = "¿Cuál falló? " + c.slice(0, 4).map((j, i) => `${i + 1}: ${A.nombreTrabajo(j)}`).join(". ") + ".";
+    return decir(pregunta, { seguir: true, reprompt: "Decí el número. " + pregunta, sesion: { eleccion: { tipo: "falla", opciones, motivo } } });
+  }
+  return seguirFalla(c[0].id, motivo, cola);
+}
+async function seguirFalla(id, motivo, cola) {
+  cola = cola || R.anotarVivo(await leerCola(), Date.now());
+  const j = cola.jobs.find((x) => x.id === id);
+  if (!j) return decir("Ese trabajo ya no está en la cola.");
+  if (!motivo) return decir(T.preguntaMotivo, { seguir: true, reprompt: T.preguntaMotivo, sesion: { faltaMotivo: { id } } });
+  const { falla, cambios } = T.datosFalla(j, motivo, await leerCostos());
+  return decir(T.fraseFalla(j, falla, cola.printers), { seguir: true, reprompt: "¿Sí o no?", sesion: { pendiente: { tipo: "falla", id, upd: j._upd, falla, cambios } } });
+}
+
+async function mantHecho(intent) {
+  const r = T.proponerMantHecho(await leerParaMantenimiento(), slot(intent, "impresora"), slot(intent, "tarea") || valorCrudo(intent, "tarea"));
+  if (r.decir) return decir(r.decir);
+  return decir(r.pregunta, { seguir: true, reprompt: "¿Sí o no?", sesion: { pendiente: { tipo: "mant", printerId: r.printer.id, upd: r.printer._upd, mant: r.mant } } });
+}
+
+async function precio(intent) {
+  let cantidad = valorCrudo(intent, "cantidad"), dicho = valorCrudo(intent, "producto");
+  const b = valorCrudo(intent, "busqueda");
+  if (b) { const s = T.separarCantidad(b); dicho = s.resto; cantidad = cantidad || s.cantidad; }
+  if (!dicho) return decir("¿De qué producto? Decí, por ejemplo, cuánto cuestan veinte llaveros personalizados.");
+  return decir(T.precio(await leerProductos(), dicho, cantidad));
 }
 
 const leerWebSinFallar = () => leerWeb().catch((e) => { console.error("web:", e.message); return undefined; });
@@ -118,6 +169,14 @@ async function responder(pedido) {
   const intent = pedido.request.intent || {};
   const sesion = pedido.session?.attributes || {};
   if (TIPO[intent.name]) return accionCola(TIPO[intent.name], intent);
+  if (intent.name === "FallaIntent") return anotarFalla(intent);
+  if (intent.name === "MantHechoIntent") return mantHecho(intent);
+  if (sesion.faltaMotivo && intent.name !== "AMAZON.NoIntent" && intent.name !== "AMAZON.CancelIntent" && intent.name !== "AMAZON.StopIntent") {
+    const m = T.motivoDe(slot(intent, "motivo") || valorCrudo(intent, "motivo") || (intent.name === "MotivoIntent" ? "otro" : ""));
+    if (m) return seguirFalla(sesion.faltaMotivo.id, m);
+    return decir(T.preguntaMotivo, { seguir: true, sesion });
+  }
+  if (sesion.faltaMotivo) return decir("Bueno, no anoté nada.");
   if (intent.name === "ElegirIntent" && sesion.eleccion) return elegir(sesion, intent);
   if (sesion.pendiente) {
     const p = sesion.pendiente;
@@ -154,10 +213,25 @@ async function responder(pedido) {
       const web = await leerWebSinFallar();
       return decir(web === undefined ? "No pude leer los pedidos de la web ahora. Probá en un rato." : R.pedidosWeb(web));
     }
+    case "LibresIntent":
+      return decir(R.libres(R.estado(await leerCola(), ahora), ahora));
+    case "PrecioIntent":
+      return precio(intent);
+    case "MantenimientoIntent":
+      return decir(T.resumenMant(await leerParaMantenimiento(), slot(intent, "impresora")));
+    case "StockIntent": {
+      const { stock } = await leerStock();
+      return decir(T.stock(stock, valorCrudo(intent, "busqueda") || valorCrudo(intent, "producto")));
+    }
+    case "CierreIntent": {
+      const [movs, cola] = await Promise.all([leerMovimientos(R.inicioDia(ahora)), leerCola()]);
+      return decir(T.cierre(movs, cola, ahora));
+    }
     case "AnotarPedidoIntent":
       return anotarPedido(pedido, intent);
     case "ElegirIntent":
     case "PagoIntent":
+    case "MotivoIntent":
     case "AMAZON.YesIntent":
     case "AMAZON.NoIntent":
       return decir("¿Qué querés saber o anotar?", { seguir: true, reprompt: AYUDA });

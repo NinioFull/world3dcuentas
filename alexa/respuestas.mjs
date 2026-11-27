@@ -39,9 +39,35 @@ function nombreDia(desde, ahora) {
 // ── Trabajos ──
 const esDiseno = (j) => j.jobType === "design";
 const nombre = (j) => (j.fileName || "un trabajo").trim() + (num(j.quantity) > 1 ? ` por ${num(j.quantity)}` : "");
-export const faltan = (j, ahora) => j.status === "paused" || !j.runStart
+// Minutos que faltan: lo que dice la impresora (puente) si está conectada, si no el contador del Manager
+export const faltan = (j, ahora) => j._faltaVivo != null ? j._faltaVivo : j.status === "paused" || !j.runStart
   ? num(j.remaining)
   : Math.max(0, num(j.remaining) - Math.floor((ahora - num(j.runStart)) / MIN));
+
+// ── Puente de impresoras (igual que el Manager: maqDe / vivaDe) ──
+const OCUPADA = ["preparando", "imprimiendo", "pausada"];
+export function maquinaDe({ printers = [], maquinas = [], puente }, pid, ahora) {
+  const at = Math.max(num(puente?.latidoPc), num(puente?.latidoCelu));
+  if (!at || ahora - at > 6 * 60000) return null;
+  const p = printers.find((x) => x.id === pid);
+  if (!p) return null;
+  const m = (p.maquina && maquinas.find((x) => x.id === p.maquina)) || maquinas.find((x) => x.printer === pid && !printers.some((q) => q.maquina === x.id && q.id !== pid));
+  return m && m.estado !== "apagada" ? m : null;
+}
+// Marca en cada trabajo imprimiendo lo que dice su máquina (lo usan las respuestas y las acciones)
+export function anotarVivo(cola, ahora) {
+  (cola.jobs || []).forEach((j) => {
+    if (j.status !== "printing" || !j.runStart) return;
+    const m = maquinaDe(cola, j.printer, ahora);
+    if (!m || !OCUPADA.includes(m.estado)) return;
+    j._vivo = { estado: m.estado, progreso: m.progreso, error: m.error, archivo: m.archivo };
+    const rem = Math.max(0, num(j.remaining) - Math.floor((ahora - num(j.runStart)) / MIN));
+    const fm = m.faltaSeg != null ? Math.ceil(num(m.faltaSeg) / 60) : null;
+    const uds = Math.max(1, num(j.quantity) || 1), total = num(j.duration) * uds;
+    if (fm != null && !(uds > 1 && rem - fm > Math.max(20, total * 0.25))) j._faltaVivo = fm;
+  });
+  return cola;
+}
 const saldo = (j) => Math.max(0, num(j.price) - num(j.deposit));
 const porPrioridad = (a, b) => num(a.priority || a.createdAt) - num(b.priority || b.createdAt);
 const impresoraDe = (printers, id) => printers.find((p) => p.id === id);
@@ -54,26 +80,48 @@ function porCliente(jobs) {
   return [...g.entries()].map(([cliente, js]) => js.length === 1 ? `${cliente} con ${nombre(js[0])}` : `${cliente} con ${plural(js.length, "trabajos", "trabajos")}`);
 }
 
-export function estado({ jobs, deben = [], printers = [] }, ahora) {
+export function estado(datos, ahora) {
+  anotarVivo(datos, ahora);
+  const { jobs, deben = [], printers = [] } = datos;
   const imprimiendo = jobs.filter((j) => !esDiseno(j) && ["printing", "paused"].includes(j.status));
   const cola = jobs.filter((j) => !esDiseno(j) && j.status === "pending").sort(porPrioridad);
   const disenos = jobs.filter((j) => esDiseno(j) && ["pending", "printing", "paused"].includes(j.status));
   const listos = jobs.filter((j) => ["done", "shipping"].includes(j.status));
   const atrasados = jobs.filter((j) => ["pending", "printing", "paused"].includes(j.status) && j.deliveryAt && num(j.deliveryAt) < ahora);
   const sinRecoger = listos.filter((j) => !esDiseno(j) && j.endedAt && ahora - num(j.endedAt) > 3 * DIA);
-  return { imprimiendo, cola, disenos, listos, atrasados, sinRecoger, deben, printers, jobs };
+  return { imprimiendo, cola, disenos, listos, atrasados, sinRecoger, deben, printers, jobs, maq: (pid) => maquinaDe(datos, pid, ahora) };
 }
 
-// Una oración por impresora ocupada
+// Una oración por impresora ocupada (con lo que dice la máquina si el puente está conectado)
 function fraseImprimiendo(e, ahora, filtro) {
   const lista_ = filtro ? e.imprimiendo.filter((j) => filtro(impresoraDe(e.printers, j.printer))) : e.imprimiendo;
-  return lista_.map((j) => {
-    const p = nombreImpresora(impresoraDe(e.printers, j.printer)), f = faltan(j, ahora);
+  const frases = lista_.map((j) => {
+    const p = nombreImpresora(impresoraDe(e.printers, j.printer)), f = faltan(j, ahora), v = j._vivo;
     if (j.status === "paused") return `La ${p} está en pausa con ${nombre(j)}, le faltan ${tiempo(f)}.`;
+    if (v?.error) return `Ojo: la ${p} reporta un error con ${nombre(j)}.`;
+    if (v?.estado === "pausada") return `Ojo: la ${p} está pausada en la impresora con ${nombre(j)}${v.progreso != null ? `, al ${v.progreso} por ciento` : ""}.`;
+    if (v?.estado === "preparando") return `La ${p} se está preparando para imprimir ${nombre(j)}.`;
+    const pct = v?.progreso != null ? `, va al ${v.progreso} por ciento.` : ":";
     return f > 0
-      ? `La ${p} está con ${nombre(j)}: faltan ${tiempo(f)}, termina ${hora(ahora + f * MIN)}.`
+      ? `La ${p} está con ${nombre(j)}${pct} ${pct.endsWith(".") ? "Faltan" : "faltan"} ${tiempo(f)}, termina ${hora(ahora + f * MIN)}.`
       : `La ${p} ya debería haber terminado ${nombre(j)}.`;
-  }).join(" ");
+  });
+  // Máquinas imprimiendo algo que no figura en el Manager
+  e.printers.filter((p) => !filtro || filtro(p)).forEach((p) => {
+    const m = e.maq?.(p.id);
+    if (!m || !OCUPADA.includes(m.estado) || lista_.some((j) => j.printer === p.id)) return;
+    frases.push(`La ${nombreImpresora(p)} está imprimiendo algo que no está en el Manager${m.archivo ? `: ${String(m.archivo).replace(/[_-]+/g, " ").replace(/\.(gcode|3mf)$/i, "")}` : ""}${m.progreso != null ? `, al ${m.progreso} por ciento` : ""}.`);
+  });
+  return frases.join(" ");
+}
+
+// Qué impresoras están libres (sin trabajo imprimiendo en el Manager ni en la máquina)
+export function libres(e, ahora) {
+  const todas = e.printers.filter((p) => p.name);
+  const libres_ = todas.filter((p) => !e.imprimiendo.some((j) => j.printer === p.id) && !OCUPADA.includes(e.maq?.(p.id)?.estado));
+  if (!libres_.length) return "Todas las impresoras están ocupadas. " + fraseImprimiendo(e, ahora);
+  const sig = libres_.map((p) => { const s = e.cola.find((j) => j.printer === p.id); return `la ${nombreImpresora(p)}${s ? `, con ${nombre(s)} en cola` : ""}`; });
+  return (libres_.length === todas.length ? "Están todas libres: " : `${libres_.length === 1 ? "Está libre" : "Están libres"} `) + lista(sig, 6) + ".";
 }
 
 function fraseWeb(web) {

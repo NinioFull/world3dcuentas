@@ -518,6 +518,210 @@
           ]
         },
         {
+          "name": "LibresIntent",
+          "slots": [],
+          "samples": [
+            "qué impresoras están libres",
+            "qué impresora está libre",
+            "hay alguna impresora libre",
+            "cuáles impresoras están libres",
+            "qué máquinas están libres",
+            "hay una máquina libre",
+            "dónde puedo imprimir",
+            "qué impresora puedo usar",
+            "las impresoras libres",
+            "cómo están las máquinas",
+            "estado de las impresoras"
+          ]
+        },
+        {
+          "name": "FallaIntent",
+          "slots": [
+            {
+              "name": "impresora",
+              "type": "IMPRESORA"
+            },
+            {
+              "name": "cliente",
+              "type": "AMAZON.Person"
+            },
+            {
+              "name": "trabajo",
+              "type": "PRODUCTO"
+            },
+            {
+              "name": "motivo",
+              "type": "MOTIVO"
+            },
+            {
+              "name": "busqueda",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "falló la {impresora}",
+            "falló la impresión de la {impresora}",
+            "falló lo de la {impresora}",
+            "se arruinó lo de la {impresora}",
+            "la {impresora} falló",
+            "falló la {impresora} {motivo}",
+            "la {impresora} {motivo}",
+            "en la {impresora} {motivo}",
+            "lo de la {impresora} {motivo}",
+            "falló lo de {cliente}",
+            "anota una falla en la {impresora}",
+            "anota una falla",
+            "registra una falla en la {impresora}",
+            "hubo una falla en la {impresora}",
+            "falló la impresión",
+            "anote una falla en la {impresora}",
+            "que anote una falla en la {impresora}",
+            "falló {busqueda}",
+            "anota que falló {busqueda}",
+            "se arruinó {busqueda}",
+            "anote que falló {busqueda}"
+          ]
+        },
+        {
+          "name": "MotivoIntent",
+          "slots": [
+            {
+              "name": "motivo",
+              "type": "MOTIVO"
+            }
+          ],
+          "samples": [
+            "{motivo}",
+            "fue que {motivo}",
+            "porque {motivo}",
+            "es que {motivo}",
+            "fue {motivo}"
+          ]
+        },
+        {
+          "name": "PrecioIntent",
+          "slots": [
+            {
+              "name": "cantidad",
+              "type": "AMAZON.NUMBER"
+            },
+            {
+              "name": "producto",
+              "type": "PRODUCTO"
+            },
+            {
+              "name": "busqueda",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "cuánto cuesta {busqueda}",
+            "cuánto cuestan {busqueda}",
+            "cuánto sale {busqueda}",
+            "cuánto salen {busqueda}",
+            "precio de {busqueda}",
+            "qué precio tiene {busqueda}",
+            "a cuánto está {busqueda}",
+            "cuánto cobro por {busqueda}",
+            "en cuánto sale {busqueda}",
+            "cuánto es {cantidad} {producto}",
+            "cuánto serían {cantidad} {producto}"
+          ]
+        },
+        {
+          "name": "MantenimientoIntent",
+          "slots": [
+            {
+              "name": "impresora",
+              "type": "IMPRESORA"
+            }
+          ],
+          "samples": [
+            "qué mantenimiento está vencido",
+            "qué mantenimiento toca",
+            "qué mantenimiento tengo pendiente",
+            "hay mantenimiento pendiente",
+            "el mantenimiento",
+            "cómo está el mantenimiento",
+            "cómo está el mantenimiento de la {impresora}",
+            "qué mantenimiento le toca a la {impresora}",
+            "le toca mantenimiento a la {impresora}",
+            "qué le toca a la {impresora}",
+            "cuándo le toca mantenimiento a la {impresora}"
+          ]
+        },
+        {
+          "name": "MantHechoIntent",
+          "slots": [
+            {
+              "name": "impresora",
+              "type": "IMPRESORA"
+            },
+            {
+              "name": "tarea",
+              "type": "TAREA"
+            }
+          ],
+          "samples": [
+            "ya hice {tarea} de la {impresora}",
+            "hice {tarea} de la {impresora}",
+            "ya hice {tarea} a la {impresora}",
+            "marca hecho {tarea} de la {impresora}",
+            "marque hecho {tarea} de la {impresora}",
+            "marca como hecho {tarea} de la {impresora}",
+            "ya lavé la cama de la {impresora}",
+            "lavé la cama de la {impresora}",
+            "ya lubriqué la {impresora}",
+            "lubriqué la {impresora}",
+            "ya cambié la boquilla de la {impresora}",
+            "cambié la boquilla de la {impresora}",
+            "ya revisé las correas de la {impresora}",
+            "ya limpié el fep de la {impresora}",
+            "ya filtré la resina de la {impresora}",
+            "ya nivelé la plataforma de la {impresora}",
+            "anota el mantenimiento de {tarea} de la {impresora}",
+            "listo el mantenimiento de {tarea} de la {impresora}"
+          ]
+        },
+        {
+          "name": "StockIntent",
+          "slots": [
+            {
+              "name": "busqueda",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "qué hay en stock",
+            "qué tengo en stock",
+            "qué tengo hecho",
+            "qué hay listo en stock",
+            "el stock",
+            "cómo está el stock",
+            "cuántos {busqueda} hay en stock",
+            "cuántas {busqueda} hay en stock",
+            "tengo {busqueda} en stock",
+            "hay {busqueda} en stock",
+            "cuántos {busqueda} tengo hechos",
+            "stock de {busqueda}"
+          ]
+        },
+        {
+          "name": "CierreIntent",
+          "slots": [],
+          "samples": [
+            "el cierre del día",
+            "cierre del día",
+            "cómo cerró el día",
+            "cómo me fue hoy",
+            "cómo estuvo el día",
+            "resumen del cierre",
+            "cerremos el día",
+            "dame el cierre",
+            "el cierre"
+          ]
+        },
+        {
           "name": "AMAZON.YesIntent",
           "slots": [],
           "samples": []
@@ -1236,6 +1440,173 @@
                   "después paga",
                   "todavía no paga",
                   "me debe"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MOTIVO",
+          "values": [
+            {
+              "id": "despego",
+              "name": {
+                "value": "se despegó",
+                "synonyms": [
+                  "despegó",
+                  "se despegó de la cama",
+                  "warping",
+                  "se levantó",
+                  "se soltó",
+                  "se soltó de la cama",
+                  "se levantaron las puntas"
+                ]
+              }
+            },
+            {
+              "id": "atasco",
+              "name": {
+                "value": "atasco",
+                "synonyms": [
+                  "se atascó",
+                  "atascó",
+                  "se tapó la boquilla",
+                  "no sale filamento",
+                  "sin extrusión",
+                  "no extruye",
+                  "se trabó el filamento"
+                ]
+              }
+            },
+            {
+              "id": "capas",
+              "name": {
+                "value": "capas corridas",
+                "synonyms": [
+                  "se corrieron las capas",
+                  "se desplazó",
+                  "capas movidas",
+                  "se movieron las capas",
+                  "se corrió"
+                ]
+              }
+            },
+            {
+              "id": "luz",
+              "name": {
+                "value": "se cortó la luz",
+                "synonyms": [
+                  "corte de luz",
+                  "se fue la luz",
+                  "apagón",
+                  "se apagó"
+                ]
+              }
+            },
+            {
+              "id": "archivo",
+              "name": {
+                "value": "problema del archivo",
+                "synonyms": [
+                  "el archivo",
+                  "error del archivo",
+                  "mal laminado",
+                  "archivo malo",
+                  "el gcode"
+                ]
+              }
+            },
+            {
+              "id": "otro",
+              "name": {
+                "value": "otro",
+                "synonyms": [
+                  "otra cosa",
+                  "otra razón",
+                  "no sé"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "TAREA",
+          "values": [
+            {
+              "id": "cama",
+              "name": {
+                "value": "lavar la cama",
+                "synonyms": [
+                  "la cama",
+                  "lavado de cama",
+                  "limpiar la cama",
+                  "la base"
+                ]
+              }
+            },
+            {
+              "id": "lubricar",
+              "name": {
+                "value": "lubricar ejes",
+                "synonyms": [
+                  "lubricar",
+                  "la lubricación",
+                  "los ejes",
+                  "limpiar y lubricar"
+                ]
+              }
+            },
+            {
+              "id": "correas",
+              "name": {
+                "value": "revisar correas",
+                "synonyms": [
+                  "las correas",
+                  "correas y tornillos",
+                  "los tornillos"
+                ]
+              }
+            },
+            {
+              "id": "boquilla",
+              "name": {
+                "value": "cambiar boquilla",
+                "synonyms": [
+                  "la boquilla",
+                  "cambio de boquilla",
+                  "el nozzle"
+                ]
+              }
+            },
+            {
+              "id": "fep",
+              "name": {
+                "value": "limpiar el fep",
+                "synonyms": [
+                  "el fep",
+                  "revisar el fep"
+                ]
+              }
+            },
+            {
+              "id": "filtrar",
+              "name": {
+                "value": "filtrar la resina",
+                "synonyms": [
+                  "el filtrado",
+                  "la resina",
+                  "filtrar el tanque"
+                ]
+              }
+            },
+            {
+              "id": "plataforma",
+              "name": {
+                "value": "nivelar la plataforma",
+                "synonyms": [
+                  "la plataforma",
+                  "nivelado",
+                  "nivelar"
                 ]
               }
             }
