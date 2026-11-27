@@ -58,7 +58,8 @@ function valor(v) {
   if ("arrayValue" in v) return (v.arrayValue.values || []).map(valor);
   return "";
 }
-export const aObjeto = (d) => { const o = { id: d.name.split("/").pop() }; for (const k in d.fields || {}) o[k] = valor(d.fields[k]); return o; };
+// _upd: hora de la última modificación (para no pisar un cambio hecho desde el Manager mientras se hablaba)
+export const aObjeto = (d) => { const o = { id: d.name.split("/").pop(), _upd: d.updateTime }; for (const k in d.fields || {}) o[k] = valor(d.fields[k]); return o; };
 const aFirestore = (x) => x === null || x === undefined ? { nullValue: null }
   : typeof x === "number" ? (Number.isInteger(x) ? { integerValue: String(x) } : { doubleValue: x })
   : typeof x === "boolean" ? { booleanValue: x } : { stringValue: String(x) };
@@ -135,5 +136,24 @@ export async function crearTrabajo(id, job) {
   });
   if (r.status === 409) return false;
   if (!r.ok) throw new Error("crear trabajo " + r.status + ": " + (await r.text()).slice(0, 200));
+  return true;
+}
+
+// Cambia campos de un trabajo solo si nadie lo tocó desde que se leyó (updateTime). Devuelve false si cambió.
+export async function actualizarTrabajo(id, cambios, updateTime) {
+  const c = cuentaServicio();
+  const mask = Object.keys(cambios).map((k) => "updateMask.fieldPaths=" + encodeURIComponent(k)).join("&");
+  const pre = updateTime ? "&currentDocument.updateTime=" + encodeURIComponent(updateTime) : "";
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${c.project_id}/databases/(default)/documents/jobs/${encodeURIComponent(id)}?${mask}${pre}`, {
+    method: "PATCH",
+    headers: { authorization: "Bearer " + (await tokenGoogle()), "content-type": "application/json" },
+    body: JSON.stringify({ fields: Object.fromEntries(Object.entries(cambios).map(([k, v]) => [k, aFirestore(v)])) }),
+  });
+  if (r.status === 400 || r.status === 409 || r.status === 412) {
+    const t = await r.text();
+    if (/FAILED_PRECONDITION|updateTime|ABORTED/i.test(t)) return false;
+    throw new Error("actualizar " + r.status + ": " + t.slice(0, 200));
+  }
+  if (!r.ok) throw new Error("actualizar " + r.status + ": " + (await r.text()).slice(0, 200));
   return true;
 }

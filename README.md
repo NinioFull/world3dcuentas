@@ -110,9 +110,16 @@ Consultar el Manager por voz desde el parlante: *"Alexa, abre mi taller"* (resum
 | hay pedidos en la web | pagados para pasar a la cola, esperando pago y cotizaciones |
 | anota diez llaveros negros para Linda por ciento cincuenta bolivianos | arma el pedido y pregunta lo que falte (producto, cliente, precio, adelanto); lo lee y **solo lo guarda si decís que sí** |
 
+| marca como listo lo de la ka uno · terminó la ender · ya está listo lo de Linda | pasa a *Listo* (como el botón del Manager) |
+| inicia lo siguiente en la ka uno · reanuda la hi | reanuda lo pausado o arranca el próximo de la cola de esa impresora (si está ocupada, avisa) |
+| pausa la ender · pausa lo de Linda | pausa y congela lo que falta |
+| Linda ya recogió · entregué lo de Linda | entrega todo lo listo de ese cliente; si hay saldo pregunta efectivo, QR o queda debiendo (igual que el Manager) |
+
+**Mover la cola**: siempre lee lo que va a hacer y espera un *sí* (o la forma de pago). Si hay varios trabajos posibles los numera ("¿Cuál? 1: … 2: …") y se responde con el número (para *listo* también "todos"). Antes de guardar revisa que el trabajo no haya cambiado desde el Manager mientras se hablaba; si cambió, no toca nada. Los pedidos web se siguen moviendo solos con el Manager abierto (iPad), como siempre.
+
 **Anotar pedidos**: el trabajo entra a la cola como uno cargado a mano (estado *En cola*, primera impresora, nota "Anotado por voz con Alexa"). Con el catálogo completa material, color, tiempo y peso; si el precio es cero usa el precio de lista × cantidad. Si el cliente ya existe (nombre completo, o solo el nombre cuando hay uno solo así) copia su teléfono. La cantidad, si no se dice, es 1. El color se reconoce si va en la frase. Si Alexa repite el pedido no se duplica (id fijo por sesión y datos).
 
-Fuera de anotar pedidos, solo lee. El código está en `api/alexa.mjs` (endpoint) y `alexa/` (firma de Amazon, lectura de Firestore/Supabase y frases). El modelo de voz está en `alexa/modelo/` (se genera con `node alexa/modelo/generar.mjs`; para cambiar frases o productos editá ese archivo, regenerá y pegá el JSON en la consola de Alexa › JSON Editor › Save › Build skill).
+Las consultas solo leen. El código está en `api/alexa.mjs` (endpoint) y `alexa/` (firma de Amazon, lectura de Firestore/Supabase y frases). El modelo de voz está en `alexa/modelo/` (se genera con `node alexa/modelo/generar.mjs`; para cambiar frases o productos editá ese archivo, regenerá y pegá el JSON en la consola de Alexa › JSON Editor › Save › Build skill).
 
 ### Activarla (una sola vez)
 

@@ -15,12 +15,14 @@ export function buscarProducto(dicho, productos) {
   const conNombre = productos.filter((p) => p.name);
   const exacto = conNombre.find((p) => singular(p.name) === d);
   if (exacto) return exacto;
-  // Todas las palabras dichas aparecen en el nombre del producto (o al revés); gana el nombre más corto
-  const pal = d.split(" ").filter((w) => w.length > 2);
+  // Solo si todas las palabras del producto se dijeron: "llaveros" no elige "Llavero Zelda", pero
+  // "llavero de zelda" sí. Entre varios, gana el de nombre más largo (el más específico).
+  const VACIAS = new Set(["de", "del", "con", "en", "para", "el", "la", "los", "las", "y", "un", "una"]);
+  const dichas = new Set(d.split(" ").filter((w) => !VACIAS.has(w)));
   const parecidos = conNombre.filter((p) => {
-    const n = singular(p.name);
-    return (pal.length && pal.every((w) => n.includes(w))) || d.includes(n);
-  }).sort((a, b) => a.name.length - b.name.length);
+    const pal = singular(p.name).split(" ").filter((w) => !VACIAS.has(w));
+    return pal.length > 0 && pal.every((w) => dichas.has(w));
+  }).sort((a, b) => b.name.length - a.name.length);
   return parecidos[0] || null;
 }
 
