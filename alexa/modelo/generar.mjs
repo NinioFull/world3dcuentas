@@ -52,6 +52,13 @@ const intents = [
     "está listo lo de {cliente}", "{trabajo} ya está listo", "ya terminé {trabajo}", "terminé lo de {cliente}", "terminó la impresión",
     "marque como listo", "marque como listo lo de la {impresora}", "que marque como listo lo de la {impresora}", "marque listo lo de la {impresora}",
     "marque como listo lo de {cliente}", "marque como listos los {trabajo}", "marque como listo {trabajo} de {cliente}" ] },
+  { name: "EnvioIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }, { name: "busqueda", type: "AMAZON.SearchQuery" }], samples: [
+    "marca como listo para envío", "marque como listo para envío", "marca para envío", "marque para envío", "listo para envío", "pasa a envío", "pase a envío",
+    "marca como listo para envío {busqueda}", "marque como listo para envío {busqueda}", "marca para envío {busqueda}", "marque para envío {busqueda}",
+    "pasa a envío {busqueda}", "pase a envío {busqueda}", "listo para envío {busqueda}", "prepara para envío {busqueda}", "manda a envío {busqueda}",
+    "marca como listo para envío lo de {cliente}", "marque como listo para envío lo de {cliente}", "lo de {cliente} está listo para envío",
+    "marca como listo para envío lo de la {impresora}", "marque como listo para envío lo de la {impresora}", "{trabajo} está listo para envío",
+    "marca para enviar {busqueda}", "marque para enviar {busqueda}", "marca como listo para enviar", "marque como listo para enviar", "que marque como listo para envío" ] },
   { name: "IniciarIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }, { name: "busqueda", type: "AMAZON.SearchQuery" }], samples: [
     "inicia la impresión de {busqueda}", "inicie la impresión de {busqueda}", "empieza a imprimir el {busqueda}", "ponte a imprimir {busqueda}", "arranca con {busqueda}", "arranque con {busqueda}", "reanuda la impresión de {busqueda}",
     "inicia lo siguiente en la {impresora}", "inicia la {impresora}", "arranca la {impresora}", "arranca lo siguiente en la {impresora}", "pon a imprimir la {impresora}",
@@ -74,7 +81,11 @@ const intents = [
     "le entregué a {cliente}", "{cliente} se llevó su pedido", "{cliente} ya se llevó su pedido",
     "entregué {trabajo} a {cliente}", "{cliente} recogió {trabajo}",
     "marque como entregado lo de {cliente}", "que marque como entregado lo de {cliente}", "entregue lo de {cliente}", "anote que {cliente} recogió",
-    "anota que {cliente} recogió", "anota que {cliente} ya recogió" ] },
+    "anota que {cliente} recogió", "anota que {cliente} ya recogió",
+    "marca como entregado", "marque como entregado", "que marque como entregado", "marca entregado", "marque entregado", "entregado", "ya entregué",
+    "marca entregado {busqueda}", "marque entregado {busqueda}", "ya se entregó {busqueda}", "ya se llevaron {busqueda}", "marca como enviado {busqueda}", "marque como enviado {busqueda}", "ya envié {busqueda}" ] },
+  { name: "CualIntent", slots: [{ name: "busqueda", type: "AMAZON.SearchQuery" }], samples: [
+    "el {busqueda}", "la {busqueda}", "los {busqueda}", "las {busqueda}", "lo de {busqueda}", "el de {busqueda}", "la de {busqueda}", "es el {busqueda}", "es la {busqueda}", "es lo de {busqueda}", "el que es {busqueda}" ] },
   { name: "ElegirIntent", slots: [{ name: "orden", type: "ORDEN" }], samples: ["{orden}", "el {orden}", "la {orden}", "número {orden}", "el número {orden}", "opción {orden}", "la opción {orden}"] },
   { name: "PagoIntent", slots: [{ name: "metodo", type: "METODO" }], samples: ["{metodo}", "en {metodo}", "por {metodo}", "con {metodo}", "me pagó en {metodo}", "pagó en {metodo}",
     "pagó por {metodo}", "me pagó por {metodo}", "me pagó con {metodo}", "{metodo} nomás", "fue en {metodo}", "fue por {metodo}"] },

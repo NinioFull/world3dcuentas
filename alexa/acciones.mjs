@@ -109,9 +109,17 @@ export function proponer(tipo, { jobs, printers = [] }, objetivo = {}, ahora = D
     if (!cola.length) return { decir: objetivo.trabajo || objetivo.cliente ? `No encontré ese trabajo en la cola de la ${nombreImp(imp)}.` : `No hay nada en cola para la ${nombreImp(imp)}.` };
     return confirmar(tipo, [cola[0]], printers, ahora);
   }
+  if (tipo === "envio") {
+    // Listo para envío: lo que ya está listo (o, si nombró uno que sigue imprimiéndose, ese mismo)
+    let c = filtrar(jobs.filter((j) => j.status === "done" && !esDiseno(j)), objetivo, printers);
+    if (!c.length && (objetivo.cliente || objetivo.trabajo || imp)) c = filtrar(jobs.filter((j) => ["printing", "paused", "pending"].includes(j.status) && !esDiseno(j)), objetivo, printers);
+    if (!c.length) return { decir: objetivo.cliente || objetivo.trabajo ? `No encontré ${dichoDe(objetivo)} para marcar para envío.` : "No hay nada listo esperando para envío." };
+    if (c.length > 1) return { elegir: c.slice(0, 4).map(foto), tipo, permiteTodos: true, pregunta: preguntaCual(c, printers) };
+    return confirmar(tipo, [c[0]], printers, ahora);
+  }
   if (tipo === "entregar") {
-    if (!objetivo.cliente && !objetivo.trabajo) return { decir: "¿Quién recogió? Decí, por ejemplo, Linda ya recogió." };
     const listos = filtrar(jobs.filter((j) => ["done", "shipping"].includes(j.status)), objetivo, printers);
+    if (!objetivo.cliente && !objetivo.trabajo && !listos.length) return { decir: "No hay nada listo para entregar." };
     if (!listos.length) {
       const enProceso = filtrar(jobs.filter((j) => ["pending", "printing", "paused"].includes(j.status)), objetivo, printers);
       return { decir: enProceso.length ? `Lo de ${enProceso[0].clientName || "ese cliente"} todavía no está listo: ${lista(enProceso.map(nombreTrabajo), 3)}.` : `No encontré nada listo para entregar con ${dichoDe(objetivo)}.` };
@@ -127,6 +135,13 @@ export function proponer(tipo, { jobs, printers = [] }, objetivo = {}, ahora = D
   return { decir: "No entendí qué hacer." };
 }
 
+// Respuesta a "¿Cuál?" con un nombre en vez de número ("el llavero", "lo de Carla"): las opciones que coinciden
+export function entreOpciones(opciones, dicho, printers = []) {
+  const objetivo = interpretar(dicho, opciones, printers);
+  if (!objetivo.trabajo && !objetivo.cliente && !objetivo.impresora) return [];
+  return filtrar(opciones, objetivo, printers);
+}
+
 const dichoDe = (o) => [o.trabajo && `"${o.trabajo}"`, o.cliente && `de ${o.cliente}`].filter(Boolean).join(" ") || "ese trabajo";
 
 function preguntaCual(c, printers) {
@@ -140,6 +155,8 @@ export function confirmar(tipo, js, printers, ahora = Date.now()) {
   const j = js[0], p = printers.find((x) => x.id === j.printer), enImp = p ? ` en la ${nombreImp(p)}` : "";
   const accion = { tipo, trabajos: js.map(foto) };
   if (tipo === "listo") return { accion, pregunta: js.length > 1 ? `¿Marco como listos ${lista(js.map(nombreTrabajo), 4)}?` : `¿Marco ${nombreTrabajo(j)}${j.clientName ? " de " + j.clientName.trim() : ""} como listo?` };
+  if (tipo === "envio") return { accion, pregunta: js.length > 1 ? `¿Marco ${lista(js.map(nombreTrabajo), 4)} como listos para envío?`
+    : `¿Marco ${nombreTrabajo(j)}${j.clientName ? " de " + j.clientName.trim() : ""} como listo para envío?${["printing", "paused", "pending"].includes(j.status) ? " Todavía figura sin terminar." : ""}` };
   if (tipo === "pausar") {
     const f = faltan(j, ahora);
     return { accion, pregunta: `¿Pauso ${nombreTrabajo(j)}${enImp}? ${f > 0 ? `Le faltan ${tiempo(f)}.` : "Según el contador ya debería haber terminado."}` };
@@ -157,6 +174,7 @@ export function confirmar(tipo, js, printers, ahora = Date.now()) {
 // Campos que cambian en Firestore para un trabajo (igual que el Manager)
 export function cambios(tipo, j, ahora = Date.now(), metodo) {
   if (tipo === "listo") return { status: "done", endedAt: ahora, remaining: 0, runStart: null };
+  if (tipo === "envio") return j.status === "done" ? { status: "shipping" } : { status: "shipping", endedAt: ahora, remaining: 0, runStart: null };
   if (tipo === "pausar") return { status: "paused", remaining: Math.max(0, faltan(j, ahora)), runStart: null };
   if (tipo === "iniciar") return j.status === "paused"
     ? { status: "printing", runStart: ahora }
@@ -173,6 +191,7 @@ export function cambios(tipo, j, ahora = Date.now(), metodo) {
 export function hecho(tipo, js, metodo, saldo) {
   const que = lista(js.map(nombreTrabajo), 3);
   if (tipo === "listo") return `Listo, ${que} ${js.length > 1 ? "quedaron listos" : "quedó listo"} para entregar.`;
+  if (tipo === "envio") return `Listo, ${que} ${js.length > 1 ? "quedaron" : "quedó"} para envío.`;
   if (tipo === "pausar") return `Pausé ${que}.`;
   if (tipo === "iniciar") return `Listo, ${que} está imprimiendo.`;
   if (tipo === "entregar") {

@@ -111,9 +111,10 @@ Consultar el Manager por voz desde el parlante: *"Alexa, abre mi taller"* (resum
 | anota diez llaveros negros para Linda por ciento cincuenta bolivianos | arma el pedido y pregunta lo que falte (producto, cliente, precio, adelanto); lo lee y **solo lo guarda si decís que sí** |
 
 | marca como listo lo de la ka uno · terminó la ender · ya está listo lo de Linda | pasa a *Listo* (como el botón del Manager) |
+| marca como listo para envío el llavero · marca para envío lo de Linda | pasa a *Envío* (botón *Listo para envío*); si todavía figuraba imprimiéndose, lo avisa y lo pasa igual |
 | inicia lo siguiente en la ka uno · reanuda la hi | reanuda lo pausado o arranca el próximo de la cola de esa impresora (si está ocupada, avisa) |
 | pausa la ender · pausa lo de Linda | pausa y congela lo que falta |
-| Linda ya recogió · entregué lo de Linda | entrega todo lo listo de ese cliente; si hay saldo pregunta efectivo, QR o queda debiendo (igual que el Manager) |
+| Linda ya recogió · entregué lo de Linda · marca como entregado | entrega todo lo listo de ese cliente; si hay saldo pregunta efectivo, QR o queda debiendo (igual que el Manager) |
 
 | qué impresoras están libres · estado de las impresoras | libres y qué tienen en cola; con el puente conectado, % y tiempo real de cada máquina, si se pausó o dio error, y lo que imprime fuera del Manager |
 | falló la ka uno (se despegó) · falló el freno de mano | como el botón *Falló*: motivo (si no lo dijiste, lo pregunta), gramos y costo perdidos; el trabajo vuelve a la cola |
@@ -126,7 +127,9 @@ Consultar el Manager por voz desde el parlante: *"Alexa, abre mi taller"* (resum
 
 También avisa **pedidos web nuevos** ("Nuevo pedido por la web, número 125, de Carla Suárez: Organizador de cafetería, 95 bolivianos. Está esperando el pago.") y cotizaciones nuevas: un webhook de Supabase (Database › Webhooks › `aviso-alexa`, tabla `pedidos`, evento INSERT, POST a `https://world3dcuentas.vercel.app/api/aviso-web`) llama a `api/aviso-web.mjs`, que vuelve a leer el pedido en Supabase, solo avisa los de los últimos 30 minutos y una vez por pedido (`config/avisosWeb`). El pago no se avisa porque se confirma a mano.
 
-**Mover la cola**: siempre lee lo que va a hacer y espera un *sí* (o la forma de pago). Si hay varios trabajos posibles los numera ("¿Cuál? 1: … 2: …") y se responde con el número (para *listo* también "todos"). Antes de guardar revisa que el trabajo no haya cambiado desde el Manager mientras se hablaba; si cambió, no toca nada. Los pedidos web se siguen moviendo solos con el Manager abierto (iPad), como siempre.
+**Mover la cola**: siempre lee lo que va a hacer y espera un *sí* (o la forma de pago). Si hay varios trabajos posibles los numera ("¿Cuál? 1: … 2: …") y se responde con el número o con el nombre ("la maceta", "lo de Pedro"; si no estaba entre los que leyó, lo busca en toda la cola). Para *listo* y *envío* también vale "todos". Sin nombre ("marca como listo", "marca como entregado") pregunta cuál.
+
+**Órdenes cortas sin "pídele a mi taller"**: se hacen con rutinas de la app Alexa (Más › Rutinas › +). *Cuando digas*: "marca como listo" → acción *Personalizado*: "pídele a mi taller que marque como listo". Igual con "listo para envío" → "pídele a mi taller que marque como listo para envío" y "marca como entregado" → "pídele a mi taller que marque como entregado". La skill pregunta cuál y se contesta con el nombre o el número. Si la frase ya trae el producto, se usa la forma larga: "Alexa, pídele a mi taller que marque como listo el llavero de Carla". Antes de guardar revisa que el trabajo no haya cambiado desde el Manager mientras se hablaba; si cambió, no toca nada. Los pedidos web se siguen moviendo solos con el Manager abierto (iPad), como siempre.
 
 **Anotar pedidos**: el trabajo entra a la cola como uno cargado a mano (estado *En cola*, primera impresora, nota "Anotado por voz con Alexa"). Con el catálogo completa material, color, tiempo y peso; si el precio es cero usa el precio de lista × cantidad. Si el cliente ya existe (nombre completo, o solo el nombre cuando hay uno solo así) copia su teléfono. La cantidad, si no se dice, es 1. El color se reconoce si va en la frase. Si Alexa repite el pedido no se duplica (id fijo por sesión y datos).
 

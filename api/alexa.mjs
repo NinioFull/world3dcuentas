@@ -58,7 +58,7 @@ const slot = (intent, nombre) => {
 };
 
 // ── Acciones sobre la cola (listo, iniciar, pausar, entregar): proponer → elegir si hay varios → confirmar → guardar ──
-const TIPO = { ListoIntent: "listo", IniciarIntent: "iniciar", PausarIntent: "pausar", EntregadoIntent: "entregar" };
+const TIPO = { ListoIntent: "listo", EnvioIntent: "envio", IniciarIntent: "iniciar", PausarIntent: "pausar", EntregadoIntent: "entregar" };
 
 function preguntar(r, printers) {
   if (r.decir) return decir(r.decir);
@@ -72,6 +72,12 @@ async function accionCola(tipo, intent) {
   const busqueda = valorCrudo(intent, "busqueda");
   const objetivo = { impresora: slot(intent, "impresora"), cliente: valorCrudo(intent, "cliente"), trabajo: valorCrudo(intent, "trabajo"),
     ...(busqueda ? A.interpretar(busqueda, cola.jobs, cola.printers) : {}) };
+  // "marca como listo para envío el llavero" que cayó en ListoIntent
+  if (tipo === "listo" && /\bpara (el |un )?env[ií]o\b/i.test(busqueda)) {
+    tipo = "envio";
+    const resto = busqueda.replace(/^.*?\bpara (el |un )?env[ií]o\b\s*/i, "").trim();
+    Object.assign(objetivo, { impresora: "", cliente: "", trabajo: "" }, resto ? A.interpretar(resto, cola.jobs, cola.printers) : {});
+  }
   console.log("acción", tipo, JSON.stringify({ busqueda, ...objetivo }));
   return preguntar(A.proponer(tipo, cola, objetivo), cola.printers);
 }
@@ -86,8 +92,15 @@ async function elegir(sesion, intent) {
     if (!e.permiteTodos) return decir("Acá decime uno solo, con el número.", { seguir: true, sesion });
     return preguntar(A.confirmar(e.tipo, e.opciones, cola.printers), cola.printers);
   }
-  const o = e.opciones[n - 1];
-  if (!o) return decir(`Decí un número del 1 al ${e.opciones.length}.`, { seguir: true, sesion });
+  let o = e.opciones[n - 1];
+  if (!o && dicho) {
+    const c = A.entreOpciones(e.opciones, dicho, cola.printers);
+    if (c.length === 1) o = c[0];
+    else if (c.length > 1 && e.permiteTodos) return preguntar(A.confirmar(e.tipo, c, cola.printers), cola.printers);
+    // No estaba entre las que leí (había más de 4): se busca en toda la cola
+    else if (!c.length && e.tipo !== "falla") return preguntar(A.proponer(e.tipo, cola, A.interpretar(dicho, cola.jobs, cola.printers)), cola.printers);
+  }
+  if (!o) return decir(`No te entendí. Decí el número del 1 al ${e.opciones.length}, o el nombre.`, { seguir: true, sesion });
   if (e.porCliente) return preguntar(A.proponer("entregar", cola, { cliente: o.clientName }), cola.printers);
   if (e.tipo === "falla") return seguirFalla(o.id, e.motivo);
   return preguntar(A.confirmar(e.tipo, [o], cola.printers), cola.printers);
@@ -179,6 +192,13 @@ async function responder(pedido) {
   }
   if (sesion.faltaMotivo) return decir("Bueno, no anoté nada.");
   if (intent.name === "ElegirIntent" && sesion.eleccion) return elegir(sesion, intent);
+  if (sesion.eleccion && !sesion.pendiente) {
+    // Contestó "¿Cuál?" con el nombre y Alexa lo mandó a otro intent (CualIntent o una acción con busqueda)
+    const dicho = valorCrudo(intent, "busqueda") || valorCrudo(intent, "trabajo") || valorCrudo(intent, "cliente");
+    if (dicho && (intent.name === "CualIntent" || TIPO[intent.name] === sesion.eleccion.tipo))
+      return elegir(sesion, { slots: { orden: { name: "orden", value: dicho } } });
+  }
+  if (intent.name === "CualIntent") return decir("¿Qué querés que haga con eso? Por ejemplo: marca como listo el llavero.", { seguir: true });
   if (sesion.pendiente) {
     const p = sesion.pendiente;
     if (intent.name === "AMAZON.NoIntent" || intent.name === "AMAZON.CancelIntent") return decir("Bueno, no cambié nada.");
