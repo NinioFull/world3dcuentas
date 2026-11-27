@@ -44,14 +44,16 @@ const intents = [
     "pedido de {cantidad} {producto} para {cliente}", "anota un {producto} para {cliente}", "anota una {producto} para {cliente}", "anota un {producto} {color} para {cliente}",
     "que anote {cantidad} {producto} para {cliente}", "que anote {cantidad} {producto} {color} para {cliente}", "que anote un pedido",
     "{cliente} quiere {cantidad} {producto}", "{cliente} pidió {cantidad} {producto}", "{cliente} pidió {cantidad} {producto} {color}" ] },
-  { name: "ListoIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+  { name: "ListoIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }, { name: "busqueda", type: "AMAZON.SearchQuery" }], samples: [
+    "marca como listo {busqueda}", "marque como listo {busqueda}", "marca listo {busqueda}", "marque listo {busqueda}", "ya está listo {busqueda}", "terminé {busqueda}", "ya terminé de imprimir {busqueda}", "pasa a listo {busqueda}",
     "marca como listo", "marca como listo lo de la {impresora}", "marca listo lo de la {impresora}", "marca como listo lo de {cliente}", "marca como listo {trabajo}",
     "marca como listo el {trabajo}", "marca como listos los {trabajo}", "marca como listo {trabajo} de {cliente}", "terminó la {impresora}", "ya terminó la {impresora}",
     "la {impresora} terminó", "la {impresora} ya terminó", "listo lo de la {impresora}", "está listo lo de la {impresora}", "ya está listo lo de {cliente}",
     "está listo lo de {cliente}", "{trabajo} ya está listo", "ya terminé {trabajo}", "terminé lo de {cliente}", "terminó la impresión",
     "marque como listo", "marque como listo lo de la {impresora}", "que marque como listo lo de la {impresora}", "marque listo lo de la {impresora}",
-    "marque como listo lo de {cliente}", "marque como listo {trabajo}", "marque como listos los {trabajo}", "marque como listo {trabajo} de {cliente}" ] },
-  { name: "IniciarIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+    "marque como listo lo de {cliente}", "marque como listos los {trabajo}", "marque como listo {trabajo} de {cliente}" ] },
+  { name: "IniciarIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }, { name: "busqueda", type: "AMAZON.SearchQuery" }], samples: [
+    "inicia la impresión de {busqueda}", "inicie la impresión de {busqueda}", "empieza a imprimir el {busqueda}", "ponte a imprimir {busqueda}", "arranca con {busqueda}", "arranque con {busqueda}", "reanuda la impresión de {busqueda}",
     "inicia lo siguiente en la {impresora}", "inicia la {impresora}", "arranca la {impresora}", "arranca lo siguiente en la {impresora}", "pon a imprimir la {impresora}",
     "empieza a imprimir en la {impresora}", "empieza lo siguiente en la {impresora}", "reanuda la {impresora}", "continúa la {impresora}", "sigue con la {impresora}",
     "inicia {trabajo}", "inicia el {trabajo}", "inicia {trabajo} en la {impresora}", "arranca {trabajo}", "arranca {trabajo} en la {impresora}", "inicia lo de {cliente}",
@@ -59,17 +61,19 @@ const intents = [
     "inicie lo siguiente en la {impresora}", "que inicie lo siguiente en la {impresora}", "inicie la {impresora}", "arranque la {impresora}", "arranque lo siguiente en la {impresora}",
     "reanude la {impresora}", "que reanude la {impresora}", "continúe la {impresora}", "inicie {trabajo}", "inicie {trabajo} en la {impresora}", "arranque {trabajo}",
     "empiece a imprimir en la {impresora}", "ponga a imprimir la {impresora}" ] },
-  { name: "PausarIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+  { name: "PausarIntent", slots: [{ name: "impresora", type: "IMPRESORA" }, { name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }, { name: "busqueda", type: "AMAZON.SearchQuery" }], samples: [
+    "pausa la impresión de {busqueda}", "pause la impresión de {busqueda}", "pon en pausa {busqueda}", "ponga en pausa {busqueda}",
     "pausa la {impresora}", "pausa lo de la {impresora}", "pon en pausa la {impresora}", "pon en pausa lo de la {impresora}", "detén la {impresora}",
     "pausa {trabajo}", "pausa el {trabajo}", "pausa lo de {cliente}", "pausa la impresión", "pon en pausa la impresión",
     "pause la {impresora}", "pause lo de la {impresora}", "que pause la {impresora}", "que pause lo de la {impresora}", "ponga en pausa la {impresora}",
     "que ponga en pausa la {impresora}", "pause {trabajo}", "que pause {trabajo}", "pause lo de {cliente}", "pause la impresión", "detenga la {impresora}" ] },
-  { name: "EntregadoIntent", slots: [{ name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }], samples: [
+  { name: "EntregadoIntent", slots: [{ name: "cliente", type: "AMAZON.Person" }, { name: "trabajo", type: "PRODUCTO" }, { name: "busqueda", type: "AMAZON.SearchQuery" }], samples: [
+    "ya entregué {busqueda}", "marca como entregado {busqueda}", "marque como entregado {busqueda}", "entregamos {busqueda}", "se llevaron {busqueda}",
     "{cliente} ya recogió", "{cliente} recogió", "ya recogió {cliente}", "{cliente} ya vino a recoger", "ya vino {cliente}", "vino {cliente} a recoger",
     "entregué lo de {cliente}", "ya entregué lo de {cliente}", "marca como entregado lo de {cliente}", "entrega lo de {cliente}", "ya le entregué a {cliente}",
-    "le entregué a {cliente}", "{cliente} se llevó su pedido", "{cliente} ya se llevó su pedido", "entregué {trabajo}", "marca como entregado {trabajo}",
+    "le entregué a {cliente}", "{cliente} se llevó su pedido", "{cliente} ya se llevó su pedido",
     "entregué {trabajo} a {cliente}", "{cliente} recogió {trabajo}",
-    "marque como entregado lo de {cliente}", "que marque como entregado lo de {cliente}", "entregue lo de {cliente}", "marque como entregado {trabajo}", "anote que {cliente} recogió",
+    "marque como entregado lo de {cliente}", "que marque como entregado lo de {cliente}", "entregue lo de {cliente}", "anote que {cliente} recogió",
     "anota que {cliente} recogió", "anota que {cliente} ya recogió" ] },
   { name: "ElegirIntent", slots: [{ name: "orden", type: "ORDEN" }], samples: ["{orden}", "el {orden}", "la {orden}", "número {orden}", "el número {orden}", "opción {orden}", "la opción {orden}"] },
   { name: "PagoIntent", slots: [{ name: "metodo", type: "METODO" }], samples: ["{metodo}", "en {metodo}", "por {metodo}", "con {metodo}", "me pagó en {metodo}", "pagó en {metodo}",

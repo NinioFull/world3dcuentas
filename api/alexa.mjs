@@ -65,8 +65,11 @@ function preguntar(r, printers) {
 }
 
 async function accionCola(tipo, intent) {
-  const objetivo = { impresora: slot(intent, "impresora"), cliente: valorCrudo(intent, "cliente"), trabajo: valorCrudo(intent, "trabajo") };
   const cola = await leerCola();
+  const busqueda = valorCrudo(intent, "busqueda");
+  const objetivo = { impresora: slot(intent, "impresora"), cliente: valorCrudo(intent, "cliente"), trabajo: valorCrudo(intent, "trabajo"),
+    ...(busqueda ? A.interpretar(busqueda, cola.jobs, cola.printers) : {}) };
+  console.log("acción", tipo, JSON.stringify({ busqueda, ...objetivo }));
   return preguntar(A.proponer(tipo, cola, objetivo), cola.printers);
 }
 

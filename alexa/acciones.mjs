@@ -17,16 +17,55 @@ export function coincideCliente(j, dicho) {
   if (!d || !n) return false;
   return n === d || n.startsWith(d + " ") || n.split(" ")[0] === d;
 }
-export function coincideTrabajo(j, dicho) {
-  const d = singular(dicho).split(" ").filter((w) => w.length > 2 && !["del", "las", "los", "con", "para"].includes(w));
+// Parecido entre lo dicho y el nombre del trabajo (0 a 1): cuántas palabras dichas aparecen en el nombre,
+// tolerando plurales, palabras pegadas o separadas ("porta lapiceros" / "portalapiceros") y errores chicos de Alexa.
+const VACIAS = new Set(["del", "las", "los", "con", "para", "que", "una", "uno", "por", "lo", "de", "la", "el", "en", "y"]);
+const lev = (a, b) => {
+  const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 1; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[m][n];
+};
+const palabraPegada = (w, nombre) => {
+  const pegado = nombre.replace(/ /g, "");
+  if (pegado.includes(w)) return true;
+  if (/^\d+$/.test(w)) return false;
+  return nombre.split(" ").some((x) => x === w || (w.length >= 4 && (x.startsWith(w) || w.startsWith(x) && x.length >= 4)) || (w.length >= 5 && lev(w, x) <= (w.length >= 8 ? 2 : 1)) || (w.length >= 6 && x.length >= 6 && w.slice(0, 6) === x.slice(0, 6)));
+};
+// Alexa dice "pe ese cuatro" por "PS4": los números pasan a cifras y las letras sueltas no cuentan
+const NUMEROS = { cero: "0", uno: "1", una: "1", dos: "2", tres: "3", cuatro: "4", cinco: "5", seis: "6", siete: "7", ocho: "8", nueve: "9", diez: "10" };
+export function parecidoTrabajo(j, dicho) {
+  const d = singular(dicho).split(" ").map((w) => NUMEROS[w] || w)
+    .filter((w) => /^\d+$/.test(w) || (w.length > 3 && !VACIAS.has(w)) || (w.length > 1 && !VACIAS.has(w) && !["pe", "ese", "ele", "eme", "ene", "erre", "te", "be", "ce", "de", "ge", "ka", "jota", "efe", "equis", "ye", "zeta", "uve", "ve"].includes(w)));
+  if (!d.length) return 0;
   const n = singular(j.fileName);
-  return d.length > 0 && d.every((w) => n.includes(w));
+  const pegadoDicho = d.join("");
+  if (pegadoDicho.length >= 6 && n.replace(/ /g, "").includes(pegadoDicho)) return 1;
+  return d.filter((w) => palabraPegada(w, n)).length / d.length;
+}
+export const coincideTrabajo = (j, dicho) => parecidoTrabajo(j, dicho) >= 0.99;
+
+// Texto libre ("lo de la ka uno", "el freno de mano de Carlos") → { impresora } | { cliente } | { trabajo }
+export function interpretar(busqueda, jobs, printers) {
+  const b = String(busqueda || "").replace(/^(lo|los|las|el|la)\s+(de|del)\s+(la\s+|el\s+)?/i, "").replace(/^(el|la|los|las|lo)\s+/i, "").trim();
+  if (!b) return {};
+  if (printers.some((p) => coincideImpresora(p, b))) return { impresora: b };
+  if (jobs.some((j) => coincideCliente(j, b))) return { cliente: b };
+  // "freno de mano de carlos": trabajo + cliente al final
+  const m = /^(.+)\s+de\s+([^ ]+(?:\s+[^ ]+)?)$/i.exec(b);
+  if (m && jobs.some((j) => coincideCliente(j, m[2]) && parecidoTrabajo(j, m[1]) >= 0.6)) return { trabajo: m[1], cliente: m[2] };
+  return { trabajo: b };
 }
 
-const filtrar = (jobs, { impresora, cliente, trabajo }, printers) => jobs.filter((j) =>
-  (!impresora || coincideImpresora(printers.find((p) => p.id === j.printer), impresora)) &&
-  (!cliente || coincideCliente(j, cliente)) &&
-  (!trabajo || coincideTrabajo(j, trabajo)));
+function filtrar(jobs, { impresora, cliente, trabajo }, printers) {
+  const base = jobs.filter((j) =>
+    (!impresora || coincideImpresora(printers.find((p) => p.id === j.printer), impresora)) &&
+    (!cliente || coincideCliente(j, cliente)));
+  if (!trabajo) return base;
+  const conPuntaje = base.map((j) => [j, parecidoTrabajo(j, trabajo)]).filter(([, p]) => p >= 0.6);
+  const mejor = Math.max(0, ...conPuntaje.map(([, p]) => p));
+  return conPuntaje.filter(([, p]) => p >= mejor - 0.01).map(([j]) => j);
+}
 
 // Lo que se guarda en la sesión para hacerlo después de la confirmación
 const foto = (j) => ({ id: j.id, upd: j._upd, printer: j.printer, fileName: j.fileName, quantity: j.quantity, remaining: j.remaining, runStart: j.runStart,
@@ -41,13 +80,13 @@ export function proponer(tipo, { jobs, printers = [] }, objetivo = {}, ahora = D
   if (tipo === "listo") {
     let c = filtrar(jobs.filter((j) => ["printing", "paused"].includes(j.status)), objetivo, printers);
     if (!c.length && (objetivo.cliente || objetivo.trabajo)) c = filtrar(jobs.filter((j) => j.status === "pending"), objetivo, printers);
-    if (!c.length) return { decir: imp ? `La ${nombreImp(imp)} no está imprimiendo nada.` : "No encontré ese trabajo en lo que se está imprimiendo ni en la cola." };
+    if (!c.length) return { decir: imp ? `La ${nombreImp(imp)} no está imprimiendo nada.` : `No encontré ${dichoDe(objetivo)} en lo que se está imprimiendo ni en la cola.` };
     if (c.length > 1) return { elegir: c.slice(0, 4).map(foto), tipo, permiteTodos: true, pregunta: preguntaCual(c, printers) };
     return confirmar(tipo, [c[0]], printers, ahora);
   }
   if (tipo === "pausar") {
     let c = filtrar(jobs.filter((j) => j.status === "printing" && !esDiseno(j)), objetivo, printers);
-    if (!c.length) return { decir: imp ? `La ${nombreImp(imp)} no está imprimiendo nada.` : "No hay nada imprimiéndose que se pueda pausar." };
+    if (!c.length) return { decir: imp ? `La ${nombreImp(imp)} no está imprimiendo nada.` : objetivo.trabajo || objetivo.cliente ? `No encontré ${dichoDe(objetivo)} imprimiéndose.` : "No hay nada imprimiéndose que se pueda pausar." };
     if (c.length > 1) return { elegir: c.slice(0, 4).map(foto), tipo, pregunta: preguntaCual(c, printers) };
     return confirmar(tipo, [c[0]], printers, ahora);
   }
@@ -56,7 +95,7 @@ export function proponer(tipo, { jobs, printers = [] }, objetivo = {}, ahora = D
       // Sin impresora: un trabajo nombrado de la cola o uno en pausa
       const c = filtrar(jobs.filter((j) => ["pending", "paused"].includes(j.status) && !esDiseno(j)), objetivo, printers).sort(porPrioridad);
       if (!objetivo.cliente && !objetivo.trabajo) return { decir: "¿En qué impresora? Decí, por ejemplo, inicia lo siguiente en la ka uno." };
-      if (!c.length) return { decir: "No encontré ese trabajo en la cola." };
+      if (!c.length) return { decir: `No encontré ${dichoDe(objetivo)} en la cola.` };
       if (c.length > 1) return { elegir: c.slice(0, 4).map(foto), tipo, pregunta: preguntaCual(c, printers) };
       const ocupada = jobs.find((j) => j.printer === c[0].printer && j.status === "printing" && j.id !== c[0].id);
       if (ocupada) return { decir: `La ${nombreImp(printers.find((p) => p.id === c[0].printer))} está ocupada con ${nombreTrabajo(ocupada)}.` };
@@ -75,7 +114,7 @@ export function proponer(tipo, { jobs, printers = [] }, objetivo = {}, ahora = D
     const listos = filtrar(jobs.filter((j) => ["done", "shipping"].includes(j.status)), objetivo, printers);
     if (!listos.length) {
       const enProceso = filtrar(jobs.filter((j) => ["pending", "printing", "paused"].includes(j.status)), objetivo, printers);
-      return { decir: enProceso.length ? `Lo de ${enProceso[0].clientName || "ese cliente"} todavía no está listo: ${lista(enProceso.map(nombreTrabajo), 3)}.` : "No encontré nada listo para entregar con ese nombre." };
+      return { decir: enProceso.length ? `Lo de ${enProceso[0].clientName || "ese cliente"} todavía no está listo: ${lista(enProceso.map(nombreTrabajo), 3)}.` : `No encontré nada listo para entregar con ${dichoDe(objetivo)}.` };
     }
     // Si coincide más de un cliente ("Juan"), preguntar cuál; si es un solo cliente, se entrega todo lo suyo junto
     const clientes = [...new Set(listos.map((j) => normal(j.clientName)))];
@@ -87,6 +126,8 @@ export function proponer(tipo, { jobs, printers = [] }, objetivo = {}, ahora = D
   }
   return { decir: "No entendí qué hacer." };
 }
+
+const dichoDe = (o) => [o.trabajo && `"${o.trabajo}"`, o.cliente && `de ${o.cliente}`].filter(Boolean).join(" ") || "ese trabajo";
 
 function preguntaCual(c, printers) {
   return "¿Cuál? " + c.slice(0, 4).map((j, i) => {
