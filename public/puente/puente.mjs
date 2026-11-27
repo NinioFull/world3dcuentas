@@ -19,8 +19,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { spawn, execFileSync } from "node:child_process";
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 // Clave pública del sitio (la misma que usa la web): solo sirve para el canal de la cámara
 const SUPABASE_RT = "wss://swlmlwmjicsewwtudeah.supabase.co/realtime/v1/websocket";
 const SUPABASE_KEY = "sb_publishable_pbWjcSpwmO1fhBNiYVAoow_OsUHX-y0";
@@ -146,6 +147,72 @@ async function cuadroJPEG(ip, ms = 5000) {
   } catch { return null; } finally { clearTimeout(t); }
 }
 
+// ─── Cámaras WebRTC (K1 Max con firmware nuevo, Hi): go2rtc ───────────────────
+// go2rtc (programa libre de video, github.com/AlexxIT/go2rtc) habla el WebRTC de Creality y entrega un cuadro
+// suelto en MP4. Se baja solo la primera vez y escucha únicamente en esta máquina (127.0.0.1).
+const Go2 = {
+  proc: null, streams: {}, bajando: null, vivos: new Map(),
+  binario() { return path.join(CARPETA, process.platform === "win32" ? "go2rtc.exe" : "go2rtc"); },
+  async bajar() {
+    if (fs.existsSync(this.binario())) return true;
+    if (this.bajando) return this.bajando;
+    this.bajando = (async () => {
+      const base = "https://github.com/AlexxIT/go2rtc/releases/latest/download/";
+      const arch = process.arch === "arm64" ? "arm64" : process.arch === "arm" ? "arm" : "amd64";
+      const nombre = process.platform === "win32" ? "go2rtc_win64.zip" : `go2rtc_linux_${arch}`;
+      log("Bajando go2rtc para las cámaras WebRTC (una sola vez)...");
+      try {
+        const r = await fetch(base + nombre, { signal: AbortSignal.timeout(120000) });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (nombre.endsWith(".zip")) {
+          const zip = path.join(CARPETA, nombre);
+          fs.writeFileSync(zip, buf);
+          execFileSync("tar", ["-xf", zip, "-C", CARPETA], { windowsHide: true });   // Windows 10+ trae tar
+          fs.unlinkSync(zip);
+        } else { fs.writeFileSync(this.binario(), buf); fs.chmodSync(this.binario(), 0o755); }
+        log("go2rtc listo.");
+        return fs.existsSync(this.binario());
+      } catch (e) { log("No pude bajar go2rtc: " + e.message); return false; } finally { this.bajando = null; }
+    })();
+    return this.bajando;
+  },
+  async asegurar(id, url) {
+    if (this.streams[id] === url && this.proc) return true;
+    if (!(await this.bajar())) return false;
+    this.streams[id] = url;
+    const yaml = ["api: { listen: \"127.0.0.1:1984\" }", "rtsp: { listen: \"\" }", "webrtc: { listen: \"\", ice_servers: [] }", "log: { level: error }", "streams:",
+      ...Object.entries(this.streams).map(([k, u]) => `  ${k}: ${u}`)].join("\n") + "\n";
+    fs.writeFileSync(path.join(CARPETA, "go2rtc.yaml"), yaml);
+    if (this.proc) { this.proc.removeAllListeners("exit"); this.proc.kill(); this.proc = null; await new Promise((r) => setTimeout(r, 500)); }
+    this.proc = spawn(this.binario(), ["-config", path.join(CARPETA, "go2rtc.yaml")], { cwd: CARPETA, windowsHide: true, stdio: "ignore" });
+    this.proc.on("exit", () => { this.proc = null; });
+    await new Promise((r) => setTimeout(r, 1200));
+    return !!this.proc;
+  },
+  // Mientras alguien mira, una conexión abierta mantiene viva la cámara (los cuadros salen al instante)
+  mantener(id) {
+    const v = this.vivos.get(id);
+    if (v) { v.hasta = Date.now() + 15000; return; }
+    const ctrl = new AbortController(), reg = { ctrl, hasta: Date.now() + 15000 };
+    this.vivos.set(id, reg);
+    fetch(`http://127.0.0.1:1984/api/stream.mp4?src=${id}`, { signal: ctrl.signal }).then(async (r) => { const l = r.body.getReader(); while (!(await l.read()).done); }).catch(() => {}).finally(() => this.vivos.delete(id));
+    const t = setInterval(() => { if (Date.now() > reg.hasta) { ctrl.abort(); clearInterval(t); } }, 3000);
+  },
+  async cuadro(id, url) {
+    if (!(await this.asegurar(id, url))) return null;
+    this.mantener(id);
+    try {
+      const r = await fetch(`http://127.0.0.1:1984/api/frame.mp4?src=${id}`, { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) return null;
+      const buf = Buffer.from(await r.arrayBuffer());
+      return buf.length > 500 ? { buf, tipo: "mp4" } : null;
+    } catch { return null; }
+  },
+  cerrar() { for (const v of this.vivos.values()) v.ctrl.abort(); try { this.proc?.kill(); } catch {} },
+};
+process.on("exit", () => Go2.cerrar());
+
 // ─── Creality (puerto 9999) ───────────────────────────────────────────────────
 class Creality {
   constructor(ip, alCambiar) {
@@ -184,10 +251,16 @@ class Creality {
     if (this.probandoCam || (this.camara && Date.now() - (this.camaraAt || 0) < 1800000)) return;
     this.probandoCam = true;
     const antes = this.camara;
-    this.camara = !!(await cuadroJPEG(this.ip, 4000)); this.camaraAt = Date.now(); this.probandoCam = false;
-    if (antes !== this.camara) { log(`${this.nombre()}: cámara ${this.camara ? "disponible" : "no compatible (usa WebRTC)"}`); this.avisar(); }
+    if (await cuadroJPEG(this.ip, 4000)) this.camaraTipo = "mjpeg";
+    else if (Number(this.d.webrtcSupport) === 1 || await puertoAbierto(this.ip, 8000, 1500)) this.camaraTipo = "webrtc";
+    else this.camaraTipo = null;
+    this.camara = !!this.camaraTipo; this.camaraAt = Date.now(); this.probandoCam = false;
+    if (antes !== this.camara) { log(`${this.nombre()}: cámara ${this.camaraTipo === "webrtc" ? "WebRTC (por go2rtc)" : this.camara ? "disponible" : "no encontrada"}`); this.avisar(); }
   }
-  cuadro() { return cuadroJPEG(this.ip); }
+  async cuadro() {
+    if (this.camaraTipo === "webrtc") return Go2.cuadro(this.id, `webrtc:http://${this.ip}:8000/call/webrtc_local#format=creality`);
+    const buf = await cuadroJPEG(this.ip); return buf ? { buf, tipo: "jpg" } : null;
+  }
   pedir() { try { this.ws?.readyState === 1 && this.ws.send(JSON.stringify({ method: "get", params: { ReqPrinterPara: 1 } })); } catch {} }
   reintentar() { if (!this.cerrada) setTimeout(() => this.conectar(), 15000); }
   vigilar() {
@@ -384,7 +457,7 @@ class Elegoo {
       this.camPrendidaAt = Date.now();
       await new Promise((r) => setTimeout(r, 1500));
     }
-    return cuadroJPEG(this.ip);
+    const buf = await cuadroJPEG(this.ip); return buf ? { buf, tipo: "jpg" } : null;
   }
   avisar() { this.alCambiar(this); }
   cerrar() { this.cerrada = true; clearInterval(this.reloj); try { this.m?.cerrar(); } catch {} }
@@ -428,10 +501,10 @@ class CanalCamara {
         if (Date.now() > hasta) { this.pedidos.delete(id); continue; }
         const p = [...impresoras.values()].find((x) => x.id === id);
         if (!p) continue;
-        const jpg = await p.cuadro();
-        if (!jpg) { this.enviar({ topic: this.tema, event: "broadcast", payload: { type: "broadcast", event: "cuadro", payload: { maq: id, error: "sin imagen" } } }); continue; }
-        const b64 = jpg.toString("base64"), TAM = 120000, n = Math.ceil(b64.length / TAM), cid = Date.now();
-        for (let i = 0; i < n; i++) this.enviar({ topic: this.tema, event: "broadcast", payload: { type: "broadcast", event: "cuadro", payload: { maq: id, cid, i, n, d: b64.slice(i * TAM, (i + 1) * TAM) } } });
+        const c = await p.cuadro();
+        if (!c) { this.enviar({ topic: this.tema, event: "broadcast", payload: { type: "broadcast", event: "cuadro", payload: { maq: id, error: "sin imagen" } } }); continue; }
+        const b64 = c.buf.toString("base64"), TAM = 120000, n = Math.ceil(b64.length / TAM), cid = Date.now();
+        for (let i = 0; i < n; i++) this.enviar({ topic: this.tema, event: "broadcast", payload: { type: "broadcast", event: "cuadro", payload: { maq: id, cid, i, n, tipo: c.tipo, d: b64.slice(i * TAM, (i + 1) * TAM) } } });
       }
     } finally { this.mandando = false; }
   }
