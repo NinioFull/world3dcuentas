@@ -21,7 +21,7 @@ export async function avisar(texto, ahora = Date.now()) {
     const r = await fetch("https://api-v3.voicemonkey.io/announce", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token, device: device.split(",").map((d) => d.trim()).filter(Boolean), speech: texto, chime: "soft" }),
+      body: JSON.stringify({ token, device: device.split(",").map((d) => d.trim()).filter(Boolean), speech: texto }),
       signal: AbortSignal.timeout(4000),
     });
     if (!r.ok) console.warn("Voice Monkey", r.status, (await r.text()).slice(0, 200));
