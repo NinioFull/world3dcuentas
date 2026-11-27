@@ -108,8 +108,11 @@ Consultar el Manager por voz desde el parlante: *"Alexa, abre mi taller"* (resum
 | cuánto me deben | por cobrar y quién quedó debiendo |
 | cuánto cobré (hoy, esta semana, este mes) | adelantos + saldos, con las mismas cuentas que el resumen semanal |
 | hay pedidos en la web | pagados para pasar a la cola, esperando pago y cotizaciones |
+| anota diez llaveros negros para Linda por ciento cincuenta bolivianos | arma el pedido y pregunta lo que falte (producto, cliente, precio, adelanto); lo lee y **solo lo guarda si decís que sí** |
 
-Solo lee, no cambia nada. El código está en `api/alexa.mjs` (endpoint) y `alexa/` (firma de Amazon, lectura de Firestore/Supabase y frases). El modelo de voz está en `alexa/modelo/`.
+**Anotar pedidos**: el trabajo entra a la cola como uno cargado a mano (estado *En cola*, primera impresora, nota "Anotado por voz con Alexa"). Con el catálogo completa material, color, tiempo y peso; si el precio es cero usa el precio de lista × cantidad. Si el cliente ya existe (nombre completo, o solo el nombre cuando hay uno solo así) copia su teléfono. La cantidad, si no se dice, es 1. El color se reconoce si va en la frase. Si Alexa repite el pedido no se duplica (id fijo por sesión y datos).
+
+Fuera de anotar pedidos, solo lee. El código está en `api/alexa.mjs` (endpoint) y `alexa/` (firma de Amazon, lectura de Firestore/Supabase y frases). El modelo de voz está en `alexa/modelo/` (se genera con `node alexa/modelo/generar.mjs`; para cambiar frases o productos editá ese archivo, regenerá y pegá el JSON en la consola de Alexa › JSON Editor › Save › Build skill).
 
 ### Activarla (una sola vez)
 

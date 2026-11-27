@@ -1,23 +1,48 @@
-// Skill de Alexa "Mi taller": consultar el Manager por voz.
+// Skill de Alexa "Mi taller": consultar el Manager por voz y anotar pedidos (con confirmación).
 // Endpoint: https://<dominio-del-manager>/api/alexa  (configurado en la consola de Alexa, tipo HTTPS)
 // Variables en Vercel: ALEXA_SKILL_ID, FIREBASE_SERVICE_ACCOUNT y (opcional) SUPABASE_SECRET_KEY.
 import { verificarAlexa } from "../alexa/verificar.mjs";
-import { leerCola, leerMovimientos, leerWeb } from "../alexa/datos.mjs";
+import { createHash } from "node:crypto";
+import { leerCola, leerMovimientos, leerWeb, leerParaPedido, crearTrabajo } from "../alexa/datos.mjs";
 import * as R from "../alexa/respuestas.mjs";
+import { armarPedido } from "../alexa/pedidos.mjs";
 
-const AYUDA = "Podés preguntarme qué tenés para hoy, qué se está imprimiendo, cuánto le falta a una impresora, qué hay en cola, qué entregas tenés, qué está atrasado, cuánto te deben, cuánto cobraste o si hay pedidos en la web.";
+const AYUDA = "Podés preguntarme qué tenés para hoy, qué se está imprimiendo, cuánto le falta a una impresora, qué hay en cola, qué entregas tenés, qué está atrasado, cuánto te deben, cuánto cobraste o si hay pedidos en la web. También podés anotar un pedido: decí, por ejemplo, anota diez llaveros negros para Juan.";
 
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-function decir(texto, { seguir = false, reprompt } = {}) {
+function decir(texto, { seguir = false, reprompt, directivas } = {}) {
   return Response.json({
     version: "1.0",
     response: {
       outputSpeech: { type: "SSML", ssml: `<speak>${esc(texto)}</speak>` },
       card: { type: "Simple", title: "WORLD3D · Mi taller", content: texto },
       ...(seguir ? { reprompt: { outputSpeech: { type: "SSML", ssml: `<speak>${esc(reprompt || "¿Qué más querés saber?")}</speak>` } } } : {}),
-      shouldEndSession: !seguir,
+      ...(directivas ? { directives: directivas } : {}),
+      shouldEndSession: directivas ? undefined : !seguir,
     },
   });
+}
+
+const valorCrudo = (intent, nombre) => intent?.slots?.[nombre]?.value || "";
+
+// Anotar pedido: Alexa pregunta lo que falta (modelo de diálogo); acá se arma, se confirma y recién ahí se guarda
+async function anotarPedido(pedido, intent) {
+  if (intent.confirmationStatus === "DENIED") return decir("Bueno, no anoté nada. Podés dictarlo de nuevo cuando quieras.");
+  if (pedido.request.dialogState && pedido.request.dialogState !== "COMPLETED") {
+    return Response.json({ version: "1.0", response: { directives: [{ type: "Dialog.Delegate", updatedIntent: intent }] } });
+  }
+  const slots = {
+    producto: slot(intent, "producto"), cantidad: valorCrudo(intent, "cantidad"), color: slot(intent, "color"),
+    cliente: valorCrudo(intent, "cliente"), precio: valorCrudo(intent, "precio"), adelanto: valorCrudo(intent, "adelanto"),
+  };
+  const p = armarPedido({ ...slots, producto: valorCrudo(intent, "producto") || slots.producto, productoAlt: slots.producto }, await leerParaPedido());
+  if (intent.confirmationStatus !== "CONFIRMED") {
+    return decir(`${p.resumen} ¿Lo anoto en la cola?`, { directivas: [{ type: "Dialog.ConfirmIntent", updatedIntent: intent }] });
+  }
+  // Mismo id para la misma sesión y los mismos datos: si Alexa reintenta, no se duplica
+  const id = "alexa-" + createHash("sha256").update((pedido.session?.sessionId || pedido.request.requestId) + JSON.stringify(slots)).digest("hex").slice(0, 20);
+  const nuevo = await crearTrabajo(id, p.job);
+  return decir(nuevo ? `Listo, anoté ${p.corto}. Ya está en la cola.` : `Ese pedido ya estaba anotado.`);
 }
 
 const slot = (intent, nombre) => {
@@ -64,6 +89,11 @@ async function responder(pedido) {
       const web = await leerWebSinFallar();
       return decir(web === undefined ? "No pude leer los pedidos de la web ahora. Probá en un rato." : R.pedidosWeb(web));
     }
+    case "AnotarPedidoIntent":
+      return anotarPedido(pedido, intent);
+    case "AMAZON.YesIntent":
+    case "AMAZON.NoIntent":
+      return decir("¿Qué querés saber o anotar?", { seguir: true, reprompt: AYUDA });
     case "AMAZON.HelpIntent":
       return decir(AYUDA + " ¿Qué querés saber?", { seguir: true });
     case "AMAZON.CancelIntent":

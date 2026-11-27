@@ -1,6 +1,7 @@
 // Lectura de la cola (Firestore) con una cuenta de servicio de Firebase, y de los pedidos web (Supabase).
 // Variables de entorno en Vercel:
-//   FIREBASE_SERVICE_ACCOUNT  JSON de la clave privada (Firebase > Configuración > Cuentas de servicio). Solo lectura acá.
+//   FIREBASE_SERVICE_ACCOUNT  JSON de la clave privada (Firebase > Configuración > Cuentas de servicio).
+//                            Lee la cola y solo escribe al anotar un pedido confirmado (crearTrabajo).
 //   SUPABASE_SECRET_KEY       opcional: clave secreta de Supabase, para contar los pedidos web esperando pago / pagados.
 import { createSign } from "node:crypto";
 
@@ -58,14 +59,21 @@ function valor(v) {
   return "";
 }
 const aObjeto = (d) => { const o = { id: d.name.split("/").pop() }; for (const k in d.fields || {}) o[k] = valor(d.fields[k]); return o; };
+const aFirestore = (x) => x === null || x === undefined ? { nullValue: null }
+  : typeof x === "number" ? (Number.isInteger(x) ? { integerValue: String(x) } : { doubleValue: x })
+  : typeof x === "boolean" ? { booleanValue: x } : { stringValue: String(x) };
 const literal = (x) => typeof x === "number" ? { integerValue: String(Math.round(x)) } : typeof x === "boolean" ? { booleanValue: x } : { stringValue: String(x) };
 
-async function consulta(col, filtro) {
+async function consulta(col, filtro, campos) {
   const c = cuentaServicio();
   const r = await fetch(`https://firestore.googleapis.com/v1/projects/${c.project_id}/databases/(default)/documents:runQuery`, {
     method: "POST",
     headers: { authorization: "Bearer " + (await tokenGoogle()), "content-type": "application/json" },
-    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: col }], ...(filtro ? { where: filtro } : {}) } }),
+    body: JSON.stringify({ structuredQuery: {
+      from: [{ collectionId: col }],
+      ...(filtro ? { where: filtro } : {}),
+      ...(campos ? { select: { fields: campos.map((fieldPath) => ({ fieldPath })) } } : {}),
+    } }),
   });
   if (!r.ok) throw new Error("Firestore " + col + " " + r.status + ": " + (await r.text()).slice(0, 200));
   return (await r.json()).filter((x) => x.document).map((x) => aObjeto(x.document));
@@ -104,4 +112,28 @@ export async function leerWeb() {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/pedidos?${q}`, { headers: { apikey: clave } });
   if (!r.ok) throw new Error("Supabase " + r.status + ": " + (await r.text()).slice(0, 200));
   return r.json();
+}
+
+// Catálogo, clientes (nombre y teléfono de cada trabajo) e impresoras, para completar un pedido dictado
+export async function leerParaPedido() {
+  const [productos, trabajos, printers] = await Promise.all([
+    consulta("products"),
+    consulta("jobs", null, ["clientName", "clientPhone", "createdAt"]),
+    consulta("printers"),
+  ]);
+  return { productos, trabajos, printers };
+}
+
+// Crea el trabajo con un id fijo: si Alexa repite el mismo pedido, no se anota dos veces (devuelve false)
+export async function crearTrabajo(id, job) {
+  const c = cuentaServicio();
+  const fields = Object.fromEntries(Object.entries(job).map(([k, v]) => [k, aFirestore(v)]));
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${c.project_id}/databases/(default)/documents/jobs?documentId=${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { authorization: "Bearer " + (await tokenGoogle()), "content-type": "application/json" },
+    body: JSON.stringify({ fields }),
+  });
+  if (r.status === 409) return false;
+  if (!r.ok) throw new Error("crear trabajo " + r.status + ": " + (await r.text()).slice(0, 200));
+  return true;
 }

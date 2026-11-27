@@ -159,6 +159,114 @@
           ]
         },
         {
+          "name": "AnotarPedidoIntent",
+          "slots": [
+            {
+              "name": "producto",
+              "type": "PRODUCTO",
+              "samples": [
+                "{producto}",
+                "es un {producto}",
+                "son {producto}",
+                "es una {producto}",
+                "un {producto}",
+                "una {producto}"
+              ]
+            },
+            {
+              "name": "cantidad",
+              "type": "AMAZON.NUMBER",
+              "samples": [
+                "{cantidad}",
+                "{cantidad} unidades",
+                "son {cantidad}"
+              ]
+            },
+            {
+              "name": "color",
+              "type": "COLOR"
+            },
+            {
+              "name": "cliente",
+              "type": "AMAZON.Person",
+              "samples": [
+                "{cliente}",
+                "para {cliente}",
+                "es para {cliente}",
+                "a nombre de {cliente}"
+              ]
+            },
+            {
+              "name": "precio",
+              "type": "AMAZON.NUMBER",
+              "samples": [
+                "{precio}",
+                "{precio} bolivianos",
+                "{precio} bs",
+                "en total {precio}",
+                "en total {precio} bolivianos",
+                "cobro {precio}"
+              ]
+            },
+            {
+              "name": "adelanto",
+              "type": "AMAZON.NUMBER",
+              "samples": [
+                "{adelanto}",
+                "{adelanto} bolivianos",
+                "dejó {adelanto}",
+                "dejó {adelanto} bolivianos",
+                "me dejó {adelanto}",
+                "de adelanto {adelanto}"
+              ]
+            }
+          ],
+          "samples": [
+            "anota un pedido",
+            "anotá un pedido",
+            "nuevo pedido",
+            "quiero anotar un pedido",
+            "agrega un pedido",
+            "anota un pedido para {cliente}",
+            "nuevo pedido para {cliente}",
+            "anota {cantidad} {producto}",
+            "anota {cantidad} {producto} {color}",
+            "anota {cantidad} {producto} para {cliente}",
+            "anota {cantidad} {producto} {color} para {cliente}",
+            "anota {cantidad} {producto} para {cliente} por {precio} bolivianos",
+            "anota {cantidad} {producto} {color} para {cliente} por {precio} bolivianos",
+            "anota {cantidad} {producto} {color} para {cliente} por {precio} bolivianos con {adelanto} de adelanto",
+            "anota {cantidad} {producto} para {cliente} por {precio} bolivianos con {adelanto} de adelanto",
+            "anotá {cantidad} {producto} para {cliente}",
+            "anotá {cantidad} {producto} {color} para {cliente}",
+            "agrega {cantidad} {producto} para {cliente}",
+            "agrega {cantidad} {producto} {color} para {cliente}",
+            "nuevo pedido de {cantidad} {producto}",
+            "nuevo pedido de {cantidad} {producto} para {cliente}",
+            "nuevo pedido de {cantidad} {producto} {color} para {cliente}",
+            "pedido de {cantidad} {producto} para {cliente}",
+            "anota un {producto} para {cliente}",
+            "anota una {producto} para {cliente}",
+            "anota un {producto} {color} para {cliente}",
+            "que anote {cantidad} {producto} para {cliente}",
+            "que anote {cantidad} {producto} {color} para {cliente}",
+            "que anote un pedido",
+            "{cliente} quiere {cantidad} {producto}",
+            "{cliente} pidió {cantidad} {producto}",
+            "{cliente} pidió {cantidad} {producto} {color}"
+          ]
+        },
+        {
+          "name": "AMAZON.YesIntent",
+          "slots": [],
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NoIntent",
+          "slots": [],
+          "samples": []
+        },
+        {
           "name": "AMAZON.HelpIntent",
           "slots": [],
           "samples": [
@@ -259,8 +367,614 @@
               }
             }
           ]
+        },
+        {
+          "name": "PRODUCTO",
+          "values": [
+            {
+              "name": {
+                "value": "llavero",
+                "synonyms": [
+                  "llaveros"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "llavero personalizado",
+                "synonyms": [
+                  "llaveros personalizado"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "llavero con nombre",
+                "synonyms": [
+                  "llaveros con nombre"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "trofeo",
+                "synonyms": [
+                  "trofeos"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "trofeo personalizado",
+                "synonyms": [
+                  "trofeos personalizado"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "medalla",
+                "synonyms": [
+                  "medallas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "figura",
+                "synonyms": [
+                  "figuras"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "figura personalizada",
+                "synonyms": [
+                  "figuras personalizada"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "figura pintada",
+                "synonyms": [
+                  "figuras pintada"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "cortador de galletas",
+                "synonyms": [
+                  "cortadores de galletas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "cortagalletas",
+                "synonyms": [
+                  "cortagalletases"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "stand",
+                "synonyms": [
+                  "standes"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "exhibidor",
+                "synonyms": [
+                  "exhibidores"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "organizador",
+                "synonyms": [
+                  "organizadores"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "organizador de escritorio",
+                "synonyms": [
+                  "organizadores de escritorio"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "soporte de mando",
+                "synonyms": [
+                  "soportes de mando"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "soporte de celular",
+                "synonyms": [
+                  "soportes de celular"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "soporte de auriculares",
+                "synonyms": [
+                  "soportes de auriculares"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "porta celular",
+                "synonyms": [
+                  "portas celular"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "porta mochilas",
+                "synonyms": [
+                  "portas mochilas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "portalapiceros",
+                "synonyms": [
+                  "portalapiceroses"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "maceta",
+                "synonyms": [
+                  "macetas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "adorno navideño",
+                "synonyms": [
+                  "adornos navideño"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "adorno de huellita",
+                "synonyms": [
+                  "adornos de huellita"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "huellita con nombre",
+                "synonyms": [
+                  "huellitas con nombre"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "portacromos",
+                "synonyms": [
+                  "portacromoses"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "maqueta",
+                "synonyms": [
+                  "maquetas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "repuesto",
+                "synonyms": [
+                  "repuestos"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "pieza",
+                "synonyms": [
+                  "piezas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "réplica",
+                "synonyms": [
+                  "réplicas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "logo en 3D",
+                "synonyms": [
+                  "logo en 3d",
+                  "logos en 3d"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "letrero",
+                "synonyms": [
+                  "letreros"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "placa",
+                "synonyms": [
+                  "placas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "molde",
+                "synonyms": [
+                  "moldes"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "busto",
+                "synonyms": [
+                  "bustos"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "lámpara",
+                "synonyms": [
+                  "lámparas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "caja",
+                "synonyms": [
+                  "cajas"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "estuche",
+                "synonyms": [
+                  "estuches"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "topper de torta",
+                "synonyms": [
+                  "topperes de torta"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "imán",
+                "synonyms": [
+                  "imánes"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "COLOR",
+          "values": [
+            {
+              "name": {
+                "value": "blanco",
+                "synonyms": [
+                  "blancos",
+                  "blancas",
+                  "blanca"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "negro",
+                "synonyms": [
+                  "negros",
+                  "negras",
+                  "negra"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "rojo",
+                "synonyms": [
+                  "rojos",
+                  "rojas",
+                  "roja"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "plomo",
+                "synonyms": [
+                  "plomos",
+                  "gris",
+                  "grises"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "café",
+                "synonyms": [
+                  "cafés",
+                  "marrón",
+                  "marrones"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "amarillo",
+                "synonyms": [
+                  "amarillos",
+                  "amarillas",
+                  "amarilla"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "celeste pastel",
+                "synonyms": [
+                  "celeste",
+                  "celestes"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "púrpura",
+                "synonyms": [
+                  "morado",
+                  "morados",
+                  "morada",
+                  "lila"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "verde oscuro",
+                "synonyms": [
+                  "verde",
+                  "verdes"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "verde claro",
+                "synonyms": [
+                  "verdes claros",
+                  "verde clarito"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "beige",
+                "synonyms": [
+                  "beiges",
+                  "crema"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "rosado claro",
+                "synonyms": [
+                  "rosado",
+                  "rosados",
+                  "rosada",
+                  "rosa"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "plateado",
+                "synonyms": [
+                  "plateados",
+                  "plateada",
+                  "plata"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "rosado oscuro",
+                "synonyms": [
+                  "fucsia",
+                  "rosado fuerte"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "plomo oscuro",
+                "synonyms": [
+                  "gris oscuro"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "dorado impreso en 3d",
+                "synonyms": [
+                  "dorado",
+                  "dorados",
+                  "dorada",
+                  "dorado impreso"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "dorado pintado con spray",
+                "synonyms": [
+                  "dorado pintado",
+                  "dorado con spray"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "dorado bronce pintado con spray",
+                "synonyms": [
+                  "bronce",
+                  "dorado bronce"
+                ]
+              }
+            }
+          ]
         }
       ]
-    }
+    },
+    "dialog": {
+      "delegationStrategy": "ALWAYS",
+      "intents": [
+        {
+          "name": "AnotarPedidoIntent",
+          "delegationStrategy": "ALWAYS",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "producto",
+              "type": "PRODUCTO",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.Anotar.producto"
+              }
+            },
+            {
+              "name": "cantidad",
+              "type": "AMAZON.NUMBER",
+              "confirmationRequired": false,
+              "elicitationRequired": false,
+              "prompts": {}
+            },
+            {
+              "name": "color",
+              "type": "COLOR",
+              "confirmationRequired": false,
+              "elicitationRequired": false,
+              "prompts": {}
+            },
+            {
+              "name": "cliente",
+              "type": "AMAZON.Person",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.Anotar.cliente"
+              }
+            },
+            {
+              "name": "precio",
+              "type": "AMAZON.NUMBER",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.Anotar.precio"
+              }
+            },
+            {
+              "name": "adelanto",
+              "type": "AMAZON.NUMBER",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.Anotar.adelanto"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "prompts": [
+      {
+        "id": "Elicit.Slot.Anotar.producto",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "¿Qué producto es?"
+          }
+        ]
+      },
+      {
+        "id": "Elicit.Slot.Anotar.cliente",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "¿Para quién es el pedido?"
+          }
+        ]
+      },
+      {
+        "id": "Elicit.Slot.Anotar.precio",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "¿Cuánto cobrás en total, en bolivianos? Si va el precio del catálogo, decí cero."
+          }
+        ]
+      },
+      {
+        "id": "Elicit.Slot.Anotar.adelanto",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "¿Cuánto dejó de adelanto? Decí cero si no dejó nada."
+          }
+        ]
+      }
+    ]
   }
 }
