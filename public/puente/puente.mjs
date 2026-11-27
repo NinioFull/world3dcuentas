@@ -20,8 +20,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 // Clave pública del sitio (la misma que usa la web): solo sirve para el canal de la cámara
 const SUPABASE_RT = "wss://swlmlwmjicsewwtudeah.supabase.co/realtime/v1/websocket";
 const SUPABASE_KEY = "sb_publishable_pbWjcSpwmO1fhBNiYVAoow_OsUHX-y0";
@@ -148,10 +150,58 @@ async function cuadroJPEG(ip, ms = 5000) {
 }
 
 // ─── Cámaras WebRTC (K1 Max con firmware nuevo, Hi): go2rtc ───────────────────
-// go2rtc (programa libre de video, github.com/AlexxIT/go2rtc) habla el WebRTC de Creality y entrega un cuadro
-// suelto en MP4. Se baja solo la primera vez y escucha únicamente en esta máquina (127.0.0.1).
+// go2rtc (programa libre de video, github.com/AlexxIT/go2rtc) habla el WebRTC de Creality. Con ffmpeg convierte el
+// cuadro en JPEG (se ve en cualquier navegador, también en iPads viejos); sin ffmpeg manda el cuadro en MP4.
+// Los dos se bajan solos la primera vez; go2rtc escucha únicamente en esta máquina (127.0.0.1).
+// Corre un programa sin frenar el puente (las impresoras se siguen leyendo mientras tanto)
+const correr = (cmd, args, ms = 900000) => new Promise((res, rej) => {
+  const p = spawn(cmd, args, { windowsHide: true, stdio: "ignore" });
+  const t = setTimeout(() => { p.kill(); rej(new Error("tardó demasiado")); }, ms);
+  p.on("error", (e) => { clearTimeout(t); rej(e); });
+  p.on("exit", (c) => { clearTimeout(t); c === 0 ? res() : rej(new Error(cmd + " salió con " + c)); });
+});
+const esTermux = () => String(process.env.PREFIX || "").includes("com.termux");
+const Ff = {
+  ruta: undefined, bajando: null,
+  buscar() {
+    const propio = path.join(CARPETA, "ffmpeg", "bin", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    if (fs.existsSync(propio)) return (this.ruta = propio);
+    try { execFileSync("ffmpeg", ["-version"], { stdio: "ignore", windowsHide: true }); return (this.ruta = "ffmpeg"); } catch {}
+    return (this.ruta = null);
+  },
+  async asegurar() {
+    if (this.ruta === undefined) this.buscar();
+    if (this.ruta) return this.ruta;
+    if (this.bajando) return this.bajando;
+    this.bajando = (async () => {
+      try {
+        if (process.platform === "win32") {
+          log("Bajando ffmpeg para ver las cámaras en cualquier navegador (una sola vez, unos 80 MB)...");
+          const zip = path.join(CARPETA, "ffmpeg.zip"), tmp = path.join(CARPETA, "ffmpeg-tmp");
+          const r = await fetch("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip", { signal: AbortSignal.timeout(900000) });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          await pipeline(Readable.fromWeb(r.body), fs.createWriteStream(zip));
+          fs.rmSync(tmp, { recursive: true, force: true }); fs.mkdirSync(tmp);
+          await correr("tar", ["-xf", zip, "-C", tmp]);
+          const sub = fs.readdirSync(tmp).find((x) => fs.existsSync(path.join(tmp, x, "bin")));
+          fs.rmSync(path.join(CARPETA, "ffmpeg"), { recursive: true, force: true });
+          fs.renameSync(path.join(tmp, sub), path.join(CARPETA, "ffmpeg"));
+          fs.rmSync(tmp, { recursive: true, force: true }); fs.unlinkSync(zip);
+        } else if (esTermux()) {
+          log("Instalando ffmpeg para las cámaras (una sola vez)...");
+          await correr("sh", ["-c", "yes | pkg install -y ffmpeg"]);
+        } else return null;
+        const ruta = this.buscar();
+        log(ruta ? "ffmpeg listo: las cámaras salen en JPEG." : "No quedó ffmpeg: las cámaras siguen en MP4.");
+        return ruta;
+      } catch (e) { log("No pude bajar ffmpeg (" + e.message + "): las cámaras siguen en MP4."); this.ruta = null; return null; }
+      finally { this.bajando = null; }
+    })();
+    return this.bajando;
+  },
+};
 const Go2 = {
-  proc: null, streams: {}, bajando: null, vivos: new Map(),
+  proc: null, streams: {}, bajando: null, vivos: new Map(), conFf: null,
   binario() { return path.join(CARPETA, process.platform === "win32" ? "go2rtc.exe" : "go2rtc"); },
   async bajar() {
     if (fs.existsSync(this.binario())) return true;
@@ -178,10 +228,12 @@ const Go2 = {
     return this.bajando;
   },
   async asegurar(id, url) {
-    if (this.streams[id] === url && this.proc) return true;
+    const ff = Ff.ruta || null;
+    if (this.streams[id] === url && this.proc && this.conFf === ff) return true;
     if (!(await this.bajar())) return false;
-    this.streams[id] = url;
-    const yaml = ["api: { listen: \"127.0.0.1:1984\" }", "rtsp: { listen: \"\" }", "webrtc: { listen: \"\", ice_servers: [] }", "log: { level: error }", "streams:",
+    this.streams[id] = url; this.conFf = ff;
+    const yaml = ["api: { listen: \"127.0.0.1:1984\" }", "rtsp: { listen: \"\" }", "webrtc: { listen: \"\", ice_servers: [] }", "log: { level: error }",
+      ...(ff ? [`ffmpeg: { bin: '${ff.replace(/'/g, "''")}' }`] : []), "streams:",
       ...Object.entries(this.streams).map(([k, u]) => `  ${k}: ${u}`)].join("\n") + "\n";
     fs.writeFileSync(path.join(CARPETA, "go2rtc.yaml"), yaml);
     if (this.proc) { this.proc.removeAllListeners("exit"); this.proc.kill(); this.proc = null; await new Promise((r) => setTimeout(r, 500)); }
@@ -200,8 +252,16 @@ const Go2 = {
     const t = setInterval(() => { if (Date.now() > reg.hasta) { ctrl.abort(); clearInterval(t); } }, 3000);
   },
   async cuadro(id, url) {
+    if (Ff.ruta === undefined) Ff.buscar();
+    if (!Ff.ruta) Ff.asegurar();   // en segundo plano: mientras tanto, MP4
     if (!(await this.asegurar(id, url))) return null;
     this.mantener(id);
+    if (Ff.ruta) {
+      try {
+        const r = await fetch(`http://127.0.0.1:1984/api/frame.jpeg?src=${id}&width=1280`, { signal: AbortSignal.timeout(10000) });
+        if (r.ok && /jpeg/i.test(r.headers.get("content-type") || "")) { const buf = Buffer.from(await r.arrayBuffer()); if (buf.length > 500) return { buf, tipo: "jpg" }; }
+      } catch {}
+    }
     try {
       const r = await fetch(`http://127.0.0.1:1984/api/frame.mp4?src=${id}`, { signal: AbortSignal.timeout(10000) });
       if (!r.ok) return null;
@@ -252,7 +312,7 @@ class Creality {
     this.probandoCam = true;
     const antes = this.camara;
     if (await cuadroJPEG(this.ip, 4000)) this.camaraTipo = "mjpeg";
-    else if (Number(this.d.webrtcSupport) === 1 || await puertoAbierto(this.ip, 8000, 1500)) this.camaraTipo = "webrtc";
+    else if (Number(this.d.webrtcSupport) === 1 || await puertoAbierto(this.ip, 8000, 1500)) { this.camaraTipo = "webrtc"; if (!PROBAR) Ff.asegurar(); }
     else this.camaraTipo = null;
     this.camara = !!this.camaraTipo; this.camaraAt = Date.now(); this.probandoCam = false;
     if (antes !== this.camara) { log(`${this.nombre()}: cámara ${this.camaraTipo === "webrtc" ? "WebRTC (por go2rtc)" : this.camara ? "disponible" : "no encontrada"}`); this.avisar(); }
@@ -534,7 +594,7 @@ async function actualizar() {
 // ─── Coordinación ─────────────────────────────────────────────────────────────
 const impresoras = new Map();          // clave: ip (Creality) o sn (Elegoo)
 const enviado = new Map();             // id -> último registro mandado
-let enEspera = false, ultimoLatido = 0, urgente = null, buscando = false;
+let enEspera = false, ultimoLatido = 0, urgente = null, buscando = false, ultimoFallo = 0, avisoFallo = 0;
 
 function alCambiar() {
   if (PROBAR) return;
@@ -542,7 +602,8 @@ function alCambiar() {
     const r = p.datos(), a = enviado.get(r.id);
     return !a || a.estado !== r.estado || a.archivo !== r.archivo || a.error !== r.error || a.camara !== r.camara;
   });
-  if (hayUrgente && !urgente) urgente = setTimeout(() => { urgente = null; enviar(false); }, 1500);
+  // Si el Manager no responde, no se insiste a cada rato: se reintenta cada 30 s
+  if (hayUrgente && !urgente) urgente = setTimeout(() => { urgente = null; enviar(false); }, Date.now() - ultimoFallo < 30000 ? 30000 : 1500);
 }
 
 async function buscar() {
@@ -585,6 +646,7 @@ async function enviar(latido) {
     const j = await resp.json().catch(() => ({}));
     if (resp.status === 401) { log("El Manager no reconoce la clave. Copiala de nuevo desde Impresoras → Conexión."); return; }
     if (!resp.ok) { log("El Manager respondió " + resp.status + (j.error ? ": " + j.error : "")); return; }
+    ultimoFallo = 0;
     for (const r of maquinas) { const { antes, ...resto } = r; enviado.set(r.id, resto); }
     if (latido) ultimoLatido = Date.now();
     if (j.espera && !enEspera) {
@@ -596,7 +658,8 @@ async function enviar(latido) {
       buscar(); prenderCanal();
     }
   } catch (e) {
-    log("No pude hablar con el Manager (" + (e.cause?.code || e.name || e.message) + "). Reintento en un rato.");
+    ultimoFallo = Date.now();
+    if (Date.now() - avisoFallo > 600000) { avisoFallo = Date.now(); log("No pude hablar con el Manager (" + (e.cause?.code || e.name || e.message) + "). Reintento en un rato."); }
   }
 }
 
@@ -615,7 +678,7 @@ if (PROBAR) {
   if (!enEspera) { await buscar(); prenderCanal(); }
   setTimeout(() => enviar(true), 8000);
   setTimeout(actualizar, 60000);
-  setInterval(actualizar, 6 * 3600000);
+  setInterval(actualizar, 3600000);   // revisa cada hora si hay versión nueva
   setInterval(() => enviar(Date.now() - ultimoLatido > (enEspera ? 55000 : 110000)), 30000);
   setInterval(() => buscar(), 5 * 60000);
   process.on("SIGINT", () => process.exit(0));
