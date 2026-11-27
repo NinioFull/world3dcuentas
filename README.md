@@ -168,3 +168,9 @@ npm start
 - Avisos arriba de cada pantalla y en el kiosco: imprime algo sin pedido (elegís cuál con un toque), pausa, cancelación, error, impresora nueva sin identificar. Telegram avisa pausas, cancelaciones, errores y si una se apaga en plena impresión.
 - Instalar: Máquinas → Conexión con las impresoras → Instalar. El Manager arma una línea con la clave adentro: en la PC se pega en PowerShell (`$env:W3D_CLAVE=...; irm …/puente/instalar.ps1 | iex`); en el celu, con Termux + Termux:Boot de F-Droid, se pega en Termux (`curl -fsSL …/puente/instalar-celu.sh | W3D_CLAVE=... bash`).
 - Pruebas sin red: `node impresoras/prueba.mjs`.
+- **Cámara en vivo** (botón "Cámara" en Máquinas, Inicio y kiosco): el puente manda una imagen cada 2 s por un canal de tiempo real de Supabase con nombre secreto (sale de la clave). Se pausa sola a los 3 min. Funciona con la K1 Max (si su cámara da video simple) y la Elegoo; las Hi usan WebRTC y no dan imagen al puente.
+- **Tiempos y gramos reales**: al cerrar un trabajo, la impresora informa minutos (`minReales`) y filamento (`gramosReales`, de los mm de 1,75); se suman por tanda. El costo y la ganancia usan eso. En Productos aparece "Real: … por unidad" con "Usar estos" para corregir el catálogo.
+- **Uso de cada máquina** (Stats › Máquinas): % del día y del horario del taller imprimiendo, horas paradas, impresiones y cancelaciones (colección `impresiones`, una por impresión que termina o se cancela).
+- **Máquina parada con cola** (Apps Script): en horario del taller, si una máquina lleva 25 min libre o terminada y tiene pedidos esperando, avisa por Telegram con lo que sigue.
+- **Alexa** responde lo que falta con lo que dice la impresora.
+- El puente se actualiza solo (revisa cada 6 h); el arranque de la PC o del celu lo vuelve a levantar.

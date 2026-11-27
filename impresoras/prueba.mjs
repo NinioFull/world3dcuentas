@@ -1,7 +1,7 @@
 // Prueba del puente sin internet: Firestore falso en memoria. Correr: node impresoras/prueba.mjs
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { impresoraDe, cierreDe } from "./logica.mjs";
+import { impresoraDe, cierreDe, gramosDe, impresionDe } from "./logica.mjs";
 
 const P = [
   { id: "p1", name: "Creality K1 Max", type: "FDM" }, { id: "p2", name: "Creality Hi 1", type: "FDM" },
@@ -20,6 +20,14 @@ assert.equal(cierreDe(job, { estado: "terminada", antes: "imprimiendo" }, ahora)
 assert.equal(cierreDe({ ...job, quantity: 4, remaining: 480 }, { estado: "terminada", antes: "imprimiendo" }, ahora).status, "paused", "tanda");
 assert.equal(cierreDe(job, { estado: "terminada", antes: null, inicio: ahora - 10 * 3600000 }, ahora), null, "impresión vieja no cierra");
 assert.equal(cierreDe(job, { estado: "terminada", antes: null, inicio: ahora - 80 * 60000 }, ahora).status, "done");
+
+assert.equal(gramosDe(1000, "PLA"), 3);   // 1 m de PLA 1,75 ≈ 3 g
+const real = cierreDe(job, { estado: "terminada", antes: "imprimiendo", tiempoSeg: 5400, usadoMm: 10000 }, ahora);
+assert.equal(real.minReales, 90); assert.equal(real.gramosReales, 29.8);
+const t1 = cierreDe({ ...job, quantity: 4, remaining: 480, material: "PETG" }, { estado: "terminada", antes: "imprimiendo", tiempoSeg: 3600, usadoMm: 5000 }, ahora);
+assert.equal(t1.tandas, 1); assert.equal(t1.minReales, 60);
+assert.equal(impresionDe({ id: "k", estado: "terminada", antes: "imprimiendo", inicio: 1000 * 60000, tiempoSeg: 60 }, "p1", ahora).id, "k-1000");
+assert.equal(impresionDe({ id: "k", estado: "terminada", antes: null, inicio: 5 }, "p1", ahora), null);
 
 // ── Firestore falso ──
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -62,10 +70,11 @@ assert.equal(db.get("jobs/j1").status, "printing");
 const c = await enviar({ ...K, fuente: "celu", latido: true, maquinas: [{ ...k1, estado: "terminada", antes: "imprimiendo" }] });
 assert.equal(c.espera, true); assert.equal(db.get("jobs/j1").status, "printing", "el celular en espera no toca nada");
 // La PC ve que terminó: se cierra el trabajo de la K1 Max y no el de la Hi
-const t = await enviar({ ...K, fuente: "pc", maquinas: [{ ...k1, estado: "terminada", progreso: 100, faltaSeg: 0, antes: "imprimiendo" }] });
+const t = await enviar({ ...K, fuente: "pc", maquinas: [{ ...k1, estado: "terminada", progreso: 100, faltaSeg: 0, antes: "imprimiendo", inicio: Date.now() - 3600000, tiempoSeg: 3600, usadoMm: 8000 }] });
 assert.equal(t.cerrados, 1); assert.equal(db.get("jobs/j1").status, "done"); assert.equal(db.get("jobs/j1").finImpresora, true);
 assert.equal(db.get("jobs/j1").finAuto, db.get("jobs/j1").endedAt, "finAuto = endedAt para el aviso de Telegram");
 assert.equal(db.get("jobs/j2").status, "printing");
+assert.ok([...db.keys()].some((k) => k.startsWith("impresiones/creality-k1max-")), "queda registrada la impresión");
 // PC apagada (latido viejo): el celular toma el control
 guardar("config/puente", { latidoPc: Date.now() - 10 * 60000 });
 const c2 = await enviar({ ...K, fuente: "celu", latido: true, maquinas: [] });

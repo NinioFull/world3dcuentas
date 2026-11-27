@@ -77,6 +77,25 @@ function avisos() {
     }
   });
 
+  // Máquina parada con pedidos esperando (solo en horario del taller): un aviso cada vez que queda libre
+  if (maquinas.length && enHorario_(ahora)) {
+    const vivos = consulta_('jobs', 'status', ['pending', 'printing']).map(d => d.datos).filter(j => j.jobType !== 'design');
+    const pidDe = (m) => { const p = impresorasL.filter(x => x.maquina === m.id)[0]; return p ? p.id : (m.printer && !impresorasL.some(x => x.maquina === m.id || (x.id === m.printer && x.maquina)) ? m.printer : null); };
+    maquinas.forEach(m => {
+      if (m.estado !== 'libre' && m.estado !== 'terminada') return;
+      const pid = pidDe(m), desde = num_(m.cambioAt);
+      if (!pid || !desde || ahora - desde < 25 * 60000) return;
+      if (vivos.some(j => j.printer === pid && j.status === 'printing')) return;
+      const cola = vivos.filter(j => j.printer === pid && j.status === 'pending').sort((a, b) => num_(a.priority || a.createdAt) - num_(b.priority || b.createdAt));
+      const clave = 'l:' + m.id + ':' + desde;
+      if (!cola.length || avisados[clave]) return;
+      const min = Math.round((ahora - desde) / 60000), hace = min < 90 ? min + ' min' : Math.round(min / 60) + ' h';
+      const texto = (m.estado === 'terminada' ? '🟠 <b>La ' + esc(nombreDe(m)) + ' terminó hace ' + hace + ' y está parada</b>' : '🟠 <b>La ' + esc(nombreDe(m)) + ' está libre hace ' + hace + '</b>')
+        + '\nTenés ' + cola.length + ' en cola para ella. Sigue: ' + esc(cola[0].fileName) + (num_(cola[0].quantity) > 1 ? ' (×' + num_(cola[0].quantity) + ')' : '') + (cola[0].clientName ? ' · ' + esc(cola[0].clientName) : '');
+      if (telegram_(texto)) avisados[clave] = ahora;
+    });
+  }
+
   const docs = consulta_('jobs', 'status', ['printing', 'done']);
   const terminados = [];
   docs.forEach(d => {
@@ -112,6 +131,14 @@ function avisos() {
   }
   Object.keys(avisados).forEach(k => { if (ahora - avisados[k] > 2 * 86400000) delete avisados[k]; });
   props.setProperty('AVISADOS', JSON.stringify(avisados));
+}
+
+// Horario del taller (hora de Bolivia): lun–vie 9:00–12:15 y 15:00–19:00, sáb 8:30–13:00
+function enHorario_(t) {
+  const p = Utilities.formatDate(new Date(t), 'America/La_Paz', 'u H m').split(' ').map(Number), h = p[1] + p[2] / 60;
+  if (p[0] >= 1 && p[0] <= 5) return (h >= 9 && h < 12.25) || (h >= 15 && h < 19);
+  if (p[0] === 6) return h >= 8.5 && h < 13;
+  return false;
 }
 
 // Un documento suelto (null si no existe)

@@ -85,12 +85,33 @@ export const ACTIVOS = ["pending", "printing", "paused", "done", "shipping"];
 
 // Todo lo que no está entregado + lo entregado que quedó debiendo + impresoras
 export async function leerCola() {
-  const [activos, deben, printers] = await Promise.all([
+  const [activos, deben, printers, maquinas, config] = await Promise.all([
     consulta("jobs", campo("status", "IN", ACTIVOS)),
     consulta("jobs", campo("debe", "EQUAL", true)),
     consulta("printers"),
+    consulta("maquinas").catch(() => []),
+    consulta("config").catch(() => []),
   ]);
-  return { jobs: activos, deben: deben.filter((j) => j.status === "shipped"), printers };
+  return { jobs: conImpresoras(activos, printers, maquinas, config), deben: deben.filter((j) => j.status === "shipped"), printers };
+}
+
+// Puente de impresoras: si la máquina está conectada, lo que falta sale de ella (igual que en el Manager)
+function conImpresoras(jobs, printers, maquinas, config) {
+  const cfg = config.find((d) => d.id === "puente") || {}, ahora = Date.now();
+  if (ahora - Math.max(Number(cfg.latidoPc) || 0, Number(cfg.latidoCelu) || 0) > 6 * 60000) return jobs;
+  const maqDe = (pid) => {
+    const p = printers.find((x) => x.id === pid); if (!p) return null;
+    return (p.maquina && maquinas.find((m) => m.id === p.maquina)) || maquinas.find((m) => m.printer === pid && !printers.some((q) => q.maquina === m.id && q.id !== pid)) || null;
+  };
+  return jobs.map((j) => {
+    if (j.status !== "printing" || !j.runStart) return j;
+    const m = maqDe(j.printer);
+    if (!m || !["preparando", "imprimiendo", "pausada"].includes(m.estado) || m.faltaSeg == null) return j;
+    const unidades = Math.max(1, Number(j.quantity) || 1), total = (Number(j.duration) || 0) * unidades;
+    const contador = Math.max(0, (Number(j.remaining) || 0) - Math.floor((ahora - Number(j.runStart)) / 60000)), fm = Math.ceil(m.faltaSeg / 60);
+    if (unidades > 1 && contador - fm > Math.max(20, total * 0.25)) return j;   // quedan más tandas: manda el contador
+    return { ...j, remaining: fm, runStart: ahora, vivo: { estado: m.estado, progreso: m.progreso } };
+  });
 }
 
 // Trabajos que tocan plata desde una fecha: tomados (adelanto) o entregados/cobrados (saldo)
