@@ -125,6 +125,31 @@ const MAQ_DEMO = [
 const DENSIDAD = { PLA:1.24, PETG:1.27, ABS:1.04, ASA:1.07, TPU:1.21, NYLON:1.14 };
 const gramosDeMm = (mm, material) => Number(mm) > 0 ? Math.round(Number(mm) * Math.PI * 0.875 * 0.875 / 1000 * (DENSIDAD[String(material||"").toUpperCase().replace(/[^A-Z]/g,"")] || 1.24) * 10) / 10 : null;
 const normNombre = (t) => String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
+// Cámaras WebRTC (K1 Max, Hi): el puente manda un cuadro suelto en MP4 (H.264). Se dibuja en un canvas y
+// queda como imagen, igual que las JPEG.
+const mp4AImagen = (b64) => new Promise((res) => {
+  let url = null, hecho = false;
+  const fin = (r) => { if (hecho) return; hecho = true; if (url) URL.revokeObjectURL(url); res(r); };
+  try {
+    const bin = atob(b64), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    url = URL.createObjectURL(new Blob([u8], { type: "video/mp4" }));
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.preload = "auto";
+    const dibujar = () => {
+      try {
+        if (!v.videoWidth) return fin(null);
+        const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext("2d").drawImage(v, 0, 0); fin(c.toDataURL("image/jpeg", 0.85));
+      } catch (e) { fin(null); }
+    };
+    v.onloadeddata = () => { if (v.requestVideoFrameCallback) { v.requestVideoFrameCallback(() => dibujar()); setTimeout(dibujar, 400); } else setTimeout(dibujar, 60); };
+    v.onerror = () => fin(null);
+    setTimeout(() => fin(null), 6000);
+    v.src = url;
+    const pr = v.play && v.play(); if (pr && pr.catch) pr.catch(() => {});
+  } catch (e) { fin(null); }
+});
 const palabrasDe = (t) => String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(/[^a-z0-9]+/).filter(x=>x.length>2 && !["gcode","copia","the"].includes(x));
 const parecido = (a, b) => { const x = palabrasDe(a), y = palabrasDe(b); if (!x.length || !y.length) return 0; return x.filter(w=>y.some(v=>v.startsWith(w)||w.startsWith(v))).length / Math.max(x.length, y.length); };
 // Listo hace más de 3 días y nadie lo recogió
@@ -3250,9 +3275,10 @@ export default function App() {
       if (p.error) { setCamImg(c => c?.src ? c : { error: p.error }); return; }
       (partes[p.cid] = partes[p.cid] || [])[p.i] = p.d;
       if (partes[p.cid].filter(Boolean).length === p.n) {
-        const src = "data:image/jpeg;base64," + partes[p.cid].join("");
+        const b64 = partes[p.cid].join("");
         Object.keys(partes).forEach(k => { if (Number(k) <= p.cid) delete partes[k]; });
-        setCamImg({ src, at: Date.now() });
+        if (p.tipo === "mp4") mp4AImagen(b64).then(src => { if (vivo && src) setCamImg({ src, at: Date.now() }); else if (vivo && !src) setCamImg(c => c?.src ? c : { error: "este navegador no pudo mostrar la imagen" }); });
+        else setCamImg({ src: "data:image/jpeg;base64," + b64, at: Date.now() });
       }
     });
     const pedir = () => ch.send({ type:"broadcast", event:"pedir", payload:{ maq: camVer } });
