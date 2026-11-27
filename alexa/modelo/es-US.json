@@ -1,0 +1,266 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "mi taller",
+      "intents": [
+        {
+          "name": "ResumenIntent",
+          "slots": [],
+          "samples": [
+            "qué tengo para hoy",
+            "qué tengo hoy",
+            "qué hay para hoy",
+            "cómo va el día",
+            "cómo va el taller",
+            "cómo vamos",
+            "dame el resumen",
+            "dame un resumen",
+            "el resumen",
+            "resumen del día",
+            "cómo está todo",
+            "qué hay de nuevo",
+            "cómo está el taller"
+          ]
+        },
+        {
+          "name": "ImprimiendoIntent",
+          "slots": [
+            {
+              "name": "impresora",
+              "type": "IMPRESORA"
+            }
+          ],
+          "samples": [
+            "qué se está imprimiendo",
+            "qué está imprimiendo",
+            "qué se imprime",
+            "qué se imprime ahora",
+            "qué hay imprimiéndose",
+            "cómo van las impresoras",
+            "cómo van las impresiones",
+            "cuánto falta",
+            "cuánto les falta a las impresoras",
+            "cuánto le falta a la {impresora}",
+            "cuánto le queda a la {impresora}",
+            "cómo va la {impresora}",
+            "qué imprime la {impresora}",
+            "qué está imprimiendo la {impresora}",
+            "qué hay en la {impresora}",
+            "cuánto falta en la {impresora}",
+            "está libre la {impresora}",
+            "cuándo termina la {impresora}",
+            "a qué hora termina la {impresora}"
+          ]
+        },
+        {
+          "name": "ColaIntent",
+          "slots": [],
+          "samples": [
+            "qué hay en cola",
+            "qué hay en la cola",
+            "qué sigue",
+            "qué sigue en la cola",
+            "qué falta imprimir",
+            "cuántos trabajos hay en cola",
+            "cuántos trabajos faltan",
+            "qué tengo pendiente",
+            "qué tengo que imprimir",
+            "qué es lo próximo",
+            "la cola"
+          ]
+        },
+        {
+          "name": "EntregasIntent",
+          "slots": [
+            {
+              "name": "fecha",
+              "type": "AMAZON.DATE"
+            }
+          ],
+          "samples": [
+            "qué entregas tengo",
+            "qué entregas hay",
+            "qué tengo que entregar",
+            "qué hay para entregar",
+            "qué está listo",
+            "qué está listo para entregar",
+            "quién tiene que recoger",
+            "qué tienen que recoger",
+            "qué entregas tengo {fecha}",
+            "qué tengo que entregar {fecha}",
+            "qué entregas hay {fecha}",
+            "qué hay para entregar {fecha}",
+            "las entregas de {fecha}",
+            "entregas para {fecha}",
+            "qué se entrega {fecha}"
+          ]
+        },
+        {
+          "name": "AtrasadosIntent",
+          "slots": [],
+          "samples": [
+            "qué está atrasado",
+            "hay algo atrasado",
+            "qué trabajos están atrasados",
+            "qué pedidos están atrasados",
+            "qué se me pasó",
+            "los atrasados"
+          ]
+        },
+        {
+          "name": "PorCobrarIntent",
+          "slots": [],
+          "samples": [
+            "cuánto me deben",
+            "quién me debe",
+            "cuánto tengo por cobrar",
+            "qué tengo por cobrar",
+            "cuánto falta cobrar",
+            "cuánta plata me deben",
+            "los saldos"
+          ]
+        },
+        {
+          "name": "CobradoIntent",
+          "slots": [
+            {
+              "name": "fecha",
+              "type": "AMAZON.DATE"
+            }
+          ],
+          "samples": [
+            "cuánto cobré",
+            "cuánto vendí",
+            "cuánta plata entró",
+            "cuánto entró",
+            "cuánto gané",
+            "cuánto cobré {fecha}",
+            "cuánto vendí {fecha}",
+            "cuánto entró {fecha}",
+            "cuánta plata entró {fecha}",
+            "cuánto se cobró {fecha}",
+            "cómo estuvo la venta {fecha}",
+            "cuánto hicimos {fecha}"
+          ]
+        },
+        {
+          "name": "PedidosWebIntent",
+          "slots": [],
+          "samples": [
+            "hay pedidos nuevos",
+            "hay pedidos en la web",
+            "pedidos de la web",
+            "qué pedidos hay en la página",
+            "hay pedidos esperando pago",
+            "hay pedidos pagados",
+            "pagaron algún pedido",
+            "entró algún pedido",
+            "hay algo en la web"
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "slots": [],
+          "samples": [
+            "qué puedes hacer",
+            "qué le puedo preguntar"
+          ]
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "slots": [],
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "slots": [],
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "slots": [],
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "slots": [],
+          "samples": []
+        }
+      ],
+      "types": [
+        {
+          "name": "IMPRESORA",
+          "values": [
+            {
+              "id": "k1",
+              "name": {
+                "value": "K1 Max",
+                "synonyms": [
+                  "ka uno",
+                  "ka uno max",
+                  "k uno",
+                  "k uno max",
+                  "kay uno",
+                  "la grande",
+                  "creality ka uno",
+                  "ka uno máx"
+                ]
+              }
+            },
+            {
+              "id": "ender",
+              "name": {
+                "value": "Ender",
+                "synonyms": [
+                  "ender tres",
+                  "ender tres v tres",
+                  "la ender",
+                  "ender ke",
+                  "ender tres ke"
+                ]
+              }
+            },
+            {
+              "id": "centauri",
+              "name": {
+                "value": "Centauri",
+                "synonyms": [
+                  "centauri carbon",
+                  "elegoo centauri",
+                  "la centauri",
+                  "centauri carbon dos",
+                  "la carbon"
+                ]
+              }
+            },
+            {
+              "id": "hi",
+              "name": {
+                "value": "Hi",
+                "synonyms": [
+                  "creality hi",
+                  "la hi",
+                  "jai",
+                  "la jai"
+                ]
+              }
+            },
+            {
+              "id": "resina",
+              "name": {
+                "value": "resina",
+                "synonyms": [
+                  "la de resina",
+                  "impresora de resina",
+                  "elegoo de resina",
+                  "ele de cero cero dos",
+                  "la elegoo"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

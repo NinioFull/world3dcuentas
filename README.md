@@ -94,6 +94,38 @@ Además, cada 5 minutos revisa si terminó una impresión y manda un Telegram (*
 
 El código está en `respaldo/` (`Codigo.gs` y `appsscript.json`). Para reinstalarlo: pegar ambos archivos en un proyecto de Apps Script, agregar la propiedad de script `RESUMEN_SECRETO` (la misma clave que el secreto homónimo de Supabase) y ejecutar `instalar()` una vez. Para probar sin esperar al lunes, ejecutar `semanal()`.
 
+## Alexa: "Mi taller"
+
+Consultar el Manager por voz desde el parlante: *"Alexa, abre mi taller"* (resumen del día) o *"Alexa, pregúntale a mi taller…"*:
+
+| Preguntás | Te dice |
+|---|---|
+| qué tengo para hoy · cómo va el taller | entregas de hoy, qué imprime cada máquina, cola, listos, atrasados y pedidos web |
+| qué se está imprimiendo · cuánto le falta a la ka uno | trabajo, minutos que faltan y a qué hora termina (o si está libre y qué sigue) |
+| qué hay en cola · qué sigue | cantidad, horas de impresión y los próximos trabajos |
+| qué entregas tengo (hoy, mañana, el viernes…) | entregas de ese día y lo listo sin recoger |
+| qué está atrasado | trabajos con entrega vencida |
+| cuánto me deben | por cobrar y quién quedó debiendo |
+| cuánto cobré (hoy, esta semana, este mes) | adelantos + saldos, con las mismas cuentas que el resumen semanal |
+| hay pedidos en la web | pagados para pasar a la cola, esperando pago y cotizaciones |
+
+Solo lee, no cambia nada. El código está en `api/alexa.mjs` (endpoint) y `alexa/` (firma de Amazon, lectura de Firestore/Supabase y frases). El modelo de voz está en `alexa/modelo/`.
+
+### Activarla (una sola vez)
+
+1. **Firebase**: Configuración del proyecto › Cuentas de servicio › *Generar nueva clave privada*. Baja un `.json`.
+2. **Vercel** (proyecto del Manager) › Settings › Environment Variables:
+   - `FIREBASE_SERVICE_ACCOUNT`: todo el contenido del `.json`.
+   - `SUPABASE_SECRET_KEY` (opcional, para los pedidos web): Supabase › Project Settings › API Keys › clave secreta (`sb_secret_…`) o la `service_role`.
+3. **Consola de Alexa** (developer.amazon.com/alexa/console/ask, con la misma cuenta de Amazon del parlante): *Create Skill* › nombre "Mi taller", idioma **Spanish (US)** (o el que tenga el parlante), tipo *Other* › *Custom* › *Provision your own* › *Start from scratch*.
+   - Build › Interaction Model › **JSON Editor**: pegar `alexa/modelo/es-US.json` (o `es-MX.json`) › *Save* › *Build skill*.
+   - Build › **Endpoint** › HTTPS › Default Region: `https://DOMINIO-DEL-MANAGER/api/alexa` y en el certificado elegir *My development endpoint is a sub-domain of a domain that has a wildcard certificate from a certificate authority* (para `*.vercel.app`; con dominio propio, la primera opción).
+   - Copiar el **Skill ID** (`amzn1.ask.skill.…`, arriba en Endpoint) y ponerlo en Vercel como `ALEXA_SKILL_ID`.
+4. Vercel › Deployments › *Redeploy* para que tome las variables.
+5. Consola de Alexa › **Test** › *Skill testing is enabled in: Development*. Ya funciona en todos los parlantes de esa cuenta, sin publicarla.
+
+Seguridad: el endpoint solo responde a pedidos firmados por Amazon (certificado, firma SHA-256 y hora) y con el Skill ID de `ALEXA_SKILL_ID`. La clave de Firebase queda solo en Vercel.
+
 ## Seguridad
 
 La cola en Firebase solo la puede leer y escribir la cuenta admin (`firestore.rules`). El Manager entra a Firebase con la misma cuenta de Google que a Supabase, usando el token que trae la sesión justo después de entrar. Si un dispositivo pierde la conexión con Firebase, aparece "Conectar con Google" una vez.
