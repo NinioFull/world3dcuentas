@@ -7,7 +7,7 @@ import {
 import { getAuth, onAuthStateChanged, signInWithCredential, GoogleAuthProvider, signOut } from "firebase/auth";
 import { C, STATUS, COLORS, ISOTIPO, FUENTE_TEXTO, etiquetaColor } from "./tema";
 import "./estilos.css";
-import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedidos, cambiarEstadoPedido, numPedido, partirNombre } from "./web";
+import { sb, DEMO, esAdmin, sesionGuardada, entrarConGoogle, salir as salirSupabase, cargarPedidos, cambiarEstadoPedido, numPedido, partirNombre } from "./web";
 import WebView from "./WebView";
 import LoginView from "./LoginView";
 import Icono from "./Icono";
@@ -381,8 +381,14 @@ export default function App() {
   const timerRef = useRef(null);
 
   // ── Cuenta (Google vía Supabase, misma base que el sitio) ──
-  const [sesion, setSesion] = useState(undefined);   // undefined = todavía no sabemos
-  const [admin, setAdmin] = useState(null);           // null = revisando, true/false
+  // Arranque rápido: se usa la sesión guardada en el dispositivo y se confirma por detrás.
+  // Antes se esperaban en fila la sesión (que a veces se renueva por internet) y la consulta de admin.
+  const ADMIN_OK = "w3d-admin-ok";
+  const adminGuardado = (uid) => { try { return !!uid && localStorage.getItem(ADMIN_OK) === uid; } catch (e) { return false; } };
+  const [sesion, setSesion] = useState(() => sesionGuardada());   // undefined = todavía no sabemos
+  const [admin, setAdmin] = useState(() => { const s = sesionGuardada(); return s && adminGuardado(s.user.id) ? true : null; });   // null = revisando, true/false
+  // Cuánto tardó en abrir (se muestra abajo en el menú): momento en que se vio la cola y en que quedó en vivo
+  const arranque = useRef({ ui: null, vivo: null });
   // ── Pedidos de world3d.com.bo ──
   const [pedidos, setPedidos] = useState([]);
   const [pedidosCargando, setPedidosCargando] = useState(false);
@@ -411,12 +417,21 @@ export default function App() {
     if (fbUser.email.toLowerCase() !== sesion.user.email.toLowerCase()) signOut(fbAuth);
   }, [sesion, fbUser]);
 
+  const uidSesion = sesion?.user?.id;
   useEffect(() => {
-    if (!sesion) { setAdmin(null); return; }
-    let vivo = true;
-    esAdmin(sesion.user.id).then(ok => { if (vivo) setAdmin(ok); });
-    return () => { vivo = false; };
-  }, [sesion]);
+    if (!uidSesion) { if (sesion === null) setAdmin(null); return; }
+    let vivo = true, t;
+    if (adminGuardado(uidSesion)) setAdmin(true);   // ya confirmado antes en este dispositivo: entra al instante
+    const preguntar = () => esAdmin(uidSesion).then(ok => {
+      if (!vivo) return;
+      if (ok === true) { try { localStorage.setItem(ADMIN_OK, uidSesion); } catch (e) {} setAdmin(true); }
+      else if (ok === false) { try { localStorage.removeItem(ADMIN_OK); } catch (e) {} setAdmin(false); }
+      else t = setTimeout(preguntar, 5000);   // sin respuesta (sin señal): se sigue como estaba y se reintenta
+    });
+    preguntar();
+    return () => { vivo = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uidSesion, sesion === null]);
 
   const recargarPedidos = async () => {
     if (!admin) return;
@@ -653,8 +668,9 @@ export default function App() {
     const alVolver = () => {
       if (document.visibilityState !== "visible") { ultimaVezVisible.current = Date.now(); return; }
       const fuera = (Date.now() - ultimaVezVisible.current) / 60000;
-      if (fuera > 30 && !showFormRef.current) { window.location.reload(); return; }   // estuvo dormida mucho rato
-      if (fuera > 2) setReintentoFs(n => n + 1);
+      // Al volver a la app se reconecta (sin recargar: así abre al instante). Si en 6 min no quedó al día, el control
+      // de arriba recarga la página. Mientras tanto nada escribe con datos viejos (el cierre automático exige alDia).
+      if (fuera > 2) { setReintentoFs(n => n + 1); if (!alDiaRef.current) { sinDiaDesdeRef.current = Date.now(); } }
     };
     document.addEventListener("visibilitychange", alVolver);
     window.addEventListener("online", alVolver);
@@ -665,7 +681,10 @@ export default function App() {
     if (!fbUser) return;
     const unsubJ = onSnapshot(collection(db,"jobs"), { includeMetadataChanges:true }, (snap) => {
       setJobs(snap.docs.map(d=>({id:d.id,...d.data()}))); setLoading(false);
-      marcarAlDia(!(snap.metadata && snap.metadata.fromCache));
+      const srv = !(snap.metadata && snap.metadata.fromCache);
+      marcarAlDia(srv);
+      if (arranque.current.ui === null) arranque.current.ui = Math.round(performance.now());
+      if (srv && arranque.current.vivo === null) { arranque.current.vivo = Math.round(performance.now()); try { localStorage.setItem("w3d-arranque", JSON.stringify({ ...arranque.current, at: Date.now() })); } catch (e) {} }
     }, (e) => { console.error("Cola desconectada:", e); marcarAlDia(false); setLoading(false); setTimeout(()=>setReintentoFs(n=>n+1), 15000); });
     const unsubProd = onSnapshot(collection(db,"products"),(snap)=>{ setProducts(snap.docs.map(d=>({id:d.id,...d.data()}))); });
     const unsubStock = onSnapshot(collection(db,"stock"),(snap)=>{ const s={}; snap.docs.forEach(d=>{s[d.id]=d.data();}); setStock(s); });
@@ -3304,6 +3323,13 @@ export default function App() {
   if (fbUser === undefined) return <LoginView sesion={sesion} revisando />;
   if (!fbUser) return <LoginView sesion={sesion} reconectar={entrarConGoogle} error={fbError} />;
 
+  // Cuánto tardó en abrir la última vez en este dispositivo (para saber si el iPad anda lento)
+  const TextoArranque = () => {
+    let a = null; try { a = JSON.parse(localStorage.getItem("w3d-arranque") || "null"); } catch (e) {}
+    if (!a || !a.vivo) return null;
+    const s = (ms) => (ms/1000).toLocaleString("es-ES",{maximumFractionDigits:1})+" s";
+    return <div style={{ fontSize:12, color:C.t4, textAlign:"center", padding:"4px 6px 2px" }}>Abrió en {s(a.ui)} · en vivo en {s(a.vivo)}</div>;
+  };
   const CartelPedido = () => !avisoNuevo ? null : (
     <div style={{ position:"fixed", top:"calc(env(safe-area-inset-top) + 12px)", left:12, right:12, zIndex:90, display:"flex", justifyContent:"center", pointerEvents:"none" }}>
       <div style={{ pointerEvents:"auto", width:"100%", maxWidth:560, background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", borderRadius:C.r, padding:"16px 18px", boxShadow:"0 12px 40px rgba(0,0,0,.55)", display:"flex", alignItems:"center", gap:14, animation:"w3dEntra .35s ease-out" }}>
@@ -3505,6 +3531,7 @@ export default function App() {
               <button onClick={()=>setKioskMode(true)} style={{ display:"flex", flexDirection:isDesktop?"row":"column", alignItems:"center", gap:isDesktop?10:0, justifyContent:isDesktop?"flex-start":"center", padding: isDesktop?"10px 14px":"10px 0", borderRadius:C.rMd, background:"none", border:"none", color:C.t3, cursor:"pointer", fontSize:isDesktop?13:18, fontWeight:700, width:"100%" }}>
                 <MonitorSmartphone size={20} color={C.t2} aria-hidden="true" />{isDesktop?" Modo kiosco":<span style={{ fontSize:12 }}>Kiosco</span>}
               </button>
+              {isDesktop && TextoArranque()}
             </div>
           </div>
         )}
@@ -3561,6 +3588,7 @@ export default function App() {
                 <MonitorSmartphone size={20} aria-hidden="true" />Modo kiosco
               </button>
             </div>
+            {TextoArranque()}
             <button onClick={()=>setShowMas(false)} style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", marginTop:8, minHeight:44, border:"none", background:"transparent", color:C.t3, fontSize:14, fontWeight:700, cursor:"pointer" }}><X size={16} aria-hidden="true" />Cerrar</button>
           </div>
           <style>{`@keyframes w3dSube{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}`}</style>

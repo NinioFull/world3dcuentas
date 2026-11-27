@@ -50,7 +50,12 @@ const foto = (col) => ({ docs: Object.entries(memoria[col] || {}).map(([id, d]) 
 // y lo que tocás se guarda al instante; se sube solo cuando vuelve la señal. Funciona aunque haya varias pestañas abiertas.
 export const getFirestore = DEMO ? () => ({ demo: true }) : (app) => {
   try {
-    return fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) });
+    // App instalada (iPad/celu, pantalla de inicio): hay una sola ventana, así que toma el control del caché al
+    // instante. Con varias pestañas iOS a veces deja "tomado" el caché por una ventana que cerró de golpe y la
+    // nueva espera antes de conectarse.
+    const instalada = (typeof window !== "undefined") && ((window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true);
+    const tabManager = instalada ? fs.persistentSingleTabManager({ forceOwnership: true }) : fs.persistentMultipleTabManager();
+    return fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager }) });
   } catch (e) {
     return fs.getFirestore(app);   // ya estaba iniciada (recarga en caliente) o el navegador no permite guardar
   }
