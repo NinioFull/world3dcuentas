@@ -1,6 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # WORLD3D - Instalador del puente de impresoras para el celular Android (Termux), de respaldo.
-# Uso: en Termux pegar:  curl -fsSL https://world3dcuentas.vercel.app/puente/instalar-celu.sh | bash
+# Uso: copiar la línea del Manager (Máquinas → Instalar) y pegarla en Termux. Trae la clave:
+#   curl -fsSL https://world3dcuentas.vercel.app/puente/instalar-celu.sh | W3D_CLAVE=... bash
 # Solo trabaja cuando la PC del taller está apagada. Arranca solo al prender el celu (con Termux:Boot).
 set -e
 BASE="https://world3dcuentas.vercel.app"
@@ -26,7 +27,7 @@ curl -fsSL "$BASE/puente/puente.mjs" -o "$DIR/puente.mjs"
 # 3. Clave del Manager (se lee del teclado aunque el script venga por curl | bash)
 VIEJA=""
 [ -f "$DIR/puente.json" ] && VIEJA=$(node -e 'try{process.stdout.write(require(process.argv[1]).clave||"")}catch{}' "$DIR/puente.json")
-CLAVE=""
+CLAVE="${W3D_CLAVE:-}"
 while [ ${#CLAVE} -lt 16 ]; do
   if [ -n "$VIEJA" ]; then printf "Pegá la clave del puente (Enter = la misma de antes): "; else printf "Pegá la clave del puente que te muestra el Manager: "; fi
   read -r CLAVE < /dev/tty || true
@@ -34,9 +35,9 @@ while [ ${#CLAVE} -lt 16 ]; do
   [ -z "$CLAVE" ] && CLAVE="$VIEJA"
   [ ${#CLAVE} -lt 16 ] && echo "Esa clave es muy corta. Copiala de nuevo desde el Manager."
 done
-printf "Clave de acceso de la Elegoo (Enter si no le pusiste): "
-read -r ELEGOO < /dev/tty || true
-ELEGOO=$(echo "$ELEGOO" | tr -d '[:space:]')
+# La Elegoo sin clave de acceso usa la de fábrica (el puente la prueba solo). Si le pusiste una: W3D_ELEGOO=...
+ELEGOO="${W3D_ELEGOO:-}"
+[ -z "$ELEGOO" ] && [ -f "$DIR/puente.json" ] && ELEGOO=$(node -e 'try{process.stdout.write(require(process.argv[1]).elegooClave||"")}catch{}' "$DIR/puente.json")
 CLAVE="$CLAVE" ELEGOO="$ELEGOO" node -e '
   const c = { clave: process.env.CLAVE, fuente: "celu", servidor: process.argv[2] };
   if (process.env.ELEGOO) c.elegooClave = process.env.ELEGOO;
