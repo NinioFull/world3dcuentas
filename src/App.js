@@ -5,8 +5,8 @@ import {
   deleteDoc, doc, setDoc, runTransaction,
 } from "./datos";
 import { getAuth, onAuthStateChanged, signInWithCredential, GoogleAuthProvider, signOut } from "firebase/auth";
-import * as XLSX from "xlsx";
-import { C, STATUS, COLORS, ISOTIPO, FUENTES_URL, FUENTE_TEXTO, etiquetaColor } from "./tema";
+import { C, STATUS, COLORS, ISOTIPO, FUENTE_TEXTO, etiquetaColor } from "./tema";
+import "./estilos.css";
 import { sb, DEMO, esAdmin, entrarConGoogle, salir as salirSupabase, cargarPedidos, cambiarEstadoPedido, numPedido, partirNombre } from "./web";
 import WebView from "./WebView";
 import LoginView from "./LoginView";
@@ -133,7 +133,9 @@ const waUrl = (job) => {
   return `https://wa.me/${phone}?text=${encodeURIComponent(msgs[job.status]||"")}`;
 };
 
-const exportExcel = (jobs, printers) => {
+// La librería de Excel pesa ~280 KB: se baja recién cuando tocás Exportar
+const exportExcel = async (jobs, printers) => {
+  const XLSX = await import("xlsx");
   const rows = jobs.map(j => {
     const p = printers.find(x=>x.id===j.printer);
     return { Archivo:j.fileName||"", Impresora:p?.name||"", Estado:STATUS[j.status]?.label||j.status, Material:j.material||"", Color:j.color||"", Cantidad:j.quantity||1, "Precio unitario (Bs.)":j.unitPrice||"", "Adelanto (Bs.)":j.deposit||"", "Por cobrar (Bs.)":j.deposit&&j.price?(Number(j.price)-Number(j.deposit)).toFixed(2):"", "Precio total (Bs.)":j.price||"", "Peso (g)":j.weight||"", "Duracion (min)":j.duration||"", Cliente:j.clientName||"", Telefono:j.clientPhone||"", "Fecha creacion":j.createdAt?fmtDate(j.createdAt):"", "Fecha fin":j.endedAt?fmtDate(j.endedAt):"", Notas:j.notes||"" };
@@ -143,7 +145,7 @@ const exportExcel = (jobs, printers) => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Trabajos");
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{Resumen:"Total",Valor:jobs.length},{Resumen:"Completados",Valor:fin.length},{Resumen:"Ingresos",Valor:rev.toFixed(2)}]),"Resumen");
-  XLSX.writeFile(wb,`PrintManager_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb,`WORLD3D_cola_${new Date().toISOString().slice(0,10)}.xlsx`);
 };
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
@@ -151,7 +153,7 @@ const exportExcel = (jobs, printers) => {
 // ─── SHARED STYLES ────────────────────────────────────────────────────────────
 const inputSt = {
   width: "100%",
-  padding: "13px 16px",
+  padding: "14px 16px",
   borderRadius: C.rMd,
   border: `1.5px solid ${C.bg5}`,
   fontSize: 16,
@@ -165,9 +167,9 @@ const inputSt = {
 
 const FormField = ({ label, hint, children }) => (
   <div style={{ marginBottom: 18 }}>
-    <label style={{ display:"block", fontSize:12, fontWeight:700, color:C.t3, marginBottom:7, textTransform:"uppercase", letterSpacing:0.8 }}>{label}</label>
+    <label style={{ display:"block", fontSize:12, fontWeight:700, color:C.t3, marginBottom:8, textTransform:"uppercase", letterSpacing:0.8 }}>{label}</label>
     {children}
-    {hint && <div style={{ fontSize:12, color:C.t4, marginTop:5, lineHeight:1.5 }}>{hint}</div>}
+    {hint && <div style={{ fontSize:12, color:C.t4, marginTop:6, lineHeight:1.5 }}>{hint}</div>}
   </div>
 );
 
@@ -200,7 +202,7 @@ const WheelColumn = ({ items, selected, onChange, width=80 }) => {
   return (
     <div style={{ position:"relative", width, height:ITEM_H*5, overflow:"hidden", flexShrink:0 }}>
       <div style={{ position:"absolute", inset:0, background:"linear-gradient(to bottom,#191513 0%,transparent 30%,transparent 70%,#191513 100%)", zIndex:2, pointerEvents:"none" }} />
-      <div style={{ position:"absolute", top:ITEM_H*2, left:6, right:6, height:ITEM_H, background:"rgba(241,132,27,0.08)", border:"1.5px solid rgba(241,132,27,0.25)", borderRadius:10, zIndex:1, pointerEvents:"none" }} />
+      <div style={{ position:"absolute", top:ITEM_H*2, left:6, right:6, height:ITEM_H, background:"rgba(241,132,27,0.08)", border:"1.5px solid rgba(241,132,27,0.25)", borderRadius:C.rSm, zIndex:1, pointerEvents:"none" }} />
       <div ref={ref} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={()=>{}} style={{ height:"100%", overflowY:"hidden", scrollbarWidth:"none" }}>
         <div style={{ height:ITEM_H*2 }} />
         {items.map((item,i) => (
@@ -217,7 +219,7 @@ const WheelColumn = ({ items, selected, onChange, width=80 }) => {
 // Fecha que se propone al tocar "Poner fecha de entrega": mañana a esta hora, redondeada a 5 minutos
 const fechaPropuesta = () => { const d = new Date(Date.now() + 86400000); d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0); return d.getTime(); };
 const BotonPonerFecha = ({ onClick }) => (
-  <button type="button" onClick={onClick} style={{ width:"100%", minHeight:48, borderRadius:C.rMd, border:`1.5px dashed ${C.bg5}`, background:"transparent", color:C.t2, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+  <button type="button" onClick={onClick} style={{ width:"100%", minHeight:48, borderRadius:C.rMd, border:`1.5px dashed ${C.bg5}`, background:"transparent", color:C.t2, fontSize:16, fontWeight:700, cursor:"pointer" }}>
     + Poner fecha de entrega
   </button>
 );
@@ -257,7 +259,7 @@ const DateTimePicker = ({ value, onChange }) => {
 const StatusBadge = ({ status, pulse=false }) => {
   const st = STATUS[status] || STATUS.pending;
   return (
-    <div style={{ display:"flex", alignItems:"center", gap:5, background:st.bg, border:`1px solid ${st.border}`, borderRadius:C.rPill, padding:"4px 11px", flexShrink:0 }}>
+    <div style={{ display:"flex", alignItems:"center", gap:6, background:st.bg, border:`1px solid ${st.border}`, borderRadius:C.rPill, padding:"4px 12px", flexShrink:0 }}>
       <div style={{ width:6, height:6, borderRadius:"50%", background:st.dot, boxShadow: pulse?`0 0 8px ${st.dot}`:undefined }} />
       <span style={{ fontSize:12, fontWeight:800, color:st.color, letterSpacing:0.2 }}>{st.label}</span>
     </div>
@@ -608,55 +610,7 @@ export default function App() {
 
   useEffect(() => {
     document.title = "WORLD3D Manager";
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = FUENTES_URL;
-    document.head.appendChild(link);
-    const style = document.createElement("style");
-    style.textContent = `
-      * { font-family: 'Outfit', system-ui, sans-serif !important; box-sizing:border-box; }
-      .w3d-titulo { font-family: 'Rubik', 'Outfit', system-ui, sans-serif !important; text-transform: uppercase; }
-      select option { background: #221D1B; color: #FFF7F3; }
-      /* Foco visible al navegar con teclado (iPad con teclado, compu) */
-      button:focus-visible, a:focus-visible, select:focus-visible, [role="button"]:focus-visible { outline: 2px solid #F1841B !important; outline-offset: 2px; }
-      input:focus, textarea:focus, select:focus { border-color: #F1841B !important; }
-      button:active:not(:disabled) { transform: scale(.97); }
-      @keyframes w3dGira { to { transform: rotate(360deg); } }
-      /* En pantallas táctiles (iPad, celu) todo botón mide al menos 44px: se toca con el dedo sin errar */
-      @media (pointer: coarse) { button { min-height: 44px; min-width: 44px; } }
-      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
-      body { margin:0; }
-      /* Job card grid */
-      .cards-grid { display:flex; flex-direction:column; gap:10px; }
-      @media(min-width:1024px){ .cards-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; } }
-      @media(min-width:1400px){ .cards-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; } }
-      /* Dashboard 2-col */
-      .dash-layout { display:flex; flex-direction:column; gap:0; }
-      @media(min-width:1024px){ .dash-layout { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:0; align-items:start; } }
-      @media(min-width:1300px){ .dash-layout { grid-template-columns:minmax(0,1fr) 380px; } }
-      /* Stats grid */
-      .stats-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-      .stats-row-sm { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
-      /* View padding */
-      .view-pad { padding:16px; }
-      @media(min-width:640px){ .view-pad { padding:20px; } }
-      @media(min-width:1024px){ .view-pad { padding:28px 32px; } }
-      /* Sidebar */
-      .sidebar-btn { display:flex; align-items:center; border:none; cursor:pointer; width:100%; transition:background .15s; }
-      .sidebar-btn:hover { background: rgba(255,255,255,.05) !important; }
-      /* Client + Product cards */
-      .client-cards { display:grid; grid-template-columns:1fr; gap:10px; }
-      @media(min-width:1024px){ .client-cards { grid-template-columns:1fr 1fr; } }
-      @media(min-width:1400px){ .client-cards { grid-template-columns:1fr 1fr 1fr; } }
-      /* Stats 2-col on desktop */
-      .stats-layout { display:flex; flex-direction:column; }
-      @media(min-width:1100px){ .stats-layout { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:32px; } }
-      /* Printers grid */
-      .printers-grid { display:grid; grid-template-columns:1fr; gap:12px; }
-      @media(min-width:900px){ .printers-grid { grid-template-columns:1fr 1fr; } }
-      @media(min-width:1300px){ .printers-grid { grid-template-columns:1fr 1fr 1fr; } }
-    `;
-    document.head.appendChild(style);
+
   }, []);
 
   useEffect(() => {
@@ -729,6 +683,19 @@ export default function App() {
     timerRef.current = setInterval(() => setAhora(Date.now()), 20000);
     return () => clearInterval(timerRef.current);
   }, []);
+  // Destello en la tarjeta que acaba de cambiar de etapa (desde cualquier pantalla o dispositivo)
+  const estadosPrevios = useRef(null);
+  const [recienCambiados, setRecienCambiados] = useState(() => new Set());
+  useEffect(() => {
+    const ahoraE = {}; jobsDb.forEach(j => { ahoraE[j.id] = j.status; });
+    const prev = estadosPrevios.current; estadosPrevios.current = ahoraE;
+    if (!prev) return;
+    const cambiados = Object.keys(ahoraE).filter(id => prev[id] && prev[id] !== ahoraE[id]);
+    if (!cambiados.length) return;
+    setRecienCambiados(new Set(cambiados));
+    const t = setTimeout(() => setRecienCambiados(new Set()), 1600);
+    return () => clearTimeout(t);
+  }, [jobsDb]);
   const cerrando = useRef(new Set());
   // Cerrar solo lo que terminó: SOLO con datos al día, y con una transacción que vuelve a leer del servidor y
   // escribe únicamente si el trabajo sigue imprimiendo igual. Así una pantalla con datos viejos nunca pisa
@@ -1364,8 +1331,8 @@ export default function App() {
         {showPriority && (
           <div style={{ width:42, flexShrink:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6, background:C.bg2, borderRadius:`${C.r}px 0 0 ${C.r}px`, border:`1px solid ${C.bg5}`, borderRight:"none", paddingBlock:10 }}>
             <div style={{ fontSize:12, fontWeight:900, color:C.orange, lineHeight:1 }}>#{idx+1}</div>
-            <button onClick={()=>movePriority(job.id,-1)} disabled={idx===0} style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===0?"not-allowed":"pointer", fontSize:12, color:idx===0?C.bg5:C.t2, opacity:idx===0?.3:1 }}>▲</button>
-            <button onClick={()=>movePriority(job.id,+1)} disabled={idx===total-1} style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===total-1?"not-allowed":"pointer", fontSize:12, color:idx===total-1?C.bg5:C.t2, opacity:idx===total-1?.3:1 }}>▼</button>
+            <button onClick={()=>movePriority(job.id,-1)} disabled={idx===0} style={{ width:28, height:28, borderRadius:C.rXs, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===0?"not-allowed":"pointer", fontSize:12, color:idx===0?C.bg5:C.t2, opacity:idx===0?.3:1 }}>▲</button>
+            <button onClick={()=>movePriority(job.id,+1)} disabled={idx===total-1} style={{ width:28, height:28, borderRadius:C.rXs, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:idx===total-1?"not-allowed":"pointer", fontSize:12, color:idx===total-1?C.bg5:C.t2, opacity:idx===total-1?.3:1 }}>▼</button>
           </div>
         )}
         <div {...gestos} style={{ flex:1, minWidth:0, position:"relative", touchAction:puedeDeslizar?"pan-y":undefined }}>
@@ -1375,7 +1342,7 @@ export default function App() {
             <span style={{ color:C.t2, opacity:0 }}>← Pausar</span>
           </div>
         )}
-        <div data-capa style={{ background:isHighlighted?C.orangeBg:C.bg2, borderRadius:showPriority?`0 ${C.r}px ${C.r}px 0`:C.r, border:`1px solid ${isHighlighted?C.orange:isPrinting?STATUS.printing.border:isPaused?STATUS.paused.border:C.bg4}`, overflow:"hidden", transition:"border-color .3s,background .3s", position:"relative" }}>
+        <div data-capa className={recienCambiados.has(job.id)?"w3d-cambio":undefined} style={{ background:isHighlighted?C.orangeBg:C.bg2, borderRadius:showPriority?`0 ${C.r}px ${C.r}px 0`:C.r, border:`1px solid ${isHighlighted?C.orange:isPrinting?STATUS.printing.border:isPaused?STATUS.paused.border:C.bg4}`, overflow:"hidden", transition:"border-color .3s,background .3s", position:"relative" }}>
           {/* Left status accent bar */}
           <div style={{ position:"absolute", left:0, top:0, bottom:0, width:4, background:isDesign?"#E9521E":st.dot, borderRadius:"4px 0 0 4px", opacity:0.9 }} />
 
@@ -1385,9 +1352,13 @@ export default function App() {
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
                   {isDesign && <span style={{ fontSize:12, background:"#2E1309", color:"#FFF0DE", border:"1px solid #6B2812", borderRadius:C.rPill, padding:"2px 8px", fontWeight:800, flexShrink:0 }}>Diseño 3D</span>}
-                  <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", letterSpacing:-.2 }}>{job.fileName}</div>
+                  <div className="w3d-tit-tarjeta" style={{ fontSize:compact?16:18, fontWeight:900, color:C.t1, lineHeight:1.25, letterSpacing:-.2 }}>{job.fileName}</div>
                 </div>
-                {printer && !isDesign && <div style={{ fontSize:12, color:C.t3, marginTop:2, display:"flex", alignItems:"center", gap:4 }}><span><Icono e="🖨" /></span>{printer.name}</div>}
+                {/* Cliente y máquina, como en el kiosco */}
+                <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:"2px 12px", marginTop:4, fontSize:14, color:C.t2 }}>
+                  {job.clientName && !compact && <button onClick={()=>abrirCliente(job)} style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:14, fontWeight:800, color:C.t1, background:"none", border:"none", padding:0, minHeight:0, minWidth:0, cursor:"pointer", textAlign:"left" }}><User size={15} color={C.t3} aria-hidden="true" />{job.clientName}</button>}
+                  {printer && !isDesign && <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:13, color:C.t3 }}><Printer size={14} aria-hidden="true" />{printer.name}</span>}
+                </div>
                 {isDesign && job.quantity>1 && <div style={{ fontSize:12, color:"#FFF0DE", marginTop:2 }}>{job.quantity} piezas</div>}
               </div>
               <StatusBadge status={job.status} pulse={isPrinting} />
@@ -1405,12 +1376,12 @@ export default function App() {
             {/* Progress */}
             {isPrinting && (
               <div style={{ marginBottom:12 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:5 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:6 }}>
                   <span style={{ color:C.green, fontWeight:800 }}>{pct}% completado</span>
                   <span style={{ color:C.t2 }}><Icono e="⏳" /><strong style={{ color:C.t1 }}>{fmtTime(job.remaining)}</strong> restante</span>
                 </div>
-                <div style={{ height:7, background:C.bg4, borderRadius:7 }}>
-                  <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#F1841B)`, borderRadius:7, transition:"width 1s" }} />
+                <div style={{ height:7, background:C.bg4, borderRadius:C.rXs }}>
+                  <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${C.green},#F1841B)`, borderRadius:C.rXs, transition:"width 1s" }} />
                 </div>
               </div>
             )}
@@ -1431,13 +1402,12 @@ export default function App() {
             )}
 
             {/* Client + price */}
-            {!compact&&!resumida&&(job.clientName||job.price) && (
-              <div style={{ background:C.bg3, borderRadius:C.rSm, padding:"11px 14px", marginBottom:12, border:`1px solid ${C.bg5}`, display:"flex", gap:14, flexWrap:"wrap", alignItems:"center" }}>
-                {job.clientName && (
+            {!compact&&!resumida&&(job.clientPhone||job.price) && (
+              <div style={{ background:C.bg3, borderRadius:C.rSm, padding:"12px 14px", marginBottom:12, border:`1px solid ${C.bg5}`, display:"flex", gap:14, flexWrap:"wrap", alignItems:"center" }}>
+                {job.clientPhone && (
                   <div>
-                    <div style={{ fontSize:12, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:2 }}>Cliente</div>
-                    <button onClick={()=>abrirCliente(job)} style={{ fontSize:14, color:C.t1, fontWeight:700, background:"none", border:"none", padding:0, minHeight:0, minWidth:0, cursor:"pointer", textAlign:"left", textDecoration:"underline", textDecorationColor:C.bg5, textUnderlineOffset:3 }}>{job.clientName}</button>
-                    {job.clientPhone && <div style={{ fontSize:12, color:C.t3 }}>{job.clientPhone}</div>}
+                    <div style={{ fontSize:12, color:C.t4, fontWeight:700, textTransform:"uppercase", letterSpacing:.5, marginBottom:2 }}>Teléfono</div>
+                    <div style={{ fontSize:14, color:C.t1, fontWeight:700 }}>{job.clientPhone}</div>
                   </div>
                 )}
                 {job.price&&(()=>{
@@ -1465,7 +1435,7 @@ export default function App() {
               const c = costoDe(job); if (c.sinDatos) return null;
               const total = Number(job.price)||0, gan = total-c.total, margen = total>0 ? gan/total*100 : 0, bajo = margen < (Number(operacion.margenMin)||30);
               return (
-                <div style={{ background:bajo?C.redBg:C.bg3, border:`1px solid ${bajo?"#5C1F14":C.bg5}`, borderRadius:C.rSm, padding:"9px 13px", marginBottom:12, fontSize:12, color:C.t2 }}>
+                <div style={{ background:bajo?C.redBg:C.bg3, border:`1px solid ${bajo?"#5C1F14":C.bg5}`, borderRadius:C.rSm, padding:"10px 14px", marginBottom:12, fontSize:12, color:C.t2 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", gap:8, flexWrap:"wrap" }}>
                     <span>Costo {fmtMoney(c.total)} <span style={{ color:C.t3 }}>= filamento {c.sinPeso?"—":fmtMoney(c.mat)} · luz {fmtMoney(c.luz)} · desgaste {fmtMoney(c.desgaste)}</span></span>
                     <span style={{ fontWeight:900, color:gan<0?"#FF8A6B":bajo?C.yellow:C.green }}>Ganás {fmtMoney(gan)} · {margen.toFixed(0)}%</span>
@@ -1485,11 +1455,10 @@ export default function App() {
                 </div>
               );
             })()}
-            {(compact||resumida)&&(job.price||job.clientName)&&(()=>{
+            {(compact||resumida)&&job.price&&(()=>{
               const total=Number(job.price)||0,dep=Number(job.deposit)||0,pend=porCobrarDe(job);
               return (
                 <div style={{ marginBottom:8, display:"flex", flexWrap:"wrap", alignItems:"baseline", columnGap:8 }}>
-                  {resumida && job.clientName && <button onClick={()=>abrirCliente(job)} style={{ fontSize:14, color:C.t1, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:"55%", background:"none", border:"none", padding:0, minHeight:0, minWidth:0, cursor:"pointer", textDecoration:"underline", textDecorationColor:C.bg5, textUnderlineOffset:3 }}>{job.clientName}</button>}
                   <span style={{ fontSize:14,color:C.green,fontWeight:800 }}>{fmtMoney(total)}{qty>1?` (×${qty})`:""}</span>
                   {job.status==="shipped"&&job.debe?<span style={{ fontSize:12,color:C.yellow,fontWeight:800,marginLeft:8 }}>Debe: {fmtMoney(pend)}</span>
                     :job.status==="shipped"?<span style={{ fontSize:12,color:C.green,fontWeight:700,marginLeft:8 }}>Cobrado</span>
@@ -1520,7 +1489,7 @@ export default function App() {
               const timeLeft=pasada?`hace ${atrasoD>0?`${atrasoD}d`:atrasoH>0?`${atrasoH}h`:`${Math.max(1,Math.floor(-diff/60000))}min`}`:diffH<1?"en menos de 1h":isToday?`en ${diffH}h`:isTomorrow?`en ${diffH}h`:`en ${diffD}d`;
               const fmtDel=new Date(job.deliveryAt).toLocaleDateString("es-ES",{weekday:"short",day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
               return (
-                <div style={{ background:bgColor, border:`1px solid ${bdColor}`, borderRadius:C.rSm, padding:"9px 13px", marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ background:bgColor, border:`1px solid ${bdColor}`, borderRadius:C.rSm, padding:"10px 14px", marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
                   <div>
                     <div style={{ fontSize:12, fontWeight:800, color:dotColor }}>{title}</div>
                     <div style={{ fontSize:12, color:C.t2, marginTop:1 }}>{fmtDel} · <span style={{ color:dotColor, fontWeight:700 }}>{timeLeft}</span></div>
@@ -1542,7 +1511,7 @@ export default function App() {
                         </div>
                         <div style={ isActive ? { fontSize:12, color:C.t1, fontWeight:800, textAlign:"center", lineHeight:1.2, whiteSpace:"nowrap" } : { position:"absolute", width:1, height:1, overflow:"hidden", clip:"rect(0 0 0 0)" } }>{step.label}</div>
                       </div>
-                      {i<arr.length-1 && <div style={{ flex:1, minWidth:8, height:2, background:i<flowStep?C.t4:C.bg4, margin:"13px 4px 0", borderRadius:2 }} />}
+                      {i<arr.length-1 && <div style={{ flex:1, minWidth:8, height:2, background:i<flowStep?C.t4:C.bg4, margin:"14px 4px 0", borderRadius:2 }} />}
                     </div>
                   );
                 })}
@@ -1552,7 +1521,7 @@ export default function App() {
             {/* PRIMARY ACTION (resumida: con Pausar al lado) */}
             {action && (
               <div style={{ display:"flex", gap:8 }}>
-              <button onClick={action.fn} style={{ flex:1, width:"100%", padding:"14px 0", background:action.bg, color:action.color||"#191513", border:"none", borderRadius:C.rSm, fontSize:15, fontWeight:800, cursor:"pointer", marginBottom:8, letterSpacing:.2, boxShadow:action.shadow }}>
+              <button onClick={action.fn} style={{ flex:1, width:"100%", padding:"14px 0", background:action.bg, color:action.color||"#191513", border:"none", borderRadius:C.rSm, fontSize:16, fontWeight:800, cursor:"pointer", marginBottom:8, letterSpacing:.2, boxShadow:action.shadow }}>
                 {action.label}
               </button>
               {resumida && isPrinting && <button onClick={()=>pauseJ(job.id)} aria-label="Pausar impresión" title="Pausar" style={{ width:52, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, cursor:"pointer" }}><Pause size={20} aria-hidden="true" /></button>}
@@ -1572,15 +1541,15 @@ export default function App() {
             )}
             {!resumida && <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
               {wa && (
-                <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ flex:1, padding:"9px 4px", background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>
+                <button onClick={()=>window.open(wa,"_blank","noopener,noreferrer")} style={{ flex:1, padding:"10px 4px", background:C.waBg, color:C.wa, border:`1px solid #6B3A12`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>
                   WhatsApp
                 </button>
               )}
-              {!isDesign && ["printing","paused","done"].includes(job.status) && <button onClick={()=>abrirFalla(job)} style={{ flex:1, padding:"9px 4px", background:C.redBg, color:"#FF8A6B", border:`1px solid #5C1F14`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>Falló</button>}
-              {["done","shipping","shipped"].includes(job.status) && Number(job.price)>0 && <button onClick={()=>notaEntrega(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>Nota</button>}
-              <button onClick={()=>duplicateJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Duplicar</button>
-              {!compact && <button onClick={()=>openEJ(job)} style={{ flex:1, padding:"9px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Editar</button>}
-              {!compact && <button onClick={()=>setConfirmDel(job.id)} style={{ width:38, padding:"9px 0", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:14, cursor:"pointer" }}><Icono e="🗑" /></button>}
+              {!isDesign && ["printing","paused","done"].includes(job.status) && <button onClick={()=>abrirFalla(job)} style={{ flex:1, padding:"10px 4px", background:C.redBg, color:"#FF8A6B", border:`1px solid #5C1F14`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>Falló</button>}
+              {["done","shipping","shipped"].includes(job.status) && Number(job.price)>0 && <button onClick={()=>notaEntrega(job)} style={{ flex:1, padding:"10px 4px", background:C.bg3, color:C.t1, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>Nota</button>}
+              <button onClick={()=>duplicateJ(job)} style={{ flex:1, padding:"10px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Duplicar</button>
+              {!compact && <button onClick={()=>openEJ(job)} style={{ flex:1, padding:"10px 4px", background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>Editar</button>}
+              {!compact && <button onClick={()=>setConfirmDel(job.id)} style={{ width:38, padding:"10px 0", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:14, cursor:"pointer" }}><Icono e="🗑" /></button>}
             </div>}
           </div>
         </div>
@@ -1595,7 +1564,7 @@ export default function App() {
     const pct = active ? avanceJob(active) : 0;
     return (
       <div style={{ background:C.bg2, borderRadius:C.r, padding:"14px 16px", marginBottom:10, border:`1px solid ${active?STATUS.printing.border:C.bg4}`, display:"flex", alignItems:"center", gap:14 }}>
-        <div style={{ width:56, height:56, borderRadius:14, background:p.imgBg||C.bg3, border:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>
+        <div style={{ width:56, height:56, borderRadius:C.rMd, background:p.imgBg||C.bg3, border:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", flexShrink:0 }}>
           {p.img ? <img src={p.img} alt={p.name} style={{ width:50, height:50, objectFit:"contain" }} onError={e=>{e.target.style.display="none"}} /> : <span style={{ color:C.t3 }}><Icono e={p.type==="FDM"?"🖨":"🧪"} size={26} /></span>}
         </div>
         <div style={{ flex:1, minWidth:0 }}>
@@ -1616,8 +1585,8 @@ export default function App() {
         </div>
         {showActions && (
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-            <button onClick={()=>openEP(p)} style={{ padding:"8px 11px", borderRadius:C.rSm, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:"pointer", fontSize:13, color:C.t2 }}><Icono e="✏️" /></button>
-            <button onClick={()=>deleteP(p.id)} style={{ padding:"8px 11px", borderRadius:C.rSm, border:`1px solid #4A1A10`, background:C.redBg, cursor:"pointer", fontSize:13, color:C.red }}><Icono e="🗑" /></button>
+            <button onClick={()=>openEP(p)} style={{ padding:"8px 12px", borderRadius:C.rSm, border:`1px solid ${C.bg5}`, background:C.bg3, cursor:"pointer", fontSize:13, color:C.t2 }}><Icono e="✏️" /></button>
+            <button onClick={()=>deleteP(p.id)} style={{ padding:"8px 12px", borderRadius:C.rSm, border:`1px solid #4A1A10`, background:C.redBg, cursor:"pointer", fontSize:13, color:C.red }}><Icono e="🗑" /></button>
           </div>
         )}
       </div>
@@ -1627,7 +1596,7 @@ export default function App() {
   const Empty = ({ icon, title, sub }) => (
     <div style={{ textAlign:"center", padding:"56px 20px" }}>
       <div style={{ marginBottom:16, color:C.t4 }}><Icono e={icon} size={48} strokeWidth={1.5} /></div>
-      <div style={{ fontSize:17, fontWeight:800, color:C.t1, marginBottom:8 }}>{title}</div>
+      <div style={{ fontSize:18, fontWeight:800, color:C.t1, marginBottom:8 }}>{title}</div>
       {sub && <div style={{ fontSize:13, color:C.t3, lineHeight:1.7 }}>{sub}</div>}
     </div>
   );
@@ -1641,6 +1610,14 @@ export default function App() {
   );
 
   // ─── DASHBOARD ────────────────────────────────────────────────────────────
+  // Estado de cada pantalla (vive acá arriba porque solo se arma la pantalla que estás viendo)
+  const [verFiltros, setVerFiltros] = useState(false);
+  const [shipFilter, setShipFilter] = useState("pending");
+  const [shipSearch, setShipSearch] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
+  const [statsTab, setStatsTab] = useState('stats');
+  const [showDetail, setShowDetail] = useState(false);
+
   const DashboardView = () => {
     // Borradores sin terminar (trabajo nuevo o pedido múltiple), visibles para retomarlos
     const bT = !showForm && leerBorr(BORR.trabajo), bP = !showForm && leerBorr(BORR.pedido);
@@ -1654,7 +1631,7 @@ export default function App() {
           <div key={d.k} style={{ display:"flex", alignItems:"center", gap:10, background:C.orangeBg, border:`1px solid ${C.orange}66`, borderRadius:C.r, padding:"12px 12px 12px 16px", marginBottom:12 }}>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:12, color:C.orange, fontWeight:900, textTransform:"uppercase", letterSpacing:.7 }}>Borrador sin terminar</div>
-              <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.titulo}{d.sub?` · ${d.sub}`:""}</div>
+              <div style={{ fontSize:16, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.titulo}{d.sub?` · ${d.sub}`:""}</div>
               <div style={{ fontSize:12, color:C.t3 }}>Guardado a las {new Date(d.at).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}{Date.now()-d.at>DIA?` · ${haceDias(d.at)}`:""}</div>
             </div>
             <button onClick={d.borrar} style={{ minHeight:44, padding:"0 12px", background:"transparent", color:C.t3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}>Descartar</button>
@@ -1667,7 +1644,7 @@ export default function App() {
             { status:"pending",  Icon:Hourglass, label:"En cola",     count:enCola.length,   sub:enCola[0]&&`Sigue: ${enCola[0].fileName}`, color:C.yellow },
           ].map(({ status, Icon, label, count, sub, color }) => (
             <button key={status} onClick={()=>abrirCola(status)} style={{ textAlign:"left", background:STATUS[status].bg, border:`1px solid ${STATUS[status].border}`, borderRadius:C.r, padding:"16px", cursor:"pointer", color:"inherit", fontFamily:"inherit", minWidth:0 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:10 }}><Icon size={16} aria-hidden="true" />{label}<ChevronRight size={16} style={{ marginLeft:"auto", opacity:.7 }} aria-hidden="true" /></div>
+              <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:10 }}><Icon size={16} aria-hidden="true" />{label}<ChevronRight size={16} style={{ marginLeft:"auto", opacity:.7 }} aria-hidden="true" /></div>
               <div style={{ fontSize:36, fontWeight:900, color:C.t1, lineHeight:1 }}>{count}</div>
               {sub && <div style={{ fontSize:13, color, marginTop:8, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sub}</div>}
             </button>
@@ -1704,7 +1681,7 @@ export default function App() {
           <div style={{ filter:showRevenue?"none":"blur(10px)", userSelect:showRevenue?"auto":"none", transition:"filter .25s", pointerEvents:showRevenue?"auto":"none" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
               <div>
-                <div style={{ display:"flex", alignItems:"center", gap:7, fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}><Wallet size={16} aria-hidden="true" />Cobrado este mes</div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:C.orange, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:8 }}><Wallet size={16} aria-hidden="true" />Cobrado este mes</div>
                 <div style={{ fontSize:32, fontWeight:900, color:C.t1, letterSpacing:-1 }}>{fmtMoney(cobradoMes)}</div>
                 <div style={{ fontSize:12, color:C.t3, marginTop:2 }}>adelantos + saldos cobrados al entregar</div>
               </div>
@@ -1713,7 +1690,7 @@ export default function App() {
                 <div style={{ fontSize:18, fontWeight:900, color:C.green }}>{fmtMoney(cobradoHoy)}</div>
               </div>
             </div>
-            <div style={{ height:1, background:C.bg4, margin:"13px 0" }} />
+            <div style={{ height:1, background:C.bg4, margin:"14px 0" }} />
             <div style={{ display:"flex", gap:20 }}>
               {[["Pedidos este mes",jobs.filter(j=>(j.createdAt||0)>=startOfMonth()).length],["Entregados este mes",jobs.filter(j=>j.status==="shipped"&&(j.shippedAt||0)>=startOfMonth()).length],["Por cobrar",fmtMoney(jobs.reduce((t,j)=>t+porCobrarDe(j),0))]].map(([l,v])=>(
                 <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{v}</div></div>
@@ -1832,7 +1809,6 @@ export default function App() {
       {key:"design",   label:"Diseño",      count:designJobs.filter(j=>j.status!=="shipped").length},
     ];
     const etapaActiva = fStatus==="listos" ? "done" : fStatus;
-    const [verFiltros, setVerFiltros] = useState(false);
     const SORT_OPTIONS = [
       {key:"priority", label:"Prioridad"},
       {key:"delivery", label:"Entrega"},
@@ -1998,13 +1974,13 @@ export default function App() {
               {/* Week navigation header */}
               <div style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, padding:"12px 16px", marginBottom:12 }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-                  <button onClick={()=>setQueueWeekOffset(v=>v-1)} style={{ width:36, height:36, borderRadius:10, background:C.bg3, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>‹</button>
+                  <button onClick={()=>setQueueWeekOffset(v=>v-1)} style={{ width:36, height:36, borderRadius:C.rSm, background:C.bg3, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>‹</button>
                   <div style={{ textAlign:"center" }}>
                     <div style={{ fontSize:14, fontWeight:900, color:C.t1 }}>{weekLabel}</div>
                     {queueWeekOffset===0 && <div style={{ fontSize:12, color:C.orange, fontWeight:800, marginTop:2 }}>SEMANA ACTUAL</div>}
                     {queueWeekOffset!==0 && <button onClick={()=>setQueueWeekOffset(0)} style={{ fontSize:12, color:C.blue, background:"none", border:"none", cursor:"pointer", fontWeight:700, marginTop:2 }}>Volver a hoy</button>}
                   </div>
-                  <button onClick={()=>setQueueWeekOffset(v=>v+1)} style={{ width:36, height:36, borderRadius:10, background:C.bg3, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>›</button>
+                  <button onClick={()=>setQueueWeekOffset(v=>v+1)} style={{ width:36, height:36, borderRadius:C.rSm, background:C.bg3, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900 }}>›</button>
                 </div>
                 {/* Week stats */}
                 <div style={{ display:"flex", gap:12, justifyContent:"center" }}>
@@ -2038,7 +2014,7 @@ export default function App() {
                       {/* Day header */}
                       <div style={{ padding:"6px 4px", textAlign:"center", borderBottom:`1px solid ${today?C.orange+"33":C.bg4}`, background:today?`${C.orange}22`:C.bg3 }}>
                         <div style={{ fontSize:12, fontWeight:700, color:today?C.orange:isPast?C.t4:C.t3, textTransform:"uppercase", letterSpacing:.5 }}>{DAYS_ES[d.getDay()]}</div>
-                        <div style={{ fontSize:15, fontWeight:900, color:today?C.orange:isPast?C.t4:C.t1, marginTop:1 }}>{d.getDate()}</div>
+                        <div style={{ fontSize:16, fontWeight:900, color:today?C.orange:isPast?C.t4:C.t1, marginTop:1 }}>{d.getDate()}</div>
                         {dayJobs.length>0 && <div style={{ fontSize:12, color:today?C.orange:C.t4, fontWeight:700, marginTop:1 }}>{dayJobs.length} pedido{dayJobs.length!==1?"s":""}</div>}
                       </div>
                       {/* Jobs in day */}
@@ -2048,10 +2024,10 @@ export default function App() {
                           const st=STATUS[job.status]||STATUS.pending;
                           const action=quickAction(job);
                           return (
-                            <div key={job.id} onClick={()=>{ setQueueViewMode("detail"); goToJob(job.id); }} style={{ background:st.bg, border:`1px solid ${st.border}`, borderRadius:5, padding:"4px 5px", cursor:"pointer" }}>
+                            <div key={job.id} onClick={()=>{ setQueueViewMode("detail"); goToJob(job.id); }} style={{ background:st.bg, border:`1px solid ${st.border}`, borderRadius:C.rXs, padding:"4px 6px", cursor:"pointer" }}>
                               <div style={{ fontSize:12, fontWeight:800, color:st.color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
-                              {job.clientName && <div style={{ fontSize:8, color:C.t4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.clientName}</div>}
-                              {job.price && <div style={{ fontSize:8, color:C.green, fontWeight:800 }}>Bs.{Number(job.price).toFixed(0)}</div>}
+                              {job.clientName && <div style={{ fontSize:11, color:C.t4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.clientName}</div>}
+                              {job.price && <div style={{ fontSize:11, color:C.green, fontWeight:800 }}>Bs.{Number(job.price).toFixed(0)}</div>}
                               <div style={{ display:"flex", alignItems:"center", gap:3, marginTop:2 }}>
                                 <div style={{ width:5, height:5, borderRadius:"50%", background:st.dot, flexShrink:0 }} />
                                 <span style={{ fontSize:7, color:st.color, fontWeight:700 }}>{st.label}</span>
@@ -2059,7 +2035,7 @@ export default function App() {
                             </div>
                           );
                         })}
-                        {dayJobs.length>4 && <div style={{ fontSize:8, color:C.t4, textAlign:"center", fontWeight:700 }}>+{dayJobs.length-4} más</div>}
+                        {dayJobs.length>4 && <div style={{ fontSize:11, color:C.t4, textAlign:"center", fontWeight:700 }}>+{dayJobs.length-4} más</div>}
                       </div>
                     </div>
                   );
@@ -2083,7 +2059,7 @@ export default function App() {
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                           <div style={{ fontSize:12, color:C.t3 }}>{job.clientName||"Sin cliente"} · {st.label}</div>
                         </div>
-                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:action.bg, color:action.color, border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
+                        {action && <button onClick={action.fn} style={{ padding:"8px 12px", background:action.bg, color:action.color, border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
                       </div>
                     );
                   })}
@@ -2108,7 +2084,7 @@ export default function App() {
                           <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                           <div style={{ fontSize:12, color:"#E53212" }}>{job.clientName||"Sin cliente"} · hace {days>0?`${days}d`:`${hours}h`}</div>
                         </div>
-                        {action && <button onClick={action.fn} style={{ padding:"7px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
+                        {action && <button onClick={action.fn} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", flexShrink:0 }}>{action.label}</button>}
                       </div>
                     );
                   })}
@@ -2127,7 +2103,7 @@ export default function App() {
               group.jobs.length===0 ? null :
               <div key={group.key} style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, overflow:"hidden" }}>
                 {/* Group header */}
-                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 16px", borderBottom:`1px solid ${C.bg4}`, background:C.bg3 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"12px 16px", borderBottom:`1px solid ${C.bg4}`, background:C.bg3 }}>
                   <div style={{ width:8, height:8, borderRadius:"50%", background:group.dot, flexShrink:0 }} />
                   <span style={{ fontSize:12, fontWeight:900, color:group.color, textTransform:"uppercase", letterSpacing:.7 }}>{group.label}</span>
                   <span style={{ fontSize:12, color:C.t4, fontWeight:700, marginLeft:"auto" }}>{group.jobs.length} trabajo{group.jobs.length!==1?"s":""}</span>
@@ -2140,7 +2116,7 @@ export default function App() {
                   const waitingStr = group.key==="pending" ? fmtWaiting(job.createdAt) : null;
                   const isLateDelivery = esAtrasado(job);
                   return (
-                    <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 16px", borderBottom:i<group.jobs.length-1?`1px solid ${C.bg4}`:"none" }}>
+                    <div key={job.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 16px", borderBottom:i<group.jobs.length-1?`1px solid ${C.bg4}`:"none" }}>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
                           {isLateDelivery && <span style={{ fontSize:12, color:C.red }}><Icono e="⚠️" size={14} /></span>}
@@ -2188,7 +2164,7 @@ export default function App() {
           const Cabecera = ({ titulo, sub, color, n, extra }) => (
             <div style={{ display:"flex", alignItems:"center", gap:10, margin:"6px 0 12px", flexWrap:"wrap" }}>
               <span style={{ width:10, height:10, borderRadius:"50%", background:color, flexShrink:0 }} />
-              <h2 style={{ margin:0, fontSize:17, fontWeight:900, color:C.t1 }}>{titulo} <span style={{ color:C.t3, fontWeight:800 }}>· {n}</span></h2>
+              <h2 style={{ margin:0, fontSize:18, fontWeight:900, color:C.t1 }}>{titulo} <span style={{ color:C.t3, fontWeight:800 }}>· {n}</span></h2>
               {sub && <span style={{ fontSize:13, color:C.t3 }}>{sub}</span>}
               <div style={{ flex:1, height:1, background:C.bg4, minWidth:20 }} />
               {extra}
@@ -2230,8 +2206,6 @@ export default function App() {
 
   // ─── SHIPPING VIEW ────────────────────────────────────────────────────────
   const ShippingView = () => {
-    const [shipFilter, setShipFilter] = useState("pending");
-    const [shipSearch, setShipSearch] = useState("");
 
     const applySearch = (list) => {
       if(!shipSearch.trim()) return list;
@@ -2266,18 +2240,18 @@ export default function App() {
         <div style={{ display:"grid", gridTemplateColumns: isDesktop?"1fr 1fr 1fr":"1fr 1fr", gap:10, marginBottom:14 }}>
           <div onClick={()=>setShipFilter("pending")} style={{ background:STATUS.shipping.bg, border:`2px solid ${shipFilter==="pending"?C.purple:STATUS.shipping.border}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
             <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{shipping.length+done.length}</div>
-            <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:5 }}>Por entregar</div>
+            <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:6 }}>Por entregar</div>
             {shipFilter==="pending" && <div style={{ width:28, height:3, background:C.purple, borderRadius:3, marginTop:8 }} />}
           </div>
           <div onClick={()=>setShipFilter("shipped")} style={{ background:STATUS.shipped.bg, border:`2px solid ${shipFilter==="shipped"?C.teal:STATUS.shipped.border}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
             <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{shipped.length}</div>
-            <div style={{ fontSize:12, color:C.teal, fontWeight:800, marginTop:5 }}>Ya entregados</div>
+            <div style={{ fontSize:12, color:C.teal, fontWeight:800, marginTop:6 }}>Ya entregados</div>
             {shipFilter==="shipped" && <div style={{ width:28, height:3, background:C.teal, borderRadius:3, marginTop:8 }} />}
           </div>
           {deudores.length>0 && (
           <div onClick={()=>setShipFilter("deben")} style={{ background:C.yellowBg, border:`2px solid ${shipFilter==="deben"?C.yellow:"#4A3F36"}`, borderRadius:C.r, padding:"18px", cursor:"pointer", transition:"border-color .15s" }}>
             <div style={{ fontSize:32, fontWeight:900, color:C.t1 }}>{fmtMoney(deudores.reduce((t,j)=>t+saldoDe(j),0))}</div>
-            <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:5 }}>Te deben · {deudores.length} entrega{deudores.length!==1?"s":""}</div>
+            <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:6 }}>Te deben · {deudores.length} entrega{deudores.length!==1?"s":""}</div>
             {shipFilter==="deben" && <div style={{ width:28, height:3, background:C.yellow, borderRadius:3, marginTop:8 }} />}
           </div>
           )}
@@ -2285,7 +2259,7 @@ export default function App() {
 
         {/* Search bar */}
         <div style={{ position:"relative", marginBottom:14 }}>
-          <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
+          <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:16, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
           <input
             style={{ width:"100%", background:C.bg2, border:`1.5px solid ${shipSearch?C.orange:C.bg4}`, borderRadius:C.r, padding:"12px 14px 12px 42px", fontSize:14, color:C.t1, outline:"none", boxSizing:"border-box", transition:"border-color .15s" }}
             placeholder="Buscar por producto o cliente..."
@@ -2341,7 +2315,6 @@ export default function App() {
 
   // ─── CLIENTS VIEW ─────────────────────────────────────────────────────────
   const ClientsView = () => {
-    const [clientSearch, setClientSearch] = useState("");
     if (selectedClient) {
       const c = clients.find(x=>x.key===selectedClient);
       if (!c) return null;
@@ -2355,18 +2328,18 @@ export default function App() {
       const nuevoPedido = () => abrirNuevoTrabajo({ clientName:c.name, clientPhone:c.phone||"" });
       return (
         <div className="view-pad" style={{ maxWidth:isDesktop?1000:isTablet?700:"100%", margin:"0 auto" }}>
-          <button onClick={()=>setSelectedClient(null)} style={{ background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:16 }}>← Volver</button>
+          <button onClick={()=>setSelectedClient(null)} style={{ background:C.bg3, color:C.t2, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"10px 16px", fontSize:13, fontWeight:700, cursor:"pointer", marginBottom:16 }}>← Volver</button>
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"20px", marginBottom:14, border:`1px solid ${C.bg4}` }}>
             <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:18 }}>
               <div style={{ width:54, height:54, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:900, color:"#191513", flexShrink:0 }}>{initials(c.name)}</div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:19, fontWeight:900, color:C.t1 }}>{c.name}</div>
+                <div style={{ fontSize:20, fontWeight:900, color:C.t1 }}>{c.name}</div>
                 {c.phone && <div style={{ fontSize:13, color:C.t3, marginTop:2 }}>{c.phone}</div>}
               </div>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)", gap:8, marginBottom:14 }}>
               {[["Pedidos",c.totalJobs],["Gastó en total",fmtMoney(c.totalRevenue)],["Por cobrar",totalPending>0?fmtMoney(totalPending):"Nada",totalPending>0],["Cliente desde",new Date(desde).toLocaleDateString("es-ES",{month:"short",year:"numeric"})]].map(([l,v,alerta])=>(
-                <div key={l} style={{ background:alerta?C.yellowBg:C.bg3, borderRadius:C.rSm, padding:"13px 8px", textAlign:"center" }}>
+                <div key={l} style={{ background:alerta?C.yellowBg:C.bg3, borderRadius:C.rSm, padding:"14px 8px", textAlign:"center" }}>
                   <div style={{ fontSize:18, fontWeight:900, color:alerta?C.yellow:C.t1 }}>{v}</div>
                   <div style={{ fontSize:12, color:C.t3, marginTop:3, fontWeight:700 }}>{l}</div>
                 </div>
@@ -2402,11 +2375,11 @@ export default function App() {
         <div style={{ display:"grid", gridTemplateColumns: isDesktop?"1fr 1fr 1fr":"1fr 1fr", gap:10, marginBottom:16 }}>
           <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"18px" }}>
             <div style={{ fontSize:30, fontWeight:900, color:C.t1 }}>{clients.length}</div>
-            <div style={{ fontSize:12, color:C.t3, marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Clientes</div>
+            <div style={{ fontSize:12, color:C.t3, marginTop:6, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Clientes</div>
           </div>
           <div style={{ background:"linear-gradient(135deg,#221D1B,#221D1B)", border:"1px solid #372F2C", borderRadius:C.r, padding:"18px" }}>
             <div style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{fmtMoney(revenue)}</div>
-            <div style={{ fontSize:12, color:"#F1841B", marginTop:5, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Total vendido</div>
+            <div style={{ fontSize:12, color:"#F1841B", marginTop:6, fontWeight:700, textTransform:"uppercase", letterSpacing:.7 }}>Total vendido</div>
           </div>
         </div>
         {clients.length===0 ? (
@@ -2417,7 +2390,7 @@ export default function App() {
               <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:14, fontWeight:900, color:C.orange, marginBottom:4 }}><MessageCircle size={18} aria-hidden="true" />Para recontactar · {paraRecontactar.length}</div>
               <div style={{ fontSize:12, color:C.t3, marginBottom:8 }}>Te compraron y no piden hace más de 2 meses. Primero los que más gastaron.</div>
               {paraRecontactar.slice(0, lim("recontactar")).map(c=>(
-                <div key={c.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderTop:`1px solid ${C.bg4}` }}>
+                <div key={c.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderTop:`1px solid ${C.bg4}` }}>
                   <button onClick={()=>setSelectedClient(c.key)} style={{ flex:1, minWidth:0, textAlign:"left", background:"none", border:"none", padding:0, cursor:"pointer", color:"inherit", fontFamily:"inherit" }}>
                     <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{c.name}</div>
                     <div style={{ fontSize:12, color:C.t3 }}>Último pedido {haceDias(c.lastJob)} · gastó {fmtMoney(c.totalRevenue)}</div>
@@ -2457,7 +2430,7 @@ export default function App() {
                       <div style={{ fontSize:12, color:C.t3, marginTop:2 }}>{c.phone||"Sin teléfono"} · {c.totalJobs} pedido{c.totalJobs!==1?"s":""}</div>
                     </div>
                     <div style={{ textAlign:"right" }}>
-                      <div style={{ fontSize:15, fontWeight:900, color:C.green }}>{c.totalRevenue>0?fmtMoney(c.totalRevenue):"—"}</div>
+                      <div style={{ fontSize:16, fontWeight:900, color:C.green }}>{c.totalRevenue>0?fmtMoney(c.totalRevenue):"—"}</div>
                       {pend>0 ? <div style={{ fontSize:12, color:C.yellow, fontWeight:800, marginTop:2 }}>{fmtMoney(pend)}</div>
                         : c.totalRevenue>0 ? <div style={{ fontSize:12, color:C.green, marginTop:2 }}>Pagado</div>
                         : null}
@@ -2475,16 +2448,14 @@ export default function App() {
 
   // ─── STATS VIEW ───────────────────────────────────────────────────────────
   const StatsView = () => {
-    const [statsTab, setStatsTab] = useState('stats');
-    const [showDetail, setShowDetail] = useState(false);
     return (
     <div className="view-pad" style={{ maxWidth:isDesktop?1100:isTablet?800:"100%", margin:"0 auto" }}>
       {/* Tab switcher */}
-      <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
+      <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:6 }}>
         <button onClick={()=>setStatsTab('stats')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='stats'?C.orange:"transparent", color:statsTab==='stats'?"#191513":C.t3, boxShadow:statsTab==='stats'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Estadísticas</button>
         <button onClick={()=>setStatsTab('utility')} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statsTab==='utility'?C.orange:"transparent", color:statsTab==='utility'?"#191513":C.t3, boxShadow:statsTab==='utility'?"0 3px 12px rgba(241,132,27,.35)":undefined }}>Utilidad</button>
       </div>
-      {statsTab==='stats' && <><div style={{ display:"flex", gap:5, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
+      {statsTab==='stats' && <><div style={{ display:"flex", gap:6, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:6 }}>
         {[["day","Hoy"],["week","Semana"],["month","Mes"],["year","Año"]].map(([k,l])=>(
           <button key={k} onClick={()=>setStatPeriod(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statPeriod===k?C.orange:"transparent", color:statPeriod===k?"#191513":C.t3, transition:"all .15s", boxShadow:statPeriod===k?`0 3px 12px rgba(241,132,27,.35)`:undefined }}>
             {l}
@@ -2492,14 +2463,14 @@ export default function App() {
         ))}
       </div>
       <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
-        <div style={{ fontSize:12, color:"#F1841B", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Vendido — {periodLabels[statPeriod]}</div>
+        <div style={{ fontSize:12, color:"#F1841B", fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:8 }}>Vendido — {periodLabels[statPeriod]}</div>
         <div style={{ fontSize:38, fontWeight:900, color:C.t1, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(periodRev)}</div>
-        <div style={{ fontSize:13, color:C.t3, marginTop:9 }}>{periodJobs.length} pedido{periodJobs.length!==1?"s":""} · <b style={{ color:C.orange }}>Cobrado {fmtMoney(cobradoEntre(periodStart))}</b></div>
+        <div style={{ fontSize:13, color:C.t3, marginTop:10 }}>{periodJobs.length} pedido{periodJobs.length!==1?"s":""} · <b style={{ color:C.orange }}>Cobrado {fmtMoney(cobradoEntre(periodStart))}</b></div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:16 }}>
         {[["Pedidos",periodJobs.length,"tomados"],["Entregas",shipped.filter(j=>(j.shippedAt||j.createdAt||0)>=periodStart).length,"entregados"]].map(([l,v,s])=>(
           <div key={l} style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"16px" }}>
-            <div style={{ fontSize:12, color:C.t3, fontWeight:700, marginBottom:7 }}>{l}</div>
+            <div style={{ fontSize:12, color:C.t3, fontWeight:700, marginBottom:8 }}>{l}</div>
             <div style={{ fontSize:28, fontWeight:900, color:C.t1 }}>{v}</div>
             <div style={{ fontSize:12, color:C.t3, marginTop:4 }}>{s}</div>
           </div>
@@ -2510,7 +2481,7 @@ export default function App() {
           {SectionLabel({color:C.t3, children:<>Por impresora — {periodLabels[statPeriod]}</>})}
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
             {periodByPrinter.map((p,i)=>(
-              <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 0", borderBottom:i<periodByPrinter.length-1?`1px solid ${C.bg4}`:"none" }}>
+              <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"14px 0", borderBottom:i<periodByPrinter.length-1?`1px solid ${C.bg4}`:"none" }}>
                 <div><div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{p.name}</div><div style={{ fontSize:12, color:C.t3 }}>{p.total} trabajo{p.total!==1?"s":""}</div></div>
                 <div style={{ fontSize:14, fontWeight:800, color:C.green }}>{p.rev>0?fmtMoney(p.rev):"—"}</div>
               </div>
@@ -2526,12 +2497,12 @@ export default function App() {
               const maxC=topMaterials[0][1];
               return (
                 <div key={i} style={{ padding:"12px 0", borderBottom:i<topMaterials.length-1?`1px solid ${C.bg4}`:"none" }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                     <span style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{mat}</span>
                     <span style={{ fontSize:13, color:C.t3 }}>{count} uso{count!==1?"s":""}</span>
                   </div>
-                  <div style={{ height:5, background:C.bg4, borderRadius:5 }}>
-                    <div style={{ height:"100%", width:`${(count/maxC)*100}%`, background:`linear-gradient(90deg,${C.orange},${C.yellow})`, borderRadius:5 }} />
+                  <div style={{ height:5, background:C.bg4, borderRadius:C.rXs }}>
+                    <div style={{ height:"100%", width:`${(count/maxC)*100}%`, background:`linear-gradient(90deg,${C.orange},${C.yellow})`, borderRadius:C.rXs }} />
                   </div>
                 </div>
               );
@@ -2553,7 +2524,7 @@ export default function App() {
       ) : (
         <div style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, marginBottom:16, overflow:"hidden" }}>
           {/* Header */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto", gap:8, padding:"9px 14px", background:C.bg3, borderBottom:`1px solid ${C.bg4}` }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto", gap:8, padding:"10px 14px", background:C.bg3, borderBottom:`1px solid ${C.bg4}` }}>
             <span style={{ fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7 }}>Producto / Cliente</span>
             <span style={{ fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7, textAlign:"right" }}>Cant.</span>
             <span style={{ fontSize:12, fontWeight:800, color:C.t4, textTransform:"uppercase", letterSpacing:.7, textAlign:"right", minWidth:80 }}>Total</span>
@@ -2565,12 +2536,12 @@ export default function App() {
             const pending = porCobrarDe(job);
             const isDesign = job.jobType==="design";
             return (
-              <div key={job.id} onClick={()=>goToJob(job.id)} style={{ display:"grid", gridTemplateColumns:"1fr auto auto", gap:8, padding:"11px 14px", borderBottom:i<periodJobs.length-1?`1px solid ${C.bg4}`:"none", cursor:"pointer", alignItems:"center" }}
+              <div key={job.id} onClick={()=>goToJob(job.id)} style={{ display:"grid", gridTemplateColumns:"1fr auto auto", gap:8, padding:"12px 14px", borderBottom:i<periodJobs.length-1?`1px solid ${C.bg4}`:"none", cursor:"pointer", alignItems:"center" }}
                 onMouseEnter={e=>e.currentTarget.style.background=C.bg3}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <div style={{ minWidth:0 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:2 }}>
-                    {isDesign && <span style={{ fontSize:12, background:"#2E1309", color:"#FFF0DE", border:"1px solid #6B2812", borderRadius:C.rPill, padding:"1px 5px", fontWeight:800, flexShrink:0 }}>Diseño</span>}
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:2 }}>
+                    {isDesign && <span style={{ fontSize:12, background:"#2E1309", color:"#FFF0DE", border:"1px solid #6B2812", borderRadius:C.rPill, padding:"1px 6px", fontWeight:800, flexShrink:0 }}>Diseño</span>}
                     <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{job.fileName}</div>
                   </div>
                   <div style={{ display:"flex", gap:6, alignItems:"center" }}>
@@ -2646,15 +2617,15 @@ export default function App() {
     const allMaterials=[...new Set([...MATERIALS,...Object.keys(matCosts),...usedMaterials])];
     return (
       <div className="view-pad" style={{ maxWidth:isDesktop?1100:isTablet?800:"100%", margin:"0 auto" }}>
-        <div style={{ display:"flex", gap:5, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
+        <div style={{ display:"flex", gap:6, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:6 }}>
           {[["day","Hoy"],["week","Semana"],["month","Mes"],["year","Año"]].map(([k,l])=>(
             <button key={k} onClick={()=>setStatPeriod(k)} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:statPeriod===k?C.orange:"transparent", color:statPeriod===k?"#191513":C.t3, boxShadow:statPeriod===k?`0 3px 12px rgba(241,132,27,.35)`:undefined }}>{l}</button>
           ))}
         </div>
         <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"20px", marginBottom:12 }}>
-          <div style={{ fontSize:12, color:C.green, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:7 }}>Utilidad neta — {periodLabels[statPeriod]}</div>
+          <div style={{ fontSize:12, color:C.green, fontWeight:800, textTransform:"uppercase", letterSpacing:.9, marginBottom:8 }}>Utilidad neta — {periodLabels[statPeriod]}</div>
           <div style={{ fontSize:38, fontWeight:900, color:pProfit>=0?C.green:C.red, letterSpacing:-1, lineHeight:1 }}>{fmtMoney(pProfit)}</div>
-          <div style={{ display:"flex", gap:16, marginTop:11, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", gap:16, marginTop:12, flexWrap:"wrap" }}>
             {[["Vendido",fmtMoney(pRevenue),C.t1],["Filamento",`- ${fmtMoney(pMat)}`,C.red],["Máquina",`- ${fmtMoney(pMaq)}`,C.red],...(pFallas>0?[["Fallas",`- ${fmtMoney(pFallas)}`,C.red]]:[]),["Margen",`${pMargin.toFixed(0)}%`,pMargin>=50?C.green:pMargin>=25?C.yellow:C.red]].map(([l,v,c])=>(
               <div key={l}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{l}</div><div style={{ fontSize:14, fontWeight:800, color:c }}>{v}</div></div>
             ))}
@@ -2666,7 +2637,7 @@ export default function App() {
               <span>Costo ({pRevenue>0?((pMatCost/pRevenue)*100).toFixed(0):0}%)</span>
               <span>Ganancia ({pMargin.toFixed(0)}%)</span>
             </div>
-            <div style={{ height:12, background:C.bg4, borderRadius:6, overflow:"hidden", display:"flex" }}>
+            <div style={{ height:12, background:C.bg4, borderRadius:C.rXs, overflow:"hidden", display:"flex" }}>
               <div style={{ height:"100%", width:`${pRevenue>0?(pMatCost/pRevenue)*100:0}%`, background:`linear-gradient(90deg,#E53212,#E53212)` }} />
               <div style={{ height:"100%", flex:1, background:`linear-gradient(90deg,${C.greenD},${C.green})` }} />
             </div>
@@ -2681,7 +2652,7 @@ export default function App() {
           {SectionLabel({color:C.yellow, children:<>Con margen bajo ({bajos.length}) · menos de {Number(operacion.margenMin)||30}%</>})}
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
             {bajos.slice(0, lim("bajos")).map((j,i)=>{ const gan = Number(j.price)-j.matCost-j.maqCost; return (
-              <div key={j.id} onClick={()=>goToJob(j.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 0", borderTop:i?`1px solid ${C.bg4}`:"none", cursor:"pointer" }}>
+              <div key={j.id} onClick={()=>goToJob(j.id)} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 0", borderTop:i?`1px solid ${C.bg4}`:"none", cursor:"pointer" }}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:13, fontWeight:800, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.fileName}{unidades(j)>1?` ×${unidades(j)}`:""}</div>
                   <div style={{ fontSize:12, color:C.t3 }}>Cobraste {fmtMoney(j.price)} · costo {fmtMoney(j.matCost+j.maqCost)} · sugerido {fmtMoney(precioSugerido(j))}</div>
@@ -2708,9 +2679,9 @@ export default function App() {
         {SectionLabel({color:C.t3, children:<>Costo de máquina y margen</>})}
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
           {[["luzHora","Luz por hora de impresión","Bs","Con ~Bs 225/mes y 4 máquinas sale ~Bs 0.15 por hora"],["desgasteHora","Desgaste por hora","Bs","Lo que pierde la máquina por hora (precio ÷ horas de vida)"],["margenMin","Margen mínimo","%","Debajo de esto el trabajo se marca como precio bajo"]].map(([k,l,u,ayuda],i)=>(
-            <div key={k} style={{ display:"flex", alignItems:"center", gap:10, padding:"11px 0", borderTop:i?`1px solid ${C.bg4}`:"none" }}>
+            <div key={k} style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 0", borderTop:i?`1px solid ${C.bg4}`:"none" }}>
               <div style={{ flex:1 }}><div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{l}</div><div style={{ fontSize:12, color:C.t3 }}>{ayuda}</div></div>
-              <input key={k+":"+operacion[k]} type="number" step="0.01" defaultValue={operacion[k]} onBlur={e=>guardarOp(k,e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") e.currentTarget.blur(); }} aria-label={l} style={{ ...inputSt, width:90, padding:"7px 10px", textAlign:"right" }} />
+              <input key={k+":"+operacion[k]} type="number" step="0.01" defaultValue={operacion[k]} onBlur={e=>guardarOp(k,e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") e.currentTarget.blur(); }} aria-label={l} style={{ ...inputSt, width:90, padding:"8px 10px", textAlign:"right" }} />
               <span style={{ fontSize:13, color:C.t3, width:20 }}>{u}</span>
             </div>
           ))}
@@ -2718,7 +2689,7 @@ export default function App() {
         {SectionLabel({color:C.t3, children:<>Costo por material (Bs. por kg)</>})}
         <div style={{ background:C.bg2, borderRadius:C.r, padding:"4px 16px", marginBottom:16, border:`1px solid ${C.bg4}` }}>
           {allMaterials.map((mat,i)=>(
-            <div key={mat} style={{ display:"flex", alignItems:"center", gap:8, padding:"11px 0", borderBottom:i<allMaterials.length-1?`1px solid ${C.bg4}`:"none" }}>
+            <div key={mat} style={{ display:"flex", alignItems:"center", gap:8, padding:"12px 0", borderBottom:i<allMaterials.length-1?`1px solid ${C.bg4}`:"none" }}>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:13, fontWeight:700, color:C.t1 }}>{mat}</div>
                 {matCosts[mat] ? <div style={{ fontSize:12, color:C.t3 }}>Bs. {matCosts[mat]} / kg · Bs. {(matCosts[mat]/1000).toFixed(3)} / g</div>
@@ -2726,16 +2697,16 @@ export default function App() {
               </div>
               {editingCost===mat ? (
                 <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                  <input style={{ ...inputSt, width:85, padding:"7px 11px", border:`1.5px solid ${C.orange}` }} type="number" placeholder="121" value={costInput} onChange={e=>setCostInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveCost(mat,costInput);if(e.key==="Escape"){setEditingCost(null);setCostInput("");}}} autoFocus />
-                  <button onClick={()=>saveCost(mat,costInput)} style={{ padding:"7px 13px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>✓</button>
-                  <button onClick={()=>{setEditingCost(null);setCostInput("");}} style={{ padding:"7px 11px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.rSm, fontSize:12, cursor:"pointer" }}>✕</button>
+                  <input style={{ ...inputSt, width:85, padding:"8px 12px", border:`1.5px solid ${C.orange}` }} type="number" placeholder="121" value={costInput} onChange={e=>setCostInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveCost(mat,costInput);if(e.key==="Escape"){setEditingCost(null);setCostInput("");}}} autoFocus />
+                  <button onClick={()=>saveCost(mat,costInput)} style={{ padding:"8px 14px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:800, cursor:"pointer" }}>✓</button>
+                  <button onClick={()=>{setEditingCost(null);setCostInput("");}} style={{ padding:"8px 12px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.rSm, fontSize:12, cursor:"pointer" }}>✕</button>
                 </div>
               ) : (
                 <div style={{ display:"flex", gap:6 }}>
-                  <button onClick={()=>{setEditingCost(mat);setCostInput(matCosts[mat]||"");}} style={{ padding:"7px 13px", background:matCosts[mat]?C.bg3:C.orangeBg, color:matCosts[mat]?C.t2:C.orange, border:`1px solid ${matCosts[mat]?C.bg5:C.orange}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+                  <button onClick={()=>{setEditingCost(mat);setCostInput(matCosts[mat]||"");}} style={{ padding:"8px 14px", background:matCosts[mat]?C.bg3:C.orangeBg, color:matCosts[mat]?C.t2:C.orange, border:`1px solid ${matCosts[mat]?C.bg5:C.orange}`, borderRadius:C.rSm, fontSize:12, fontWeight:700, cursor:"pointer" }}>
                     {matCosts[mat]?`Bs. ${matCosts[mat]}`:"+ Agregar"}
                   </button>
-                  {matCosts[mat] && <button onClick={()=>deleteCost(mat)} style={{ padding:"7px 9px", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:12, cursor:"pointer" }}>×</button>}
+                  {matCosts[mat] && <button onClick={()=>deleteCost(mat)} style={{ padding:"8px 10px", background:C.redBg, color:C.red, border:`1px solid #4A1A10`, borderRadius:C.rSm, fontSize:12, cursor:"pointer" }}>×</button>}
                 </div>
               )}
             </div>
@@ -2769,14 +2740,14 @@ export default function App() {
           const k = p.id+":"+t.id, pct = Math.max(0, Math.min(100, t.uso/(Number(t.cada)||1)*100));
           const color = t.vencida ? "#E53212" : t.pronto ? C.yellow : C.green;
           return (
-            <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderTop:`1px solid ${C.bg4}` }}>
+            <div key={t.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderTop:`1px solid ${C.bg4}` }}>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontSize:14, fontWeight:800, color:C.t1 }}>{t.nombre}</div>
                 <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:12, color:C.t3, marginTop:2, flexWrap:"wrap" }}>
                   {editMant===k ? (
                     <span style={{ display:"inline-flex", gap:6, alignItems:"center" }}>cada
                       <input autoFocus type="number" value={editMantVal} onChange={e=>setEditMantVal(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ mantCada(p,t.id,editMantVal); setEditMant(null);} if(e.key==="Escape") setEditMant(null); }} style={{ ...inputSt, width:80, padding:"4px 8px", fontSize:13 }} /> h
-                      <button onClick={()=>{ mantCada(p,t.id,editMantVal); setEditMant(null); }} style={{ background:C.orange, color:"#191513", border:"none", borderRadius:8, padding:"4px 10px", fontWeight:900, cursor:"pointer", minHeight:32 }}>OK</button>
+                      <button onClick={()=>{ mantCada(p,t.id,editMantVal); setEditMant(null); }} style={{ background:C.orange, color:"#191513", border:"none", borderRadius:C.rXs, padding:"4px 10px", fontWeight:900, cursor:"pointer", minHeight:32 }}>OK</button>
                     </span>
                   ) : (
                     <button onClick={()=>{ setEditMant(k); setEditMantVal(String(t.cada)); }} title="Cambiar intervalo" style={{ background:"none", border:"none", padding:0, minHeight:0, minWidth:0, color:C.t3, fontSize:12, cursor:"pointer", textDecoration:"underline", textDecorationColor:C.bg5, textUnderlineOffset:3 }}>cada {t.cada} h</button>
@@ -2814,13 +2785,13 @@ export default function App() {
     return (
       <div className="view-pad" style={{ maxWidth:isDesktop?1400:isTablet?900:"100%", margin:"0 auto" }}>
         {/* Sub-tab switcher */}
-        <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:5 }}>
+        <div style={{ display:"flex", gap:0, marginBottom:16, background:C.bg3, borderRadius:C.r, padding:6 }}>
           <button onClick={()=>setProdTab("catalogo")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="catalogo"?C.orange:"transparent", color:prodTab==="catalogo"?"#191513":C.t3, boxShadow:prodTab==="catalogo"?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
             Catálogo{products.length>0 && <span style={{ marginLeft:6, fontSize:12, opacity:.85 }}>{products.length}</span>}
           </button>
           <button onClick={()=>setProdTab("stock")} style={{ flex:1, padding:"10px 0", borderRadius:C.rMd, border:"none", cursor:"pointer", fontSize:13, fontWeight:800, background:prodTab==="stock"?C.orange:"transparent", color:prodTab==="stock"?"#191513":C.t3, boxShadow:prodTab==="stock"?"0 3px 12px rgba(241,132,27,.35)":undefined, position:"relative" }}>
             Stock
-            {totalStock>0 && <span style={{ marginLeft:6, background:prodTab==="stock"?"rgba(25,21,19,.25)":C.orange, color:"#191513", borderRadius:C.rPill, padding:"1px 7px", fontSize:12, fontWeight:900 }}>{totalStock}</span>}
+            {totalStock>0 && <span style={{ marginLeft:6, background:prodTab==="stock"?"rgba(25,21,19,.25)":C.orange, color:"#191513", borderRadius:C.rPill, padding:"1px 8px", fontSize:12, fontWeight:900 }}>{totalStock}</span>}
           </button>
         </div>
 
@@ -2828,11 +2799,11 @@ export default function App() {
         {prodTab==="catalogo" && <>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
             <div style={{ fontSize:12, color:C.t3 }}>Toca <strong style={{ color:C.orange }}>+ Cola</strong> o <strong style={{ color:C.green }}>+ Stock</strong></div>
-            <button onClick={()=>{ setEditProduct(null); setProdForm({ name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"", category:"" }); setShowProductForm(true); }} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, padding:"9px 16px", fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 14px rgba(241,132,27,.4)` }}>+ Nuevo</button>
+            <button onClick={()=>{ setEditProduct(null); setProdForm({ name:"", price:"", duration:"", weight:"", material:"", color:"", notes:"", category:"" }); setShowProductForm(true); }} style={{ background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, padding:"10px 16px", fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 14px rgba(241,132,27,.4)` }}>+ Nuevo</button>
           </div>
           {/* Search bar */}
           <div style={{ position:"relative", marginBottom:12 }}>
-            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:15, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
+            <div style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", fontSize:16, pointerEvents:"none" }}><Icono e="🔍" size={17} /></div>
             <input style={{ ...inputSt, paddingLeft:42, background:C.bg3, borderColor:prodSearch?C.orange:C.bg5 }} placeholder="Buscar producto..." value={prodSearch} onChange={e=>setProdSearch(e.target.value)} />
             {prodSearch && <button onClick={()=>setProdSearch("")} style={{ position:"absolute", right:12, top:"50%", transform:"translateY(-50%)", background:"none", border:"none", color:C.t3, fontSize:18, cursor:"pointer", lineHeight:1 }}>✕</button>}
           </div>
@@ -2843,9 +2814,9 @@ export default function App() {
             return (
               <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4, marginBottom:12 }}>
                 {cats.map(cat=>(
-                  <button key={cat} onClick={()=>setProdCatFilter(cat)} style={{ padding:"7px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", flexShrink:0, background:prodCatFilter===cat?C.orange:C.bg3, color:prodCatFilter===cat?"#191513":C.t3, boxShadow:prodCatFilter===cat?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
+                  <button key={cat} onClick={()=>setProdCatFilter(cat)} style={{ padding:"8px 14px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:12, fontWeight:800, whiteSpace:"nowrap", flexShrink:0, background:prodCatFilter===cat?C.orange:C.bg3, color:prodCatFilter===cat?"#191513":C.t3, boxShadow:prodCatFilter===cat?"0 3px 12px rgba(241,132,27,.35)":undefined }}>
                     {cat==="all"?"Todos":cat}
-                    {cat!=="all" && <span style={{ marginLeft:5, fontSize:12, opacity:.8 }}>{products.filter(p=>p.category===cat).length}</span>}
+                    {cat!=="all" && <span style={{ marginLeft:6, fontSize:12, opacity:.8 }}>{products.filter(p=>p.category===cat).length}</span>}
                   </button>
                 ))}
               </div>
@@ -2863,11 +2834,11 @@ export default function App() {
                   <div key={prod.id} style={{ background:C.bg2, borderRadius:C.r, border:`1px solid ${C.bg4}`, overflow:"hidden" }}>
                     <div style={{ display:"flex", alignItems:"stretch" }}>
                       <div style={{ width:4, background:C.orange, flexShrink:0 }} />
-                      <div style={{ flex:1, padding:"13px 13px 13px 15px", minWidth:0 }}>
+                      <div style={{ flex:1, padding:"14px 14px 14px 16px", minWidth:0 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8, marginBottom:6 }}>
                           <div style={{ flex:1, minWidth:0 }}>
-                            <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{prod.name}</div>
-                            <div style={{ display:"flex", gap:5, marginTop:4, flexWrap:"wrap", alignItems:"center" }}>
+                            <div style={{ fontSize:16, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{prod.name}</div>
+                            <div style={{ display:"flex", gap:6, marginTop:4, flexWrap:"wrap", alignItems:"center" }}>
                               {prod.material && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.material}</span>}
                               {prod.color    && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{prod.color}</span>}
                               {prod.duration>0 && <span style={{ fontSize:12, color:C.t4, fontWeight:600 }}><Icono e="⏱" size={14} style={{marginRight:3}} />{Number(prod.duration)>=60?`${Math.floor(Number(prod.duration)/60)}h${Number(prod.duration)%60>0?" "+Number(prod.duration)%60+"m":""}`:prod.duration+"min"}</span>}
@@ -2875,14 +2846,14 @@ export default function App() {
                             </div>
                           </div>
                           <div style={{ textAlign:"right", flexShrink:0 }}>
-                            {prod.price && <div style={{ fontSize:17, fontWeight:900, color:C.green }}>{Number(prod.price)>0?"Bs. "+Number(prod.price).toFixed(2):""}</div>}
+                            {prod.price && <div style={{ fontSize:18, fontWeight:900, color:C.green }}>{Number(prod.price)>0?"Bs. "+Number(prod.price).toFixed(2):""}</div>}
                             {stockQty>0 && <div style={{ fontSize:12, color:C.purple, fontWeight:800, marginTop:2 }}>{stockQty} en stock</div>}
                           </div>
                         </div>
                         {/* Action buttons */}
                         <div style={{ display:"flex", gap:6 }}>
-                          <button onClick={()=>quickAddProduct(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)` }}>+ Cola</button>
-                          <button onClick={()=>addToStock(prod)} style={{ flex:1, padding:"9px 0", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.25)` }}>+ Stock</button>
+                          <button onClick={()=>quickAddProduct(prod)} style={{ flex:1, padding:"10px 0", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)` }}>+ Cola</button>
+                          <button onClick={()=>addToStock(prod)} style={{ flex:1, padding:"10px 0", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:13, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.25)` }}>+ Stock</button>
                         </div>
                       </div>
                       <div style={{ display:"flex", flexDirection:"column", borderLeft:`1px solid ${C.bg4}` }}>
@@ -2916,8 +2887,8 @@ export default function App() {
                       <div style={{ width:4, background:C.purple, flexShrink:0 }} />
                       <div style={{ flex:1, padding:"14px 14px 14px 16px", display:"flex", alignItems:"center", gap:12, minWidth:0 }}>
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontSize:15, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
-                          <div style={{ display:"flex", gap:5, marginTop:4, flexWrap:"wrap" }}>
+                          <div style={{ fontSize:16, fontWeight:900, color:C.t1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
+                          <div style={{ display:"flex", gap:6, marginTop:4, flexWrap:"wrap" }}>
                             {item.material && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{item.material}</span>}
                             {item.color    && <span style={{ fontSize:12, background:C.bg4, color:C.t3, borderRadius:C.rPill, padding:"2px 8px", fontWeight:600 }}>{item.color}</span>}
                             {prod?.price && <span style={{ fontSize:12, color:C.green, fontWeight:800 }}>Bs. {Number(prod.price).toFixed(2)}</span>}
@@ -2926,9 +2897,9 @@ export default function App() {
                         <div style={{ textAlign:"right", flexShrink:0 }}>
                           {/* Quantity control */}
                           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8, justifyContent:"flex-end" }}>
-                            <button onClick={()=>removeFromStock(item.productId,item.qty)} style={{ width:28, height:28, borderRadius:8, background:C.bg4, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:16, fontWeight:900, cursor:"pointer", lineHeight:1 }}>−</button>
+                            <button onClick={()=>removeFromStock(item.productId,item.qty)} style={{ width:28, height:28, borderRadius:C.rXs, background:C.bg4, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:16, fontWeight:900, cursor:"pointer", lineHeight:1 }}>−</button>
                             <div style={{ fontSize:22, fontWeight:900, color:C.purple, minWidth:28, textAlign:"center" }}>{item.qty}</div>
-                            <button onClick={()=>prod&&addToStock(prod)} style={{ width:28, height:28, borderRadius:8, background:C.bg4, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:16, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
+                            <button onClick={()=>prod&&addToStock(prod)} style={{ width:28, height:28, borderRadius:C.rXs, background:C.bg4, border:`1px solid ${C.bg5}`, color:C.t1, fontSize:16, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+</button>
                           </div>
                           <button onClick={()=>prod&&quickAddFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.35)`, whiteSpace:"nowrap" }}>→ Cola</button>
                           <button onClick={()=>sellFromStock(item.productId)} style={{ padding:"8px 12px", background:`linear-gradient(135deg,${C.green},${C.greenD})`, color:"#000", border:"none", borderRadius:C.rSm, fontSize:12, fontWeight:900, cursor:"pointer", boxShadow:`0 3px 10px rgba(241,132,27,.25)`, whiteSpace:"nowrap" }}>Vender</button>
@@ -2959,7 +2930,7 @@ export default function App() {
     return (
       <div style={{ marginBottom:14 }}>
         {/* Group header */}
-        <div onClick={()=>setCollapsed(v=>!v)} style={{ background:C.bg3, borderRadius:`${C.r}px ${C.r}px ${collapsed?C.r:0}px ${collapsed?C.r:0}px`, border:`1px solid ${anyActive?STATUS.printing.border:C.bg5}`, padding:"11px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer", borderBottom:collapsed?undefined:`1px solid ${C.bg5}` }}>
+        <div onClick={()=>setCollapsed(v=>!v)} style={{ background:C.bg3, borderRadius:`${C.r}px ${C.r}px ${collapsed?C.r:0}px ${collapsed?C.r:0}px`, border:`1px solid ${anyActive?STATUS.printing.border:C.bg5}`, padding:"12px 16px", display:"flex", alignItems:"center", gap:10, cursor:"pointer", borderBottom:collapsed?undefined:`1px solid ${C.bg5}` }}>
           <div style={{ width:7, height:7, borderRadius:"50%", background:anyActive?C.green:allDone?C.teal:C.orange, boxShadow:anyActive?`0 0 6px ${C.green}`:undefined, flexShrink:0 }} />
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:13, fontWeight:900, color:C.t1 }}>Pedido múltiple{clientName?` · ${clientName}`:""}</div>
@@ -3006,7 +2977,7 @@ export default function App() {
       const st = STATUS[j.status] || STATUS.pending, tarde = esAtrasado(j), entregado = j.status === "shipped";
       return (
         <button key={j.id} onClick={()=>setKioskSel(j.id)} style={{ display:"block", width:"100%", textAlign:"left", background:tarde?C.redBg:C.bg3, border:`1px solid ${tarde?"#5C1F14":C.bg5}`, borderLeft:`5px solid ${tarde?"#E53212":st.dot}`, borderRadius:C.rSm, padding:"10px 10px 10px 12px", marginBottom:8, cursor:"pointer", color:"inherit", fontFamily:"inherit", opacity:entregado?.5:1 }}>
-          <div style={{ fontSize:chico?14:17, fontWeight:900, color:tarde?"#FF8A6B":C.orange, fontVariantNumeric:"tabular-nums" }}>{chico ? new Date(j.deliveryAt).toLocaleDateString("es-ES",{day:"2-digit",month:"short"}) : hora(j.deliveryAt)}</div>
+          <div style={{ fontSize:chico?14:18, fontWeight:900, color:tarde?"#FF8A6B":C.orange, fontVariantNumeric:"tabular-nums" }}>{chico ? new Date(j.deliveryAt).toLocaleDateString("es-ES",{day:"2-digit",month:"short"}) : hora(j.deliveryAt)}</div>
           <div style={{ fontSize:16, fontWeight:900, color:C.t1, marginTop:4, lineHeight:1.25, display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden", overflowWrap:"anywhere", textDecoration:entregado?"line-through":"none" }}>{j.fileName}{Number(j.quantity)>1 && <span style={{ color:C.purple }}> ×{j.quantity}</span>}</div>
           {j.clientName && <div style={{ fontSize:14, color:C.t2, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{j.clientName}</div>}
           <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:6, fontSize:13, fontWeight:800, color:entregado?C.teal:tarde?"#FF8A6B":st.color }}>
@@ -3026,12 +2997,12 @@ export default function App() {
             <div style={{ fontSize:14, color:C.t3, fontWeight:700 }}>{kioskSemana===0?"Esta semana":kioskSemana===1?"Semana que viene":kioskSemana===-1?"Semana pasada":""} · {deLaSemana.filter(j=>j.status!=="shipped").length} por entregar · {deLaSemana.filter(j=>j.status==="shipped").length} entregados</div>
           </div>
           <button onClick={()=>setKioskSemana(v=>v+1)} aria-label="Semana siguiente" style={flecha}><ChevronRight size={26} aria-hidden="true" /></button>
-          {kioskSemana!==0 && <button onClick={()=>setKioskSemana(0)} style={{ ...flecha, width:"auto", padding:"0 18px", fontSize:15, fontWeight:900, color:C.orange }}>Hoy</button>}
+          {kioskSemana!==0 && <button onClick={()=>setKioskSemana(0)} style={{ ...flecha, width:"auto", padding:"0 18px", fontSize:16, fontWeight:900, color:C.orange }}>Hoy</button>}
           {sinFecha>0 && <div style={{ marginLeft:"auto", fontSize:14, color:C.t3, fontWeight:700 }}>{sinFecha} en cola sin fecha de entrega</div>}
         </div>
         {atrasadosAntes.length>0 && (
           <div style={{ background:C.redBg, border:"1px solid #5C1F14", borderRadius:C.r, padding:"12px 14px", marginBottom:14 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:15, fontWeight:900, color:"#FF8A6B", marginBottom:10 }}><AlertTriangle size={18} aria-hidden="true" />Atrasados de antes · {atrasadosAntes.length}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, fontSize:16, fontWeight:900, color:"#FF8A6B", marginBottom:10 }}><AlertTriangle size={18} aria-hidden="true" />Atrasados de antes · {atrasadosAntes.length}</div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:8 }}>{atrasadosAntes.map(j=>Item(j, true))}</div>
           </div>
         )}
@@ -3048,7 +3019,7 @@ export default function App() {
                     {esHoy && <div style={{ fontSize:12, fontWeight:900, color:"#191513", background:C.orange, borderRadius:C.rPill, padding:"1px 6px", marginTop:4 }}>HOY</div>}
                   </div>
                   <div style={{ flex:1, minWidth:0, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:8, alignContent:"start" }}>
-                    {lista.length ? lista.map(j=>Item(j)) : <div style={{ color:C.t4, fontSize:15, alignSelf:"center", padding:"14px 0" }}>Sin entregas</div>}
+                    {lista.length ? lista.map(j=>Item(j)) : <div style={{ color:C.t4, fontSize:16, alignSelf:"center", padding:"14px 0" }}>Sin entregas</div>}
                   </div>
                 </section>
               );
@@ -3062,7 +3033,7 @@ export default function App() {
               return (
                 <section key={i} aria-label={`${NOM[i]} ${d.getDate()}`} style={{ background:esHoy?`${C.orange}14`:C.bg2, border:`${esHoy?2:1}px solid ${esHoy?C.orange:C.bg4}`, borderRadius:C.r, minHeight:"calc(100vh - 230px)", display:"flex", flexDirection:"column", opacity:pasado&&!lista.some(esAtrasado)?.7:1 }}>
                   <div style={{ padding:"12px 12px 10px", borderBottom:`1px solid ${esHoy?C.orange+"55":C.bg4}`, display:"flex", alignItems:"baseline", gap:8 }}>
-                    <span style={{ fontSize:15, fontWeight:900, color:esHoy?C.orange:C.t2, textTransform:"uppercase" }}>{NOM[i]}</span>
+                    <span style={{ fontSize:16, fontWeight:900, color:esHoy?C.orange:C.t2, textTransform:"uppercase" }}>{NOM[i]}</span>
                     <span style={{ fontSize:28, fontWeight:900, color:esHoy?C.orange:C.t1, lineHeight:1 }}>{d.getDate()}</span>
                     {esHoy && <span style={{ marginLeft:"auto", fontSize:12, fontWeight:900, color:"#191513", background:C.orange, borderRadius:C.rPill, padding:"2px 8px" }}>HOY</span>}
                     {!esHoy && lista.length>0 && <span style={{ marginLeft:"auto", fontSize:13, fontWeight:800, color:C.t3 }}>{lista.length}</span>}
@@ -3093,18 +3064,18 @@ export default function App() {
       : j.status==="done" ? { l:"Para envío", f:()=>toShipJ(j.id), I:PackageOpen }
       : j.status==="shipping" ? { l:"Entregado", f:()=>shippedJ(j.id,j), I:Truck }
       : j.debe ? { l:`Cobrar ${fmtMoney(saldoDe(j))}`, f:()=>cobrarDeuda(j), I:Banknote } : null;
-    const fila = (l, v) => v ? <div style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"9px 0", borderBottom:`1px solid ${C.bg4}`, fontSize:16 }}><span style={{ color:C.t3 }}>{l}</span><span style={{ color:C.t1, fontWeight:800, textAlign:"right" }}>{v}</span></div> : null;
+    const fila = (l, v) => v ? <div style={{ display:"flex", justifyContent:"space-between", gap:12, padding:"10px 0", borderBottom:`1px solid ${C.bg4}`, fontSize:16 }}><span style={{ color:C.t3 }}>{l}</span><span style={{ color:C.t1, fontWeight:800, textAlign:"right" }}>{v}</span></div> : null;
     return (
-      <div onClick={e=>{ if(e.target===e.currentTarget) cerrar(); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:60, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div onClick={e=>{ if(e.target===e.currentTarget) cerrar(); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:60, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
         <div role="dialog" aria-modal="true" aria-labelledby="kiosco-det" style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"22px", width:"100%", maxWidth:480 }}>
           <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
             <div style={{ flex:1, minWidth:0 }}>
               <div id="kiosco-det" style={{ fontSize:24, fontWeight:900, color:C.t1, lineHeight:1.2 }}>{j.fileName}{Number(j.quantity)>1 && <span style={{ color:C.purple }}> ×{j.quantity}</span>}</div>
-              <div style={{ fontSize:15, fontWeight:800, color:st.color, marginTop:6 }}>{st.label}{esAtrasado(j)?" · atrasado":""}</div>
+              <div style={{ fontSize:16, fontWeight:800, color:st.color, marginTop:6 }}>{st.label}{esAtrasado(j)?" · atrasado":""}</div>
             </div>
             <button onClick={cerrar} aria-label="Cerrar" style={{ width:48, height:48, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, color:C.t1, cursor:"pointer", flexShrink:0 }}><X size={22} aria-hidden="true" /></button>
           </div>
-          {j.status==="printing" && <div style={{ marginTop:14 }}><div style={{ display:"flex", justifyContent:"space-between", fontSize:16, fontWeight:800 }}><span style={{ color:C.green }}>{avanceJob(j)}%</span><span style={{ color:C.t1 }}>quedan {fmtTime(j.remaining)}</span></div><div style={{ height:10, background:C.bg4, borderRadius:8, marginTop:6, overflow:"hidden" }}><div style={{ height:"100%", width:`${avanceJob(j)}%`, background:C.green }} /></div></div>}
+          {j.status==="printing" && <div style={{ marginTop:14 }}><div style={{ display:"flex", justifyContent:"space-between", fontSize:16, fontWeight:800 }}><span style={{ color:C.green }}>{avanceJob(j)}%</span><span style={{ color:C.t1 }}>quedan {fmtTime(j.remaining)}</span></div><div style={{ height:10, background:C.bg4, borderRadius:C.rXs, marginTop:6, overflow:"hidden" }}><div style={{ height:"100%", width:`${avanceJob(j)}%`, background:C.green }} /></div></div>}
           <div style={{ marginTop:12 }}>
             {fila("Entrega", j.deliveryAt && new Date(j.deliveryAt).toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}))}
             {fila("Cliente", j.clientName)}
@@ -3125,7 +3096,7 @@ export default function App() {
     <div role="alert" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap", background:C.yellowBg, borderBottom:"1px solid #4A3F36", color:C.t1, fontSize:grande?16:13, fontWeight:800, padding:grande?"12px 20px":"8px 14px", textAlign:"center" }}>
       <AlertTriangle size={grande?20:16} color={C.yellow} aria-hidden="true" />
       Reconectando… lo que ves puede no estar actualizado (desde las {new Date(sinDiaDesde).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})})
-      <button onClick={()=>window.location.reload()} style={{ minHeight:grande?48:36, padding:"0 16px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:grande?15:13, fontWeight:900, cursor:"pointer" }}>Actualizar ahora</button>
+      <button onClick={()=>window.location.reload()} style={{ minHeight:grande?48:36, padding:"0 16px", background:C.orange, color:"#191513", border:"none", borderRadius:C.rSm, fontSize:grande?16:13, fontWeight:900, cursor:"pointer" }}>Actualizar ahora</button>
     </div>
   );
 
@@ -3166,7 +3137,7 @@ export default function App() {
           </div>
           <div role="tablist" aria-label="Vista del kiosco" style={{ display:"flex", background:C.bg2, border:`1px solid ${C.bg5}`, borderRadius:C.rPill, padding:4, gap:4 }}>
             {[["tablero","Pedidos",ListOrdered],["calendario","Calendario",CalendarDays]].map(([k,l,Ic])=>(
-              <button key={k} role="tab" aria-selected={kioskVista===k} onClick={()=>{ setKioskVista(k); setKioskSemana(0); }} style={{ display:"flex", alignItems:"center", gap:8, minHeight:44, padding:"0 18px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:15, fontWeight:900, background:kioskVista===k?C.orange:"transparent", color:kioskVista===k?"#191513":C.t2 }}><Ic size={18} aria-hidden="true" />{l}</button>
+              <button key={k} role="tab" aria-selected={kioskVista===k} onClick={()=>{ setKioskVista(k); setKioskSemana(0); }} style={{ display:"flex", alignItems:"center", gap:8, minHeight:44, padding:"0 18px", borderRadius:C.rPill, border:"none", cursor:"pointer", fontSize:16, fontWeight:900, background:kioskVista===k?C.orange:"transparent", color:kioskVista===k?"#191513":C.t2 }}><Ic size={18} aria-hidden="true" />{l}</button>
             ))}
           </div>
           <button onClick={()=>setShowKioskExit(true)} style={{ background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rSm, padding:"10px 18px", color:C.t3, fontSize:13, fontWeight:700, cursor:"pointer" }}>
@@ -3206,10 +3177,10 @@ export default function App() {
             return (
               <article key={j.id} onClick={()=>setKioskSel(j.id)} style={{ background:C.bg2, border:`1.5px solid ${ent?.tarde?"#5C1F14":imp?STATUS.printing.border:pau?STATUS.paused.border:C.bg4}`, borderLeft:`6px solid ${ent?.tarde?"#E53212":etapa.color}`, borderRadius:C.r, padding:"16px 16px 14px", marginBottom:12, cursor:"pointer" }}>
                 <div style={{ fontSize:22, fontWeight:900, color:C.t1, lineHeight:1.2, overflowWrap:"anywhere" }}>{j.fileName}{qty>1 && <span style={{ color:C.purple }}> ×{qty}</span>}</div>
-                {j.clientName && <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:17, fontWeight:700, color:C.t2, marginTop:6 }}><User size={17} aria-hidden="true" />{j.clientName}</div>}
+                {j.clientName && <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:18, fontWeight:700, color:C.t2, marginTop:6 }}><User size={17} aria-hidden="true" />{j.clientName}</div>}
                 <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10 }}>
                   {[j.material, j.color, maq, tiempo].filter(Boolean).map((t,i)=><span key={i} style={{ fontSize:14, fontWeight:700, color:C.t2, background:C.bg3, border:`1px solid ${C.bg5}`, borderRadius:C.rPill, padding:"3px 10px" }}>{t}</span>)}
-                  {ent && <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontSize:14, fontWeight:900, color:ent.tarde?"#191513":ent.hoy?"#191513":C.t1, background:ent.tarde?"#E53212":ent.hoy?C.yellow:C.bg4, borderRadius:C.rPill, padding:"3px 10px" }}><CalendarClock size={14} aria-hidden="true" />{ent.txt}</span>}
+                  {ent && <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:14, fontWeight:900, color:ent.tarde?"#191513":ent.hoy?"#191513":C.t1, background:ent.tarde?"#E53212":ent.hoy?C.yellow:C.bg4, borderRadius:C.rPill, padding:"3px 10px" }}><CalendarClock size={14} aria-hidden="true" />{ent.txt}</span>}
                   {sinRecoger(j) && <span style={{ fontSize:14, fontWeight:900, color:C.yellow, background:C.yellowBg, borderRadius:C.rPill, padding:"3px 10px" }}>Listo {haceDias(j.endedAt)} · sin recoger</span>}
                 </div>
                 {(imp||pau) && (<>
@@ -3217,8 +3188,8 @@ export default function App() {
                     <span style={{ fontSize:42, fontWeight:900, color:imp?C.green:"#E53212", lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{pau ? "Pausado" : `${pct}%`}</span>
                     <span style={{ display:"inline-flex", alignItems:"center", gap:6, fontSize:20, fontWeight:800, color:C.t1, fontVariantNumeric:"tabular-nums" }}><Clock size={18} aria-hidden="true" />{j.duration>0 ? fmtTime(j.remaining) : "sin tiempo"}</span>
                   </div>
-                  <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${j.fileName}`} style={{ height:12, background:C.bg4, borderRadius:10, marginTop:8, overflow:"hidden" }}>
-                    <div style={{ height:"100%", width:`${pct}%`, background:imp?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:10, transition:"width 1s" }} />
+                  <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Avance de ${j.fileName}`} style={{ height:12, background:C.bg4, borderRadius:C.rSm, marginTop:8, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${pct}%`, background:imp?`linear-gradient(90deg,${C.greenD},${C.green})`:"#E53212", borderRadius:C.rSm, transition:"width 1s" }} />
                   </div>
                 </>)}
                 <div style={{ display:"flex", flexWrap:"wrap", gap:10, marginTop:14 }}>
@@ -3254,7 +3225,7 @@ export default function App() {
 
         {/* Exit PIN modal */}
         {showKioskExit && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.9)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+          <div className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.9)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
             <div style={{ background:C.bg2, borderRadius:C.r, padding:"32px 28px", width:"100%", maxWidth:320, border:`1px solid ${C.bg4}`, textAlign:"center" }}>
               <div style={{ fontSize:40, marginBottom:16 }}><Icono e="🔒" size={42} /></div>
               <div style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:6 }}>Salir del modo kiosco</div>
@@ -3306,19 +3277,20 @@ export default function App() {
   ];
   const irA = (key) => { setView(key); setShowMas(false); if(key!=="clients")setSelectedClient(null); if(key!=="queue")setSortMode(false); };
   const Insignia = ({ n, urgente }) => !n ? null : (
-    <span aria-hidden="true" style={{ position:"absolute", top:-6, right:-10, background:urgente?C.red:C.orange, color:urgente?"#fff":"#191513", fontSize:12, fontWeight:900, borderRadius:10, padding:"0 5px", minWidth:18, height:18, lineHeight:"18px", textAlign:"center", boxShadow:`0 0 0 2px ${C.bg0}` }}>{n}</span>
+    <span aria-hidden="true" style={{ position:"absolute", top:-6, right:-10, background:urgente?C.red:C.orange, color:urgente?"#fff":"#191513", fontSize:12, fontWeight:900, borderRadius:C.rSm, padding:"0 6px", minWidth:18, height:18, lineHeight:"18px", textAlign:"center", boxShadow:`0 0 0 2px ${C.bg0}` }}>{n}</span>
   );
 
+  // Solo se arma la pantalla que estás viendo (antes se armaban las 7 en cada actualización del reloj)
   const views = {
-    web: <WebView pedidos={pedidos} cargando={pedidosCargando} error={pedidosError} recargar={recargarPedidos} jobs={jobs} printers={printers}
+    web: () => <WebView pedidos={pedidos} cargando={pedidosCargando} error={pedidosError} recargar={recargarPedidos} jobs={jobs} printers={printers}
                   pasarACola={pasarACola} cambiarEstado={cambiarEstadoWeb} goToJob={goToJob} sesion={sesion} salir={salir} />,
-    dashboard:     DashboardView(),
-    queue:         QueueView(),
-    shipping_view: ShippingView(),
-    clients:       ClientsView(),
-    stats:         StatsView(),
-    products:      ProductsView(),
-    printers:      PrintersView(),
+    dashboard:     DashboardView,
+    queue:         QueueView,
+    shipping_view: ShippingView,
+    clients:       ClientsView,
+    stats:         StatsView,
+    products:      ProductsView,
+    printers:      PrintersView,
   };
 
   const overlayStyle = { position:"fixed", inset:0, background:"rgba(0,0,0,.88)", zIndex:50, display:"flex", alignItems: isMobile?"flex-end":"center", justifyContent:"center" };
@@ -3340,7 +3312,7 @@ export default function App() {
           <div style={{ fontSize:13, fontWeight:800, opacity:.9, textTransform:"uppercase", letterSpacing:.8 }}>
             {avisoNuevo.estado==="pago confirmado" ? "Pedido pagado" : avisoNuevo.tipo==="cotizacion" ? "Nueva cotización" : "Pedido nuevo en la web"}
           </div>
-          <div style={{ fontSize:17, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+          <div style={{ fontSize:18, fontWeight:900, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
             {numPedido(avisoNuevo)} · {avisoNuevo.cliente_nombre || "Sin nombre"}{Number(avisoNuevo.total)>0 ? ` · Bs. ${Number(avisoNuevo.total).toFixed(2)}` : ""}
           </div>
           {avisoNuevo.otros>0 && <div style={{ fontSize:12, fontWeight:700, opacity:.9 }}>y {avisoNuevo.otros} más</div>}
@@ -3356,9 +3328,9 @@ export default function App() {
   const ModalCobro = () => {
     if (!cobro) return null;
     const { job, modo } = cobro, monto = saldoDe(job);
-    const btn = { flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6, minHeight:76, borderRadius:C.rSm, fontSize:15, fontWeight:900, cursor:"pointer" };
+    const btn = { flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6, minHeight:76, borderRadius:C.rSm, fontSize:16, fontWeight:900, cursor:"pointer" };
     return (
-      <div onClick={e=>{ if(e.target===e.currentTarget) setCobro(null); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:70, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div onClick={e=>{ if(e.target===e.currentTarget) setCobro(null); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:70, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
         <div role="dialog" aria-modal="true" aria-labelledby="cobro-titulo" style={{ background:C.bg2, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:400, border:`1px solid ${C.bg4}` }}>
           <div style={{ fontSize:12, color:C.t3, fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:4 }}>{modo==="entrega"?"Entregar":"Cobrar saldo"}</div>
           <div id="cobro-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{job.fileName}</div>
@@ -3385,7 +3357,7 @@ export default function App() {
     const { job } = falla, kg = matCosts[job.material]||0;
     const costo = (Number(falla.gramos)||0)/1000*kg + falla.minutos/60*porHoraMaq;
     return (
-      <div onClick={e=>{ if(e.target===e.currentTarget) setFalla(null); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:70, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+      <div onClick={e=>{ if(e.target===e.currentTarget) setFalla(null); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:70, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
         <div role="dialog" aria-modal="true" aria-labelledby="falla-titulo" style={{ background:C.bg2, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:440, border:`1px solid ${C.bg4}`, maxHeight:"92vh", overflowY:"auto" }}>
           <div style={{ fontSize:12, color:"#FF8A6B", fontWeight:800, textTransform:"uppercase", letterSpacing:.7, marginBottom:4 }}>Anotar falla</div>
           <div id="falla-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1 }}>{job.fileName}</div>
@@ -3438,7 +3410,7 @@ export default function App() {
               <button key={c.key} onClick={()=>{ setSelectedClient(c.key); setShowBuscar(false); setView("clients"); }} style={fila}>
                 <div style={{ width:40, height:40, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:900, color:"#191513", flexShrink:0 }}>{initials(c.name)}</div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:15, fontWeight:800, color:C.t1 }}>{c.name}</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:C.t1 }}>{c.name}</div>
                   <div style={{ fontSize:12, color:C.t3 }}>{c.phone||"Sin teléfono"} · {c.totalJobs} pedido{c.totalJobs!==1?"s":""}{c.active?` · ${c.active} en proceso`:""}</div>
                 </div>
                 {deb>0 && <span style={{ fontSize:12, color:C.yellow, fontWeight:800, flexShrink:0 }}>Por cobrar {fmtMoney(deb)}</span>}
@@ -3450,7 +3422,7 @@ export default function App() {
               <button key={p.id} onClick={()=>{ setShowBuscar(false); setView("web"); }} style={fila}>
                 <Globe size={20} color={C.orange} aria-hidden="true" />
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:15, fontWeight:800, color:C.t1 }}>{numPedido(p)} · {p.cliente_nombre||"Sin nombre"}</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:C.t1 }}>{numPedido(p)} · {p.cliente_nombre||"Sin nombre"}</div>
                   <div style={{ fontSize:12, color:C.t3 }}>{p.estado}{Number(p.total)>0?` · ${fmtMoney(p.total)}`:""}</div>
                 </div>
                 <ChevronRight size={18} color={C.t3} aria-hidden="true" />
@@ -3471,12 +3443,12 @@ export default function App() {
       {/* ── HEADER ── */}
       <div ref={cabRef} style={{ background:C.bg0, padding:"14px 18px 12px", position:"sticky", top:0, zIndex:10, borderBottom:`1px solid ${C.bg4}` }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", maxWidth: isDesktop?"100%":isTablet?"100%":430, margin:"0 auto", padding: isDesktop?"0 12px":isTablet?"0 8px":"0" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:11 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:40, height:40, borderRadius:12, overflow:"hidden", border:`1px solid ${C.orange}44`, flexShrink:0 }}>
               <img src={ISOTIPO} alt="W3D" style={{ width:"100%", height:"100%", objectFit:"contain" }} />
             </div>
             <div>
-              <div className="w3d-titulo" style={{ fontSize:17, fontWeight:900, color:C.t1, letterSpacing:1.5, display:"flex", alignItems:"center", gap:8 }}>
+              <div className="w3d-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1, letterSpacing:1.5, display:"flex", alignItems:"center", gap:8 }}>
                 <span>WORLD<span style={{ color:C.orange }}>3D</span></span>
                 {needs_attention>0 && <div style={{ width:8, height:8, borderRadius:"50%", background:C.green, boxShadow:`0 0 8px ${C.green}` }} />}
               </div>
@@ -3488,7 +3460,7 @@ export default function App() {
             <div style={{ display:"flex", borderRadius:C.rSm, overflow:"hidden", boxShadow:`0 3px 16px rgba(241,132,27,.4)` }}>
               <button onClick={()=>abrirNuevoTrabajo()} aria-label={leerBorr(BORR.trabajo)?"Nuevo trabajo (tenés un borrador)":"Nuevo trabajo"} style={{ position:"relative", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 16px", height:38, fontSize:22, fontWeight:900, cursor:"pointer", lineHeight:1 }}>+{!showForm && leerBorr(BORR.trabajo) && <span aria-hidden="true" style={{ position:"absolute", top:5, right:5, width:9, height:9, borderRadius:"50%", background:"#191513", boxShadow:"0 0 0 2px #FFF7F3" }} />}</button>
               <div style={{ width:1, background:"rgba(0,0,0,.3)" }} />
-              <button onClick={openMultiForm} title="Pedido con múltiples productos" style={{ position:"relative", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 13px", height:38, fontSize:16, fontWeight:800, cursor:"pointer", lineHeight:1 }}>⊞{!showForm && leerBorr(BORR.pedido) && <span aria-hidden="true" style={{ position:"absolute", top:5, right:5, width:9, height:9, borderRadius:"50%", background:"#191513", boxShadow:"0 0 0 2px #FFF7F3" }} />}</button>
+              <button onClick={openMultiForm} title="Pedido con múltiples productos" style={{ position:"relative", background:`linear-gradient(135deg,${C.orange},${C.orangeD})`, color:"#191513", border:"none", padding:"0 14px", height:38, fontSize:16, fontWeight:800, cursor:"pointer", lineHeight:1 }}>⊞{!showForm && leerBorr(BORR.pedido) && <span aria-hidden="true" style={{ position:"absolute", top:5, right:5, width:9, height:9, borderRadius:"50%", background:"#191513", boxShadow:"0 0 0 2px #FFF7F3" }} />}</button>
             </div>
           </div>
         </div>
@@ -3541,22 +3513,14 @@ export default function App() {
         <div style={{ flex:1, overflowY:"auto", paddingBottom: isMobile?90:0 }}>
           {/* ── CONTENT ── */}
           {loading ? (
-            <div style={{ textAlign:"center", padding:"80px 20px" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:12, justifyContent:"center", marginBottom:20 }}>
-                <img src={ISOTIPO} alt="" style={{ width:44, height:52, objectFit:"contain" }} />
-                <div className="w3d-titulo" style={{ fontSize:26, fontWeight:900, color:C.t1, letterSpacing:1 }}>WORLD<span style={{ color:C.orange }}>3D</span></div>
-              </div>
-              <div style={{ fontSize:15, color:C.t2, fontWeight:700 }}>Cargando la cola…</div>
-              <div style={{ display:"flex", gap:8, justifyContent:"center", marginTop:16 }}>
-                {[0,150,300].map(d=>(
-                  <div key={d} style={{ width:8, height:8, borderRadius:"50%", background:C.orange, animation:`pulse .9s ease-in-out ${d}ms infinite alternate` }} />
-                ))}
-              </div>
-              <style>{`@keyframes pulse{0%{opacity:.2;transform:scale(.8)}100%{opacity:1;transform:scale(1)}}`}</style>
+            // Esqueleto con la forma de la pantalla mientras llega la cola (clases en public/index.html)
+            <div className="view-pad" aria-busy="true" aria-label="Cargando la cola">
+              <div className="sk-line" style={{ width:170, height:14, marginBottom:16 }} />
+              <div className="cards-grid">{[0,1,2,3].map(i=><div key={i} className="sk-card" />)}</div>
             </div>
           ) : (
             <div style={{ width:"100%" }}>
-              {views[view]}
+              <div key={view} className="w3d-entra">{(views[view] || views.dashboard)()}</div>
             </div>
           )}
         </div>
@@ -3582,18 +3546,18 @@ export default function App() {
       </nav>
       )}
       {isMobile && showMas && (
-        <div onClick={e=>{ if(e.target===e.currentTarget) setShowMas(false); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:9 }}>
+        <div onClick={e=>{ if(e.target===e.currentTarget) setShowMas(false); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:9 }}>
           <div role="menu" aria-label="Más secciones" style={{ position:"absolute", left:10, right:10, bottom:"calc(env(safe-area-inset-bottom) + 80px)", background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:10, boxShadow:"0 -8px 30px rgba(0,0,0,.5)", animation:"w3dSube .2s ease-out" }}>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
               {TABS.filter(t=>t.extra).map(({ key, Icon, label }) => (
-                <button key={key} role="menuitem" onClick={()=>irA(key)} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${view===key?C.orange:C.bg4}`, background:view===key?`${C.orange}1F`:C.bg3, color:view===key?C.orange:C.t1, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+                <button key={key} role="menuitem" onClick={()=>irA(key)} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${view===key?C.orange:C.bg4}`, background:view===key?`${C.orange}1F`:C.bg3, color:view===key?C.orange:C.t1, fontSize:16, fontWeight:700, cursor:"pointer" }}>
                   <Icon size={20} aria-hidden="true" />{label}
                 </button>
               ))}
-              <button role="menuitem" onClick={()=>{ setShowMas(false); exportExcel(jobs,printers); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${C.bg4}`, background:C.bg3, color:C.green, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+              <button role="menuitem" onClick={()=>{ setShowMas(false); exportExcel(jobs,printers); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${C.bg4}`, background:C.bg3, color:C.green, fontSize:16, fontWeight:700, cursor:"pointer" }}>
                 <FileSpreadsheet size={20} aria-hidden="true" />Exportar Excel
               </button>
-              <button role="menuitem" onClick={()=>{ setShowMas(false); setKioskMode(true); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${C.bg4}`, background:C.bg3, color:C.t1, fontSize:15, fontWeight:700, cursor:"pointer" }}>
+              <button role="menuitem" onClick={()=>{ setShowMas(false); setKioskMode(true); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"14px", minHeight:52, borderRadius:C.rMd, border:`1px solid ${C.bg4}`, background:C.bg3, color:C.t1, fontSize:16, fontWeight:700, cursor:"pointer" }}>
                 <MonitorSmartphone size={20} aria-hidden="true" />Modo kiosco
               </button>
             </div>
@@ -3605,10 +3569,10 @@ export default function App() {
 
       {/* ── FORM: NUEVO TRABAJO ── */}
       {showForm && !multiMode && (
-        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget) cerrarForm(false);}}>
+        <div className="w3d-fondo" style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget) cerrarForm(false);}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>{editJob?"Editar trabajo":"➕ Nuevo trabajo"}</div>
+            <div style={{ fontSize:20, fontWeight:900, color:C.t1, marginBottom:4 }}>{editJob?"Editar trabajo":"➕ Nuevo trabajo"}</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:16 }}>{editJob?"Modifica los datos del trabajo":"Completa los datos para agregar a la cola"}</div>
             {borradorAviso && (
               <div role="status" style={{ display:"flex", alignItems:"center", gap:10, background:C.orangeBg, border:`1px solid ${C.orange}55`, borderRadius:C.rSm, padding:"10px 10px 10px 14px", marginBottom:16 }}>
@@ -3658,10 +3622,10 @@ export default function App() {
                             notes:    prod.notes||f.notes,
                           }));
                           setProdSugOpen(false);
-                        }} style={{ padding:"11px 14px", cursor:"pointer", borderTop:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:11 }}
+                        }} style={{ padding:"12px 14px", cursor:"pointer", borderTop:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:12 }}
                           onMouseEnter={e=>e.currentTarget.style.background=C.bg4}
                           onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                          <div style={{ width:36, height:36, borderRadius:10, background:C.orangeBg, border:`1px solid ${C.orange}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}><Icono e="📦" size={20} /></div>
+                          <div style={{ width:36, height:36, borderRadius:C.rSm, background:C.orangeBg, border:`1px solid ${C.orange}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}><Icono e="📦" size={20} /></div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{prod.name}</div>
                             <div style={{ fontSize:12, color:C.t3, marginTop:1 }}>
@@ -3731,12 +3695,12 @@ export default function App() {
                   </div>
                   {!isBest&&bestFDM&&bestReady&&(
                     <div style={{ background:C.greenBg, border:`1px solid ${C.greenD}33`, borderRadius:C.rSm, padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
-                      <span style={{ fontSize:15 }}><Icono e="💡" size={17} /></span>
+                      <span style={{ fontSize:16 }}><Icono e="💡" size={17} /></span>
                       <div style={{ flex:1 }}>
                         <div style={{ fontSize:12, fontWeight:800, color:C.green }}>Más rápida: {bestFDM.name}</div>
                         <div style={{ fontSize:12, color:C.t3 }}>Lista {fmtReadyDate(bestReady)}</div>
                       </div>
-                      <button onClick={()=>setForm(f=>({...f,printer:bestFDM.id}))} style={{ padding:"7px 13px", background:C.green, color:"#000", border:"none", borderRadius:C.rXs, fontSize:12, fontWeight:900, cursor:"pointer" }}>Usar</button>
+                      <button onClick={()=>setForm(f=>({...f,printer:bestFDM.id}))} style={{ padding:"8px 14px", background:C.green, color:"#000", border:"none", borderRadius:C.rXs, fontSize:12, fontWeight:900, cursor:"pointer" }}>Usar</button>
                     </div>
                   )}
                 </div>
@@ -3766,7 +3730,7 @@ export default function App() {
                     <div style={{ position:"absolute", top:"100%", left:0, right:0, background:C.bg3, border:`1.5px solid ${C.orange}55`, borderRadius:C.rMd, zIndex:99, marginTop:4, overflow:"hidden", boxShadow:"0 12px 36px rgba(0,0,0,.7)" }}>
                       <div style={{ fontSize:12, color:C.t3, fontWeight:800, textTransform:"uppercase", letterSpacing:.8, padding:"8px 14px 4px" }}>Clientes anteriores</div>
                       {matches.slice(0,5).map(c=>(
-                        <div key={c.name} onMouseDown={()=>{setForm(f=>({...f,clientName:c.name,clientPhone:c.phone||f.clientPhone}));setClientSugOpen(false);}} style={{ padding:"11px 14px", cursor:"pointer", borderTop:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:11 }} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                        <div key={c.name} onMouseDown={()=>{setForm(f=>({...f,clientName:c.name,clientPhone:c.phone||f.clientPhone}));setClientSugOpen(false);}} style={{ padding:"12px 14px", cursor:"pointer", borderTop:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:12 }} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                           <div style={{ width:34, height:34, borderRadius:"50%", background:`linear-gradient(135deg,${C.orange}88,${C.orangeD}88)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:900, color:"#fff", flexShrink:0 }}>{c.name.split(" ").slice(0,2).map(w=>w[0]?.toUpperCase()||"").join("")}</div>
                           <div>
                             <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{c.name}</div>
@@ -3807,7 +3771,7 @@ export default function App() {
               </FormField>
             </div>
             {Number(form.quantity)>1&&form.unitPrice&&(
-              <div style={{ background:C.greenBg, border:`1px solid ${C.greenD}33`, borderRadius:C.rSm, padding:"11px 14px", marginBottom:16, fontSize:14, color:C.green, fontWeight:800, textAlign:"center" }}>
+              <div style={{ background:C.greenBg, border:`1px solid ${C.greenD}33`, borderRadius:C.rSm, padding:"12px 14px", marginBottom:16, fontSize:14, color:C.green, fontWeight:800, textAlign:"center" }}>
                 {form.quantity} × Bs.{Number(form.unitPrice).toFixed(2)} = Bs.{(Number(form.quantity)*Number(form.unitPrice)).toFixed(2)}
               </div>
             )}
@@ -3820,10 +3784,10 @@ export default function App() {
             {form.deposit&&Number(form.deposit)>0&&form.price&&Number(form.price)>0&&(()=>{
               const pend=Number(form.price)-Number(form.deposit);
               return (
-                <div style={{ background:pend>0?C.yellowBg:C.greenBg, border:`1px solid ${pend>0?"#4A3F36":C.greenD+"33"}`, borderRadius:C.rSm, padding:"11px 14px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>Adelanto</div><div style={{ fontSize:15, fontWeight:800, color:"#F1841B" }}>{fmtMoney(Number(form.deposit))}</div></div>
+                <div style={{ background:pend>0?C.yellowBg:C.greenBg, border:`1px solid ${pend>0?"#4A3F36":C.greenD+"33"}`, borderRadius:C.rSm, padding:"12px 14px", marginBottom:16, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>Adelanto</div><div style={{ fontSize:16, fontWeight:800, color:"#F1841B" }}>{fmtMoney(Number(form.deposit))}</div></div>
                   <div style={{ fontSize:18, color:C.t4 }}>→</div>
-                  <div style={{ textAlign:"right" }}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{pend>0?"Por cobrar":"Pagado"}</div><div style={{ fontSize:15, fontWeight:800, color:pend>0?C.yellow:C.green }}>{pend>0?fmtMoney(pend):"Bs. 0.00"}</div></div>
+                  <div style={{ textAlign:"right" }}><div style={{ fontSize:12, color:C.t3, marginBottom:2 }}>{pend>0?"Por cobrar":"Pagado"}</div><div style={{ fontSize:16, fontWeight:800, color:pend>0?C.yellow:C.green }}>{pend>0?fmtMoney(pend):"Bs. 0.00"}</div></div>
                 </div>
               );
             })()}
@@ -3841,10 +3805,10 @@ export default function App() {
 
       {/* ── FORM: PEDIDO MÚLTIPLE ── */}
       {showForm && multiMode && (
-        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget) cerrarForm(false);}}>
+        <div className="w3d-fondo" style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget) cerrarForm(false);}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>Pedido con múltiples productos</div>
+            <div style={{ fontSize:20, fontWeight:900, color:C.t1, marginBottom:4 }}>Pedido con múltiples productos</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:20 }}>Agrupa varios productos en un solo pedido para un cliente</div>
             {borradorAviso && (
               <div role="status" style={{ display:"flex", alignItems:"center", gap:10, background:C.orangeBg, border:`1px solid ${C.orange}55`, borderRadius:C.rSm, padding:"10px 10px 10px 14px", marginBottom:16 }}>
@@ -3916,7 +3880,7 @@ export default function App() {
                         return (
                           <div style={{ position:"absolute", top:"100%", left:0, right:0, background:C.bg3, border:`1.5px solid ${C.orange}55`, borderRadius:C.rMd, zIndex:99, marginTop:4, overflow:"hidden", boxShadow:"0 12px 36px rgba(0,0,0,.7)" }}>
                             {matches.slice(0,4).map(prod=>(
-                              <div key={prod.id} onMouseDown={()=>{ updateOrderItem(item.id,"fileName",prod.name); updateOrderItem(item.id,"material",prod.material||""); updateOrderItem(item.id,"color",prod.color||""); updateOrderItem(item.id,"weight",prod.weight||""); updateOrderItem(item.id,"duration",prod.duration||""); updateOrderItem(item.id,"unitPrice",prod.price||""); }} style={{ padding:"9px 12px", cursor:"pointer", borderBottom:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:8 }} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                              <div key={prod.id} onMouseDown={()=>{ updateOrderItem(item.id,"fileName",prod.name); updateOrderItem(item.id,"material",prod.material||""); updateOrderItem(item.id,"color",prod.color||""); updateOrderItem(item.id,"weight",prod.weight||""); updateOrderItem(item.id,"duration",prod.duration||""); updateOrderItem(item.id,"unitPrice",prod.price||""); }} style={{ padding:"10px 12px", cursor:"pointer", borderBottom:`1px solid ${C.bg5}`, display:"flex", alignItems:"center", gap:8 }} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                                 <span style={{ fontSize:16 }}><Icono e="📦" size={18} /></span>
                                 <div style={{ flex:1, minWidth:0 }}>
                                   <div style={{ fontSize:13, fontWeight:800, color:C.t1 }}>{prod.name}</div>
@@ -3931,13 +3895,13 @@ export default function App() {
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Material</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:6 }}>Material</label>
                         <select style={inputSt} value={item.material} onChange={e=>updateOrderItem(item.id,"material",e.target.value)}>
                           <option value="">—</option>{MATERIALS.map(m=><option key={m} value={m}>{m}</option>)}
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Color</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:6 }}>Color</label>
                         <select style={inputSt} value={item.color} onChange={e=>elegirColor(e.target.value, v=>updateOrderItem(item.id,"color",v))}>
                           <option value="">—</option>{opcionesColor(item.color)}
                         </select>
@@ -3945,15 +3909,15 @@ export default function App() {
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Cant.</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:6 }}>Cant.</label>
                         <input style={inputSt} type="number" min="1" placeholder="1" value={item.quantity} onChange={e=>updateOrderItem(item.id,"quantity",e.target.value)} />
                       </div>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>Precio u.</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:6 }}>Precio u.</label>
                         <input style={inputSt} type="number" placeholder="0.00" value={item.unitPrice} onChange={e=>updateOrderItem(item.id,"unitPrice",e.target.value)} />
                       </div>
                       <div>
-                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:5 }}>min</label>
+                        <label style={{ fontSize:12, fontWeight:700, color:C.t4, textTransform:"uppercase", letterSpacing:.6, display:"block", marginBottom:6 }}>min</label>
                         <input style={inputSt} type="number" placeholder="120" value={item.duration} onChange={e=>updateOrderItem(item.id,"duration",e.target.value)} />
                       </div>
                     </div>
@@ -4001,10 +3965,10 @@ export default function App() {
 
       {/* ── FORM: IMPRESORA ── */}
       {showPForm && (
-        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowPForm(false);setEditP(null);}}}>
+        <div className="w3d-fondo" style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowPForm(false);setEditP(null);}}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:22 }}>{editP?"Editar impresora":"➕ Nueva impresora"}</div>
+            <div style={{ fontSize:20, fontWeight:900, color:C.t1, marginBottom:22 }}>{editP?"Editar impresora":"➕ Nueva impresora"}</div>
             <FormField label="Nombre de la impresora"><input style={inputSt} placeholder="ej: Creality K1 Max" value={pForm.name} onChange={e=>setPForm(f=>({...f,name:e.target.value}))} /></FormField>
             <FormField label="Marca"><input style={inputSt} placeholder="ej: Creality, Bambu Lab..." value={pForm.brand} onChange={e=>setPForm(f=>({...f,brand:e.target.value}))} /></FormField>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
@@ -4038,10 +4002,10 @@ export default function App() {
 
       {/* ── FORM: PRODUCTO ── */}
       {showProductForm && (
-        <div style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowProductForm(false);setEditProduct(null);}}}>
+        <div className="w3d-fondo" style={overlayStyle} onClick={e=>{if(e.target===e.currentTarget){setShowProductForm(false);setEditProduct(null);}}}>
           <div style={sheetStyle}>
             <div style={handleStyle} />
-            <div style={{ fontSize:19, fontWeight:900, color:C.t1, marginBottom:4 }}>{editProduct?"Editar producto":"Nuevo producto"}</div>
+            <div style={{ fontSize:20, fontWeight:900, color:C.t1, marginBottom:4 }}>{editProduct?"Editar producto":"Nuevo producto"}</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:22 }}>Guarda un producto frecuente para añadirlo rápido a la cola</div>
             <FormField label="Nombre del producto *">
               <input style={inputSt} placeholder="ej: Mango DJI Mini" value={prodForm.name} onChange={e=>setProdForm(f=>({...f,name:e.target.value}))} />
@@ -4086,7 +4050,7 @@ export default function App() {
                     {existingCats.length>0 && (
                       <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:8 }}>
                         {existingCats.map(c=>(
-                          <button key={c} type="button" onClick={()=>setProdForm(f=>({...f,category:c}))} style={{ padding:"5px 12px", borderRadius:C.rPill, border:`1.5px solid ${prodForm.category===c?C.orange:C.bg5}`, background:prodForm.category===c?C.orangeBg:C.bg3, color:prodForm.category===c?C.orange:C.t3, fontSize:12, fontWeight:700, cursor:"pointer" }}>{c}</button>
+                          <button key={c} type="button" onClick={()=>setProdForm(f=>({...f,category:c}))} style={{ padding:"6px 12px", borderRadius:C.rPill, border:`1.5px solid ${prodForm.category===c?C.orange:C.bg5}`, background:prodForm.category===c?C.orangeBg:C.bg3, color:prodForm.category===c?C.orange:C.t3, fontSize:12, fontWeight:700, cursor:"pointer" }}>{c}</button>
                         ))}
                       </div>
                     )}
@@ -4104,10 +4068,10 @@ export default function App() {
 
       {/* ── CONFIRM DELETE ── */}
       {confirmDel && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.88)", zIndex:60, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+        <div className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.88)", zIndex:60, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
           <div style={{ background:C.bg2, borderRadius:C.r, padding:"26px 22px", width:"100%", maxWidth:320, border:`1px solid ${C.bg4}`, textAlign:"center" }}>
             <div style={{ fontSize:42, marginBottom:12 }}><Icono e="🗑️" size={44} /></div>
-            <div style={{ fontSize:17, fontWeight:900, color:C.t1, marginBottom:7 }}>¿Eliminar este trabajo?</div>
+            <div style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:8 }}>¿Eliminar este trabajo?</div>
             <div style={{ fontSize:13, color:C.t3, marginBottom:24 }}>Esta acción no se puede deshacer</div>
             <div style={{ display:"flex", gap:10 }}>
               <button onClick={()=>setConfirmDel(null)} style={{ flex:1, padding:"14px", background:C.bg4, color:C.t2, border:"none", borderRadius:C.rSm, fontSize:14, fontWeight:700, cursor:"pointer" }}>Cancelar</button>
@@ -4121,7 +4085,7 @@ export default function App() {
       {ModalCobro()}
       {ModalFalla()}
       {nuevoColor && (
-        <div onClick={e=>{ if(e.target===e.currentTarget) setNuevoColor(null); }} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:80, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
+        <div onClick={e=>{ if(e.target===e.currentTarget) setNuevoColor(null); }} className="w3d-fondo" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.85)", zIndex:80, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
           <div role="dialog" aria-modal="true" aria-labelledby="color-titulo" style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"22px 20px", width:"100%", maxWidth:380 }}>
             <div id="color-titulo" style={{ fontSize:18, fontWeight:900, color:C.t1, marginBottom:14 }}>Agregar color</div>
             <FormField label="Nombre del color">
@@ -4153,7 +4117,7 @@ export default function App() {
       {/* ── TOAST ── */}
       {CartelPedido()}
       {toast && (
-        <div role="status" aria-live="polite" key={toast.id} style={{ position:"fixed", bottom: isMobile?"calc(env(safe-area-inset-bottom) + 84px)":24, left:"50%", transform:"translateX(-50%)", width:"max-content", maxWidth:"calc(100vw - 24px)", display:"flex", alignItems:"center", gap:14, background:toast.type==="err"?"#3A1510":"#2E1A0B", border:`1px solid ${toast.type==="err"?"#6B2A1F":"#6B3A12"}`, color:C.t1, padding: toast.deshacer?"8px 8px 8px 20px":"13px 22px", borderRadius:C.rPill, fontSize:15, fontWeight:700, zIndex:100, boxShadow:"0 10px 30px rgba(0,0,0,.5)", animation:"w3dSubeT .2s ease-out" }}>
+        <div role="status" aria-live="polite" key={toast.id} style={{ position:"fixed", bottom: isMobile?"calc(env(safe-area-inset-bottom) + 84px)":24, left:"50%", transform:"translateX(-50%)", width:"max-content", maxWidth:"calc(100vw - 24px)", display:"flex", alignItems:"center", gap:14, background:toast.type==="err"?"#3A1510":"#2E1A0B", border:`1px solid ${toast.type==="err"?"#6B2A1F":"#6B3A12"}`, color:C.t1, padding: toast.deshacer?"8px 8px 8px 20px":"13px 22px", borderRadius:C.rPill, fontSize:16, fontWeight:700, zIndex:100, boxShadow:"0 10px 30px rgba(0,0,0,.5)", animation:"w3dSubeT .2s ease-out" }}>
           <span>{toast.msg}</span>
           {toast.deshacer && <button onClick={()=>{ const f=toast.deshacer; setToast(null); clearTimeout(toastTimer.current); f(); }} style={{ background:C.orange, color:"#191513", border:"none", borderRadius:C.rPill, padding:"0 16px", minHeight:40, fontSize:14, fontWeight:900, cursor:"pointer" }}>Deshacer</button>}
           <style>{`@keyframes w3dSubeT{from{transform:translate(-50%,12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}`}</style>
