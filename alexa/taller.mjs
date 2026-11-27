@@ -80,7 +80,11 @@ export function precio(productos, dicho, cantidad) {
   const conPrecio = productos.filter((p) => p.name && num(p.price) > 0);
   const puntaje = conPrecio.map((p) => [p, parecidoTrabajo({ fileName: p.name }, dicho)]);
   let pts = puntaje.filter(([, x]) => x >= 0.6), parcial = false;
-  if (!pts.length) { pts = puntaje.filter(([, x]) => x >= 0.5); parcial = true; }   // "llaveros personalizados" → los llaveros
+  if (!pts.length) {   // "llaveros personalizados" → los llaveros (la primera palabra manda)
+    const primera = String(dicho).trim().split(/\s+/).find((w) => w.length > 3) || "";
+    pts = puntaje.filter(([p]) => primera && parecidoTrabajo({ fileName: p.name }, primera) >= 0.99).map(([p]) => [p, 0.5]);
+    parcial = true;
+  }
   if (!pts.length) return `No encontré "${dicho}" en el catálogo con precio. Los personalizados se cotizan en la web.`;
   const mejor = Math.max(...pts.map(([, x]) => x));
   const top = pts.filter(([, x]) => x >= mejor - 0.01).map(([p]) => p).sort((a, b) => a.name.length - b.name.length);
