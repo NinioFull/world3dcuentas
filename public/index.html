@@ -12,14 +12,33 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
     <title>WORLD3D Manager</title>
+    <!-- Fuentes de la marca desde el primer momento (antes se pedían recién cuando arrancaba la app) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Rubik:wght@700;800;900&display=swap" />
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { background: #191513; }
-      body { padding-top: env(safe-area-inset-top); }
+      body { padding-top: env(safe-area-inset-top); font-family: 'Outfit', system-ui, sans-serif; color: #FFF7F3; }
+      /* Esqueleto: se ve al instante mientras arranca la app */
+      .sk-top { display:flex; align-items:center; gap:12px; padding:16px; border-bottom:1px solid #3A322E; }
+      .sk-logo { width:36px; height:44px; border-radius:10px; background:#E53212; opacity:.9; }
+      .sk-line { height:12px; border-radius:6px; background:#2E2724; }
+      .sk-wrap { padding:16px; display:flex; flex-direction:column; gap:12px; max-width:1100px; }
+      .sk-card { height:118px; border-radius:18px; background:#221D1B; border:1px solid #2E2724; position:relative; overflow:hidden; }
+      .sk-card::after, .sk-line::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,247,243,.05),transparent); transform:translateX(-100%); animation:sk 1.3s infinite; }
+      .sk-line { position:relative; overflow:hidden; }
+      @keyframes sk { to { transform:translateX(100%); } }
+      @media (prefers-reduced-motion: reduce) { .sk-card::after, .sk-line::after { animation:none; } }
     </style>
   </head>
   <body>
     <noscript>Necesitás JavaScript para usar esta app.</noscript>
-    <div id="root"></div>
+    <div id="root">
+      <div aria-busy="true" aria-label="Cargando WORLD3D Manager">
+        <div class="sk-top"><img src="/favicon.png" alt="" width="36" height="36" style="border-radius:8px" /><div style="flex:1"><div class="sk-line" style="width:140px;height:16px"></div><div class="sk-line" style="width:200px;margin-top:8px"></div></div></div>
+        <div class="sk-wrap"><div class="sk-line" style="width:160px;height:14px"></div><div class="sk-card"></div><div class="sk-card"></div><div class="sk-card"></div></div>
+      </div>
+    </div>
   </body>
 </html>

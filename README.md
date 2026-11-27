@@ -44,6 +44,18 @@ La cola escucha a Firestore en vivo. Si la conexión se corta y no vuelve sola (
 
 El cierre automático de impresiones terminadas solo corre con datos al día y con una transacción que vuelve a leer del servidor: una pantalla con datos viejos ya no puede pisar un trabajo entregado.
 
+## Rapidez
+
+- Solo se arma la pantalla que estás viendo (antes se armaban las 7 en cada actualización del reloj de 20 s).
+- La librería de Excel se baja recién al tocar *Exportar* (~280 KB menos al abrir).
+- `public/sw.js` guarda la app y las fuentes en el dispositivo: abre al instante. La página siempre se pide primero a internet (versión nueva); los datos (Firebase, Supabase) nunca pasan por el caché.
+- Esqueleto con forma de tarjetas en `public/index.html` mientras arranca, y en la app mientras llega la cola.
+- Listas largas con `content-visibility: auto`: lo que está fuera de pantalla no se dibuja.
+
+## Estilo
+
+Estilos globales en `src/estilos.css`. Escala única: letra 12·13·14·16·18·20·22·24·28·32, bordes `C.rXs/rSm/rMd/r/rPill`, espacios de a 2 px. Fuentes Rubik y Outfit desde `index.html`. Transiciones cortas (pestañas, ventanas, destello al cambiar de etapa) que se apagan con *Reducir movimiento*.
+
 ## Sin conexión
 
 La cola se guarda en el dispositivo (caché de Firestore en IndexedDB). Si se corta el internet se sigue viendo todo y lo que tocás se guarda al instante; se sube solo cuando vuelve la señal. Arriba aparece un aviso mientras no hay conexión. La pestaña Web sí necesita internet.
