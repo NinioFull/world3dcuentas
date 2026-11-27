@@ -110,3 +110,9 @@ Requisitos en Firebase: Authentication > Sign-in method > **Google** activado, y
 npm install
 npm start
 ```
+
+### Arranque rápido
+- Entra con la sesión guardada en el dispositivo y no espera la consulta de admin si ya se confirmó antes en ese aparato (se vuelve a confirmar por detrás; si la cuenta deja de ser admin, sale).
+- Al volver a la app después de un rato ya no recarga la página entera: se reconecta. Si en 6 min no quedó al día, recién ahí recarga.
+- En la app instalada (iPad/celu) el caché de la cola toma el control al instante en vez de esperar a una ventana anterior cerrada de golpe.
+- En "Más" (o abajo del menú lateral) dice cuánto tardó en abrir la última vez: "Abrió en X s · en vivo en Y s".

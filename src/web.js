@@ -42,8 +42,20 @@ export const salir = () => sb.auth.signOut();
 export const esAdmin = async (userId) => {
   if (DEMO) return true;
   if (!userId) return false;
-  const { data, error } = await sb.from("admins").select("user_id").eq("user_id", userId).maybeSingle();
-  return !error && !!data;
+  try {
+    const { data, error } = await sb.from("admins").select("user_id").eq("user_id", userId).maybeSingle();
+    if (error) return null;   // no se pudo preguntar (sin señal, servidor lento): no es lo mismo que "no es admin"
+    return !!data;
+  } catch (e) { return null; }
+};
+// Sesión guardada en el dispositivo, leída al instante (sin esperar a que Supabase la revise o la renueve)
+export const sesionGuardada = () => {
+  if (DEMO) return undefined;
+  try {
+    const k = Object.keys(localStorage).find(k => /^sb-.*-auth-token$/.test(k));
+    const s = k && JSON.parse(localStorage.getItem(k));
+    return s && s.user ? s : undefined;
+  } catch (e) { return undefined; }
 };
 
 // Pedidos abiertos del sitio (los cerrados de los últimos 30 días también, para el historial)
