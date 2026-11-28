@@ -54,6 +54,15 @@ function avisos() {
     const cfg = leerDoc_('config/puente');
     const latido = Math.max(num_(cfg && cfg.latidoPc), num_(cfg && cfg.latidoCelu));
     if (ahora - latido < 6 * 60000) { maquinas = leer_('maquinas'); impresorasL = leer_('printers'); }
+    // Si en horario del taller ni la PC ni el celu responden hace más de 15 min, se avisa una vez; y cuando vuelve, también
+    const caido = num_(props.getProperty('PUENTE_CAIDO'));
+    if (latido && ahora - latido > 15 * 60000 && !caido && enHorario_(ahora)) {
+      const min = Math.round((ahora - latido) / 60000);
+      if (telegram_('🔌 <b>El puente de impresoras no responde</b> hace ' + min + ' min (ni la PC ni el celu).\nMientras tanto el Manager calcula por tiempo. Revisá que la PC esté prendida o que Termux siga abierto en el celu.')) props.setProperty('PUENTE_CAIDO', String(latido));
+    } else if (caido && ahora - latido < 6 * 60000) {
+      telegram_('✅ <b>El puente de impresoras volvió</b> (' + (num_(cfg.latidoPc) >= num_(cfg.latidoCelu) ? 'PC' : 'celu') + ').');
+      props.deleteProperty('PUENTE_CAIDO');
+    }
   } catch (e) { console.warn('Puente: ' + e.message); }
   const OCUPADA = ['preparando', 'imprimiendo', 'pausada'];
   const maqDe = (pid) => {
