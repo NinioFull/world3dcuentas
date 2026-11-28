@@ -66,6 +66,18 @@ mkdir -p "$HOME/.termux/boot"
 printf '#!/data/data/com.termux/files/usr/bin/sh\nnohup "%s/arrancar.sh" >/dev/null 2>&1 &\n' "$DIR" > "$HOME/.termux/boot/world3d-puente.sh"
 chmod +x "$HOME/.termux/boot/world3d-puente.sh"
 
+# Vigilante: si Android cierra Termux, cada 15 min se vuelve a levantar el puente (necesita la app Termux:API de F-Droid)
+cat > "$DIR/vigilante.sh" <<EOF
+#!/data/data/com.termux/files/usr/bin/sh
+pgrep -f "world3d-puente/puente.mjs" >/dev/null 2>&1 || nohup "$DIR/arrancar.sh" >/dev/null 2>&1 &
+EOF
+chmod +x "$DIR/vigilante.sh"
+VIGILANTE="no"
+if ! command -v termux-job-scheduler >/dev/null 2>&1; then yes | pkg install -y termux-api >/dev/null 2>&1 || true; fi
+if command -v termux-job-scheduler >/dev/null 2>&1; then
+  if timeout 15 termux-job-scheduler --job-id 7301 --script "$DIR/vigilante.sh" --period-ms 900000 --persisted true --network any >/dev/null 2>&1; then VIGILANTE="si"; fi
+fi
+
 # Cerrar uno anterior y arrancar el nuevo
 pkill -f "world3d-puente/arrancar.sh" 2>/dev/null || true
 pkill -f "world3d-puente/puente.mjs" 2>/dev/null || true
@@ -75,5 +87,11 @@ echo ""
 echo "  Listo. El celu queda de respaldo: mientras la PC esté prendida no hace nada,"
 echo "  y si la apagás, en unos minutos toma el control de las impresoras."
 echo "  Dejalo enchufado, en el wifi del taller, y con Termux sin restricción de batería."
+if [ "$VIGILANTE" = "si" ]; then
+  echo "  Vigilante activo: si Android cierra Termux, en 15 min el puente vuelve solo."
+else
+  echo "  Para que vuelva solo si Android cierra Termux: instalá la app Termux:API desde F-Droid"
+  echo "  y pegá de nuevo esta misma línea."
+fi
 echo "  Registro: $DIR/puente.log"
 echo ""
