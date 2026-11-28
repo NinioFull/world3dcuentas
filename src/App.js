@@ -1354,16 +1354,22 @@ export default function App() {
   };
   const precioSugerido = (j) => { const m = Math.min(90, Number(operacion.margenMin)||30)/100; return costoDe(j).total/(1-m); };
 
-  // ── Horas impresas por máquina (trabajos terminados, lo que va del actual y lo que se imprimió antes de fallar) ──
+  // ── Horas impresas por máquina ──
+  // Desde que el puente la lee (segPuenteDesde), cuentan las horas reales que informó la impresora (todas sus impresiones,
+  // también las de prueba y las canceladas) más lo que va de la actual. Antes de eso, lo estimado por los trabajos y fallas.
   const horasDe = (pid) => {
+    const p = printers.find(x => x.id === pid) || {}, desde = Number(p.segPuenteDesde) || Infinity;
     let min = 0;
     jobs.forEach(j => {
       if (j.printer!==pid || j.jobType==="design") return;
-      if (["done","shipping","shipped"].includes(j.status)) min += minutosTotales(j);
-      else if (["printing","paused"].includes(j.status)) min += Math.max(0, minutosTotales(j)-(Number(j.remaining)||0));
+      if (["done","shipping","shipped"].includes(j.status)) { if (Number(j.endedAt || j.createdAt || 0) < desde) min += Number(j.minReales) > 0 ? Number(j.minReales) : minutosTotales(j); }
+      else if (["printing","paused"].includes(j.status) && desde === Infinity) min += Math.max(0, minutosTotales(j)-(Number(j.remaining)||0));
     });
-    fallas.forEach(f => { if (f.printer===pid) min += Number(f.minutos)||0; });
-    return min/60;
+    fallas.forEach(f => { if (f.printer===pid && Number(f.at || 0) < desde) min += Number(f.minutos)||0; });
+    let h = min/60 + (Number(p.segPuente) || 0)/3600;
+    const m = vivaDe(pid);
+    if (desde !== Infinity && m && OCUPADA_M.includes(m.estado) && Number(m.tiempoSeg) > 0) h += Number(m.tiempoSeg)/3600;
+    return h;
   };
   const tareasDe = (p) => (p.mant || (p.type==="FDM"?MANT_FDM:MANT_RESINA).map(t=>({...t, ultima:0}))).map(t => {
     const horas = horasDe(p.id), uso = horas-(Number(t.ultima)||0), faltan = (Number(t.cada)||0)-uso;
@@ -2904,7 +2910,7 @@ export default function App() {
       <div style={{ background:C.bg2, border:`1px solid ${C.bg4}`, borderRadius:C.r, padding:"14px 16px", marginTop:-4, marginBottom:16 }}>
         <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:8, marginBottom:10, flexWrap:"wrap" }}>
           <div style={{ fontSize:13, fontWeight:900, color:C.t2, textTransform:"uppercase", letterSpacing:.7 }}>Mantenimiento</div>
-          <div style={{ fontSize:13, color:C.t3 }}><b style={{ color:C.t1 }}>{Math.round(horas)} h</b> impresas{fallasP.length?` · ${fallasP.length} falla${fallasP.length>1?"s":""}`:""}</div>
+          <div style={{ fontSize:13, color:C.t3 }}><b style={{ color:C.t1 }}>{Math.round(horas)} h</b> impresas{Number(p.segPuenteDesde) ? <span> · reales desde el {new Date(Number(p.segPuenteDesde)).toLocaleDateString("es-ES",{day:"numeric",month:"short"})}</span> : null}{fallasP.length?` · ${fallasP.length} falla${fallasP.length>1?"s":""}`:""}</div>
         </div>
         {tareas.map(t => {
           const k = p.id+":"+t.id, pct = Math.max(0, Math.min(100, t.uso/(Number(t.cada)||1)*100));

@@ -44,6 +44,17 @@ globalThis.fetch = async (url, op = {}) => {
   const u = new URL(url), js = (x, s = 200) => new Response(JSON.stringify(x), { status: s });
   if (u.host === "oauth2.googleapis.com") return js({ access_token: "t", expires_in: 3600 });
   const ruta = decodeURIComponent(u.pathname.split("/documents")[1] || "").replace(/^\//, "");
+  if (u.pathname.endsWith(":commit")) {
+    for (const w of JSON.parse(op.body).writes) {
+      const r = w.transform.document.split("/documents/")[1], d = db.get(r) || {}, c = {};
+      for (const t of w.transform.fieldTransforms) {
+        if (t.increment) c[t.fieldPath] = (Number(d[t.fieldPath]) || 0) + Number(t.increment.integerValue);
+        if (t.minimum) c[t.fieldPath] = d[t.fieldPath] == null ? Number(t.minimum.integerValue) : Math.min(Number(d[t.fieldPath]), Number(t.minimum.integerValue));
+      }
+      guardar(r, c);
+    }
+    return js({});
+  }
   if (u.pathname.endsWith(":runQuery")) {
     const f = JSON.parse(op.body).structuredQuery.where.compositeFilter.filters.map((x) => [x.fieldFilter.field.fieldPath, x.fieldFilter.value.stringValue]);
     return js([...db].filter(([k, v]) => k.startsWith("jobs/") && f.every(([c, val]) => v[c] === val)).map(([k, v]) => ({ document: { name: "x/" + k, ...aF(v), updateTime: v._t } })));
@@ -75,6 +86,9 @@ assert.equal(t.cerrados, 1); assert.equal(db.get("jobs/j1").status, "done"); ass
 assert.equal(db.get("jobs/j1").finAuto, db.get("jobs/j1").endedAt, "finAuto = endedAt para el aviso de Telegram");
 assert.equal(db.get("jobs/j2").status, "printing");
 assert.ok([...db.keys()].some((k) => k.startsWith("impresiones/creality-k1max-")), "queda registrada la impresión");
+assert.equal(db.get("printers/p1").segPuente, 3600, "suma las horas reales a la máquina");
+await enviar({ ...K, fuente: "pc", maquinas: [{ ...k1, estado: "terminada", progreso: 100, faltaSeg: 0, antes: "imprimiendo", inicio: Date.now() - 3600000, tiempoSeg: 3600, usadoMm: 8000 }] });
+assert.equal(db.get("printers/p1").segPuente, 3600, "la misma impresión no se cuenta dos veces");
 // PC apagada (latido viejo): el celular toma el control
 guardar("config/puente", { latidoPc: Date.now() - 10 * 60000 });
 const c2 = await enviar({ ...K, fuente: "celu", latido: true, maquinas: [] });

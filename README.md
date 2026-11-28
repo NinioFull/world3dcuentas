@@ -188,4 +188,5 @@ npm start
 - **Máquina parada con cola** (Apps Script): en horario del taller, si una máquina lleva 25 min libre o terminada y tiene pedidos esperando, avisa por Telegram con lo que sigue.
 - **Alexa** responde lo que falta con lo que dice la impresora.
 - El puente se actualiza solo (revisa cada hora); el arranque de la PC o del celu lo vuelve a levantar.
+- **Mantenimiento con horas reales**: cada impresión que termina o se cancela suma sus segundos reales a la máquina (`segPuente`, desde `segPuenteDesde`), contadas una sola vez. Las horas de mantenimiento usan eso desde que el puente la lee (incluye pruebas y canceladas) y lo estimado por trabajos antes.
 - **Vigilancia**: el Apps Script avisa por Telegram si en horario del taller ni la PC ni el celu laten hace más de 15 min, y avisa cuando vuelve. En el celu, con la app Termux:API (F-Droid), el instalador programa un vigilante cada 15 min que levanta el puente si Android cerró Termux. Estado rápido: `GET /api/puente?clave=…`.

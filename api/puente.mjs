@@ -32,6 +32,18 @@ async function escribir(ruta, campos, siNoCambio) {
   if (!r.ok && !siNoCambio) throw new Error("escribir " + ruta + " " + r.status + ": " + (await r.text()).slice(0, 200));
   return r.ok;
 }
+// Suma las horas reales de impresión a la máquina (para el mantenimiento): segPuente += seg, y desde cuándo cuenta
+async function sumarHoras(printerId, seg, desde) {
+  const nombre = `projects/${cuentaServicio().project_id}/databases/(default)/documents/printers/${printerId}`;
+  const r = await pedir(`${base().replace(/\/documents$/, "")}/documents:commit`, { method: "POST", body: JSON.stringify({ writes: [{
+    transform: { document: nombre, fieldTransforms: [
+      { fieldPath: "segPuente", increment: { integerValue: String(Math.round(seg)) } },
+      { fieldPath: "segPuenteDesde", minimum: { integerValue: String(Math.round(desde)) } },
+    ] },
+    currentDocument: { exists: true },
+  }] }) });
+  if (!r.ok) console.error("sumarHoras", r.status, (await r.text()).slice(0, 200));
+}
 async function trabajosImprimiendo(printerId) {
   const igual = (campo, v) => ({ fieldFilter: { field: { fieldPath: campo }, op: "EQUAL", value: { stringValue: v } } });
   const r = await pedir(`${base()}:runQuery`, { method: "POST", body: JSON.stringify({ structuredQuery: {
@@ -103,7 +115,15 @@ export async function POST(request) {
           trabajos = await trabajosImprimiendo(printer).catch(() => []);
         }
         const imp = impresionDe(m, printer, ahora);
-        if (imp) await escribir(`impresiones/${imp.id}`, { ...imp.datos, jobId });
+        if (imp) {
+          await escribir(`impresiones/${imp.id}`, { ...imp.datos, jobId });
+          // Cuenta una sola vez aunque la PC y el celu manden lo mismo: solo quien la registró primero (el doc no tenía "contada")
+          const seg = imp.datos.seg || Math.round((imp.datos.fin - imp.datos.inicio) / 1000);
+          if (printer && seg > 0 && seg < 7 * 86400) {
+            const previo = await leerDoc(`impresiones/${imp.id}`);
+            if (previo && !previo.contada) { await escribir(`impresiones/${imp.id}`, { contada: true }); await sumarHoras(printer, seg, imp.datos.inicio); }
+          }
+        }
         // Aviso hablado en el parlante (Voice Monkey), si está configurado
         const texto = avisoDeCambio(m, lista.find((p) => p.id === printer), trabajos);
         if (texto) avisos.push(texto);
