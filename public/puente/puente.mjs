@@ -23,7 +23,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 // Clave pública del sitio (la misma que usa la web): solo sirve para el canal de la cámara
 const SUPABASE_RT = "wss://swlmlwmjicsewwtudeah.supabase.co/realtime/v1/websocket";
 const SUPABASE_KEY = "sb_publishable_pbWjcSpwmO1fhBNiYVAoow_OsUHX-y0";
@@ -673,6 +673,11 @@ if (PROBAR) {
     process.exit(0);
   }, 12000);
 } else {
+  // Uno solo por aparato: si ya hay otro puente corriendo (el vigilante y el instalador a la vez), este se va
+  await new Promise((res) => {
+    const candado = net.createServer().once("error", () => { console.log("Ya hay un puente corriendo en este aparato."); process.exit(0); });
+    candado.listen(47653, "127.0.0.1", res); candado.unref();
+  });
   log(`Puente WORLD3D ${VERSION} (${config.fuente === "celu" ? "celular, respaldo" : "PC, principal"}) · Node ${process.version}`);
   if (config.fuente === "celu") await enviar(true);   // primero pregunta si la PC está activa
   if (!enEspera) { await buscar(); prenderCanal(); }
