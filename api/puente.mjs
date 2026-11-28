@@ -117,6 +117,16 @@ export async function POST(request) {
   }
 }
 
-export function GET() {
-  return Response.json({ ok: true, puente: "WORLD3D", listo: !!process.env.FIREBASE_SERVICE_ACCOUNT });
+// Estado del puente (con la clave): hace cuánto latió cada aparato y qué versión tiene. Sirve para revisar sin abrir el Manager.
+export async function GET(request) {
+  const clave = new URL(request.url).searchParams.get("clave");
+  if (!clave) return Response.json({ ok: true, puente: "WORLD3D", listo: !!process.env.FIREBASE_SERVICE_ACCOUNT });
+  try {
+    const cfg = await configPuente(true);
+    if (!cfg || !mismaClave(clave, cfg.clave)) return Response.json({ error: "clave" }, { status: 401 });
+    const hace = (t) => (Number(t) ? Math.round((Date.now() - Number(t)) / 1000) : null);
+    const r = await pedir(`${base()}/maquinas?pageSize=20`);
+    const maquinas = r.ok ? ((await r.json()).documents || []).map(aObjeto).map((m) => ({ id: m.id, estado: m.estado, camara: m.camara, fuente: m.fuente, haceSeg: hace(m.at) })) : [];
+    return Response.json({ ok: true, activo: cfg.activo, pc: { haceSeg: hace(cfg.latidoPc), version: cfg.versionPc }, celu: { haceSeg: hace(cfg.latidoCelu), version: cfg.versionCelu }, maquinas });
+  } catch (e) { return Response.json({ error: e.message }, { status: 500 }); }
 }
